@@ -335,6 +335,19 @@ calvigil scan
 - `ollama`: Use only Ollama (fails if unreachable)
 - `openai`: Use only OpenAI (requires API key)
 
+### AI Enrichment & Model Recommendations
+
+Calvigil enriches findings in batches via the AI provider. Smaller local models (≤3B parameters, e.g. `qwen3:1.7b`) may return malformed JSON or incorrect finding IDs, resulting in **partial enrichment** (typically 50–70% of findings). This is by design — failed batches are skipped gracefully so the scan always completes.
+
+For best enrichment coverage:
+
+| Model | Enrichment Rate | Notes |
+|-------|----------------|-------|
+| GPT-4 / GPT-4o (OpenAI) | ~100% | Most reliable, requires API key |
+| `llama3:8b`, `qwen3:8b` | ~90–95% | Good balance of quality and speed |
+| `codellama:13b`, `mistral:7b` | ~85–95% | Strong for code-focused analysis |
+| `qwen3:1.7b`, `phi3:mini` | ~50–70% | Lightweight but limited JSON reliability |
+
 ## Container Image Scanning
 
 Scan Docker/OCI container images for vulnerabilities using [syft](https://github.com/anchore/syft):

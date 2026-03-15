@@ -1056,7 +1056,24 @@ When an OpenAI API key is configured, the scanner automatically enriches **all**
 
 **SARIF format** — enrichment is appended to the result message text for compatibility with code scanning tools.
 
-To skip AI enrichment (e.g., for faster scans), use `--skip-ai`:
+### Graceful Degradation
+
+Enrichment is processed in batches (20 findings per batch for OpenAI, 10 for Ollama). If a batch fails — due to malformed JSON, incorrect finding IDs in the response, or a timeout — that batch is **silently skipped** and the scan continues. This means:
+
+- The scan **always completes**, even with unreliable models
+- You may see partial enrichment (e.g., "Enriched 65/101 findings")
+- Failed batches are logged in verbose mode (`-v`)
+
+Smaller local models (≤3B parameters) have limited ability to produce well-structured JSON, which leads to lower enrichment rates. For best results:
+
+| Model | Enrichment Rate | Notes |
+|-------|----------------|-------|
+| GPT-4 / GPT-4o (OpenAI) | ~100% | Most reliable, requires API key |
+| `llama3:8b`, `qwen3:8b` | ~90–95% | Good balance of quality and speed |
+| `codellama:13b`, `mistral:7b` | ~85–95% | Strong for code-focused analysis |
+| `qwen3:1.7b`, `phi3:mini` | ~50–70% | Lightweight but limited JSON reliability |
+
+To skip AI enrichment entirely (e.g., for faster scans), use `--skip-ai`:
 
 ```bash
 calvigil scan ./my-project --skip-ai
@@ -1136,6 +1153,27 @@ export OLLAMA_MODEL=llama3
 ```
 
 The Ollama analyzer supports both OpenAI-compatible (`/v1/chat/completions`) and native Ollama (`/api/chat`) endpoints, with automatic fallback.
+
+### Model Size & Enrichment Quality
+
+Local model size directly affects AI enrichment coverage. Smaller models often produce malformed JSON or incorrect vulnerability IDs, causing individual enrichment batches to fail. Calvigil handles this gracefully — failed batches are skipped and the scan completes with partial enrichment.
+
+**Recommended models for full enrichment:**
+```bash
+# Best results with local models (8B+ parameters)
+ollama pull llama3:8b
+ollama pull qwen3:8b
+ollama pull codellama:13b
+
+# These work but expect ~50-70% enrichment coverage
+ollama pull qwen3:1.7b
+ollama pull phi3:mini
+```
+
+Use verbose mode (`-v`) to see which batches fail and why:
+```bash
+calvigil scan -v --provider ollama --ollama-model llama3:8b /path/to/project
+```
 
 ---
 
