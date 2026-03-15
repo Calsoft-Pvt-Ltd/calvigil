@@ -68,10 +68,51 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
 
 ## Installation
 
+### Pre-built Binaries
+
+Download the latest release from [GitHub Releases](https://github.com/Calsoft-Pvt-Ltd/calvigil/releases).
+
+**macOS (Apple Silicon):**
+```bash
+curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-darwin-arm64.tar.gz
+tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
+```
+
+**macOS (Intel):**
+```bash
+curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-darwin-amd64.tar.gz
+tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
+```
+
+> **macOS Gatekeeper:** If you see _"calvigil cannot be opened because Apple cannot verify it"_, remove the quarantine attribute before running:
+> ```bash
+> xattr -dr com.apple.quarantine ./calvigil
+> ```
+
+**Linux:**
+```bash
+curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-linux-amd64.tar.gz
+tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
+```
+
+**Debian / Ubuntu:**
+```bash
+curl -Lo calvigil.deb https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil_<version>_amd64.deb
+sudo dpkg -i calvigil.deb
+```
+
+**RHEL / CentOS / Fedora:**
+```bash
+curl -Lo calvigil.rpm https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-<version>-1.x86_64.rpm
+sudo rpm -i calvigil.rpm
+```
+
+**Windows:** Download `calvigil-windows-amd64.zip` from [Releases](https://github.com/Calsoft-Pvt-Ltd/calvigil/releases), extract, and add to your PATH.
+
 ### From Source
 
 ```bash
-git clone https://github.com/chavakula/calvigil.git
+git clone https://github.com/Calsoft-Pvt-Ltd/calvigil.git
 cd calvigil
 make build
 # binary is at ./bin/calvigil
@@ -80,7 +121,7 @@ make build
 ### Go Install
 
 ```bash
-go install github.com/chavakula/calvigil@latest
+go install github.com/Calsoft-Pvt-Ltd/calvigil@latest
 ```
 
 ---

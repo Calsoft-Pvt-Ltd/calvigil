@@ -9,18 +9,104 @@ permissions:
   contents: write
 
 jobs:
+  # ── macOS builds (native runner for code signing) ─────────────────────────
+  build-mac:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - goarch: amd64
+            suffix: darwin-amd64
+          - goarch: arm64
+            suffix: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-X github.com/Calsoft-Pvt-Ltd/calvigil/cmd.version=${VERSION}"
+          mkdir -p dist
+          go build -ldflags "${LDFLAGS}" -trimpath -o dist/calvigil .
+
+      - name: Sign binary
+        # Requires secrets: APPLE_CERT_BASE64, APPLE_CERT_PASSWORD, APPLE_SIGNING_IDENTITY
+        if: ${{ secrets.APPLE_CERT_BASE64 != '' }}
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(uuidgen)
+
+          # Create a temporary keychain and import the Developer ID cert
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$APPLE_CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+          # Sign with hardened runtime (required for notarization)
+          codesign --sign "$APPLE_SIGNING_IDENTITY" \
+                   --options runtime \
+                   --timestamp \
+                   --force \
+                   dist/calvigil
+
+          codesign --verify --verbose dist/calvigil
+
+      - name: Notarize binary
+        # Requires secrets: APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID
+        if: ${{ secrets.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Notarization requires a zip — cannot staple to a plain binary
+          cd dist && zip calvigil-notarize.zip calvigil
+          xcrun notarytool submit calvigil-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          rm calvigil-notarize.zip
+
+      - name: Package tarball
+        run: |
+          cd dist
+          tar czf calvigil-${GITHUB_REF_NAME}-${{ matrix.suffix }}.tar.gz calvigil
+          rm calvigil
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calvigil-${{ matrix.suffix }}
+          path: dist/*
+
+  # ── Windows + Linux builds ────────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          # macOS
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
           # Windows
           - goos: windows
             goarch: amd64
@@ -58,8 +144,8 @@ jobs:
           mkdir -p dist
           go build -ldflags "${LDFLAGS}" -trimpath -o dist/calvigil${{ matrix.ext }} .
 
-      - name: Package tarball (non-Windows)
-        if: matrix.goos != 'windows'
+      - name: Package tarball (Linux)
+        if: matrix.goos == 'linux'
         run: |
           cd dist
           tar czf calvigil-${GITHUB_REF_NAME}-${{ matrix.suffix }}.tar.gz calvigil
@@ -219,7 +305,7 @@ jobs:
           path: dist/*.rpm
 
   release:
-    needs: [build, package-deb, package-rpm]
+    needs: [build-mac, build, package-deb, package-rpm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

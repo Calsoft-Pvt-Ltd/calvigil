@@ -64,6 +64,11 @@ curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/la
 tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
 ```
 
+> **macOS Gatekeeper:** If you see _"calvigil cannot be opened because Apple cannot verify it"_, run the following command to remove the quarantine attribute before running calvigil:
+> ```bash
+> xattr -dr com.apple.quarantine ./calvigil
+> ```
+
 **Linux:**
 ```bash
 curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-linux-amd64.tar.gz
