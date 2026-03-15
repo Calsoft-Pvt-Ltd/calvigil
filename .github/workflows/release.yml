@@ -12,6 +12,9 @@ jobs:
   # ── macOS builds (native runner for code signing) ─────────────────────────
   build-mac:
     runs-on: macos-latest
+    env:
+      HAS_SIGNING_CERT: ${{ secrets.APPLE_CERT_BASE64 != '' }}
+      HAS_NOTARIZE_CREDS: ${{ secrets.APPLE_ID != '' }}
     strategy:
       matrix:
         include:
@@ -41,7 +44,7 @@ jobs:
 
       - name: Sign binary
         # Requires secrets: APPLE_CERT_BASE64, APPLE_CERT_PASSWORD, APPLE_SIGNING_IDENTITY
-        if: ${{ secrets.APPLE_CERT_BASE64 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         env:
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
@@ -75,7 +78,7 @@ jobs:
 
       - name: Notarize binary
         # Requires secrets: APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID
-        if: ${{ secrets.APPLE_ID != '' }}
+        if: env.HAS_NOTARIZE_CREDS == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
