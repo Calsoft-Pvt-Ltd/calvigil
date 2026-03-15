@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chavakula/calvigil/internal/config"
-	imgscanner "github.com/chavakula/calvigil/internal/image"
-	"github.com/chavakula/calvigil/internal/matcher"
-	"github.com/chavakula/calvigil/internal/models"
-	"github.com/chavakula/calvigil/internal/reporter"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/config"
+	imgscanner "github.com/Calsoft-Pvt-Ltd/calvigil/internal/image"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
 	"github.com/spf13/cobra"
 )
 

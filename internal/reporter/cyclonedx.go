@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // CycloneDXReporter outputs scan results as a CycloneDX v1.5 BOM with VDR (vulnerability data).

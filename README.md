@@ -49,10 +49,46 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 
 ## Installation
 
+### Pre-built Binaries
+
+Download the latest release from [GitHub Releases](https://github.com/Calsoft-Pvt-Ltd/calvigil/releases).
+
+**macOS:**
+```bash
+# Apple Silicon (M1/M2/M3)
+curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-darwin-arm64.tar.gz
+tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
+
+# Intel
+curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-darwin-amd64.tar.gz
+tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
+```
+
+**Linux:**
+```bash
+curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-linux-amd64.tar.gz
+tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
+```
+
+**Debian / Ubuntu (.deb):**
+```bash
+curl -Lo calvigil.deb https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil_<version>_amd64.deb
+sudo dpkg -i calvigil.deb
+```
+
+**RHEL / CentOS / Fedora (.rpm):**
+```bash
+curl -Lo calvigil.rpm https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-<version>-1.x86_64.rpm
+sudo rpm -i calvigil.rpm
+```
+
+**Windows:**
+Download `calvigil-windows-amd64.zip` from [Releases](https://github.com/Calsoft-Pvt-Ltd/calvigil/releases), extract, and add to your PATH.
+
 ### From Source
 
 ```bash
-git clone https://github.com/chavakula/calvigil.git
+git clone https://github.com/Calsoft-Pvt-Ltd/calvigil.git
 cd calvigil
 make build
 ```
@@ -62,7 +98,7 @@ The binary will be at `./bin/calvigil`.
 ### Go Install
 
 ```bash
-go install github.com/chavakula/calvigil@latest
+go install github.com/Calsoft-Pvt-Ltd/calvigil@latest
 ```
 
 ## Quick Start

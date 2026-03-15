@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 const osvBatchURL = "https://api.osv.dev/v1/querybatch"

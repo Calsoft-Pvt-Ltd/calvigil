@@ -1,7 +1,7 @@
 BINARY_NAME=calvigil
 BUILD_DIR=./bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS=-ldflags "-X github.com/chavakula/calvigil/cmd.version=$(VERSION)"
+LDFLAGS=-ldflags "-X github.com/Calsoft-Pvt-Ltd/calvigil/cmd.version=$(VERSION)"
 
 .PHONY: build test lint clean install run
 

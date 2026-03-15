@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // PomXMLParser parses Maven pom.xml files.

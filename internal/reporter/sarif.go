@@ -5,7 +5,7 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // SARIFReporter outputs scan results in SARIF v2.1.0 format.
@@ -86,7 +86,7 @@ func (r *SARIFReporter) Report(result *models.ScanResult, w io.Writer) error {
 					Driver: sarifDriver{
 						Name:           "calvigil",
 						Version:        "0.1.0",
-						InformationURI: "https://github.com/chavakula/calvigil",
+						InformationURI: "https://github.com/Calsoft-Pvt-Ltd/calvigil",
 						Rules:          buildRules(result.Vulnerabilities),
 					},
 				},

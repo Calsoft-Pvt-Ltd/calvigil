@@ -1,0 +1,242 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # macOS
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+          # Windows
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            suffix: windows-arm64
+            ext: .exe
+          # Linux (for tarballs + packaging)
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-X github.com/Calsoft-Pvt-Ltd/calvigil/cmd.version=${VERSION}"
+          mkdir -p dist
+          go build -ldflags "${LDFLAGS}" -trimpath -o dist/calvigil${{ matrix.ext }} .
+
+      - name: Package tarball (non-Windows)
+        if: matrix.goos != 'windows'
+        run: |
+          cd dist
+          tar czf calvigil-${GITHUB_REF_NAME}-${{ matrix.suffix }}.tar.gz calvigil
+          rm calvigil
+
+      - name: Package zip (Windows)
+        if: matrix.goos == 'windows'
+        run: |
+          cd dist
+          zip calvigil-${GITHUB_REF_NAME}-${{ matrix.suffix }}.zip calvigil.exe
+          rm calvigil.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calvigil-${{ matrix.suffix }}
+          path: dist/*
+
+  package-deb:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goarch: amd64
+            deb_arch: amd64
+          - goarch: arm64
+            deb_arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-X github.com/Calsoft-Pvt-Ltd/calvigil/cmd.version=${VERSION}"
+          go build -ldflags "${LDFLAGS}" -trimpath -o calvigil .
+
+      - name: Build .deb package
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          PKG_DIR=calvigil_${VERSION}_${{ matrix.deb_arch }}
+          mkdir -p ${PKG_DIR}/DEBIAN
+          mkdir -p ${PKG_DIR}/usr/bin
+
+          cp calvigil ${PKG_DIR}/usr/bin/calvigil
+          chmod 755 ${PKG_DIR}/usr/bin/calvigil
+
+          cat > ${PKG_DIR}/DEBIAN/control <<EOF
+          Package: calvigil
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: ${{ matrix.deb_arch }}
+          Maintainer: Calsoft Pvt Ltd <info@calsoftinc.com>
+          Description: AI-powered vulnerability scanner for Go, Java, Python & Node.js projects
+           Calvigil scans project dependencies against CVE databases (OSV, NVD, GitHub Advisory),
+           performs AI-powered code analysis, and runs Semgrep SAST with bundled security rules.
+          EOF
+          # Remove leading spaces from heredoc (dpkg-deb requires no leading whitespace in fields)
+          sed -i 's/^          //' ${PKG_DIR}/DEBIAN/control
+
+          dpkg-deb --build --root-owner-group ${PKG_DIR}
+
+          mv ${PKG_DIR}.deb dist/
+        shell: bash
+
+      - name: Create dist dir
+        run: mkdir -p dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calvigil-deb-${{ matrix.deb_arch }}
+          path: dist/*.deb
+
+  package-rpm:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goarch: amd64
+            rpm_arch: x86_64
+          - goarch: arm64
+            rpm_arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install RPM tools
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Build binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-X github.com/Calsoft-Pvt-Ltd/calvigil/cmd.version=${VERSION}"
+          go build -ldflags "${LDFLAGS}" -trimpath -o calvigil .
+
+      - name: Build .rpm package
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          mkdir -p rpmbuild/BUILDROOT/calvigil-${VERSION}-1.${{ matrix.rpm_arch }}/usr/bin
+          cp calvigil rpmbuild/BUILDROOT/calvigil-${VERSION}-1.${{ matrix.rpm_arch }}/usr/bin/calvigil
+          chmod 755 rpmbuild/BUILDROOT/calvigil-${VERSION}-1.${{ matrix.rpm_arch }}/usr/bin/calvigil
+
+          cat > rpmbuild/SPECS/calvigil.spec <<'SPEC'
+          Name:           calvigil
+          Version:        %{_version}
+          Release:        1
+          Summary:        AI-powered vulnerability scanner for Go, Java, Python & Node.js
+          License:        Apache-2.0
+          URL:            https://github.com/Calsoft-Pvt-Ltd/calvigil
+
+          %description
+          Calvigil scans project dependencies against CVE databases (OSV, NVD, GitHub Advisory),
+          performs AI-powered code analysis, and runs Semgrep SAST with bundled security rules.
+
+          %install
+          mkdir -p %{buildroot}/usr/bin
+          cp %{_builddir}/../../BUILDROOT/%{name}-%{version}-1.%{_arch}/usr/bin/calvigil %{buildroot}/usr/bin/calvigil
+
+          %files
+          /usr/bin/calvigil
+          SPEC
+          sed -i 's/^          //' rpmbuild/SPECS/calvigil.spec
+
+          rpmbuild --define "_topdir $(pwd)/rpmbuild" \
+                   --define "_version ${VERSION}" \
+                   --define "_arch ${{ matrix.rpm_arch }}" \
+                   --target ${{ matrix.rpm_arch }} \
+                   -bb rpmbuild/SPECS/calvigil.spec
+
+          mkdir -p dist
+          find rpmbuild/RPMS -name '*.rpm' -exec cp {} dist/ \;
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calvigil-rpm-${{ matrix.rpm_arch }}
+          path: dist/*.rpm
+
+  release:
+    needs: [build, package-deb, package-rpm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > checksums-sha256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}

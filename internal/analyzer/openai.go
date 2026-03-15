@@ -12,7 +12,7 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // OpenAIAnalyzer uses the OpenAI API to perform AI-powered code analysis.

@@ -1,4 +1,4 @@
-module github.com/chavakula/calvigil
+module github.com/Calsoft-Pvt-Ltd/calvigil
 
 go 1.25.0
 

@@ -3,7 +3,7 @@ package analyzer
 import (
 	"context"
 
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // Analyzer performs source code analysis to detect vulnerabilities.

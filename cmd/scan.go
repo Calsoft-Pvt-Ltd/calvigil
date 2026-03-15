@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chavakula/calvigil/internal/models"
-	"github.com/chavakula/calvigil/internal/scanner"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/scanner"
 	"github.com/spf13/cobra"
 )
 

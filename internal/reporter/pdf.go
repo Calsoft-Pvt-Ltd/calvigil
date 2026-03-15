@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // PDFReporter generates a PDF report by rendering the HTML report and

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chavakula/calvigil/internal/matcher"
-	"github.com/chavakula/calvigil/internal/models"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // Scanner scans container images for vulnerabilities by generating an SBOM
