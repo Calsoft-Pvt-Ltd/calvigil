@@ -1,0 +1,146 @@
+rules:
+  # ─── Go Security Rules ──────────────────────────────────────────
+  - id: go-unsafe-pointer
+    pattern: unsafe.Pointer(...)
+    message: >
+      Use of unsafe.Pointer can bypass Go's type safety and memory safety guarantees.
+      Avoid unless absolutely necessary.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-704"]
+      category: memory-safety
+
+  - id: go-http-no-timeout
+    pattern: |
+      &http.Server{...}
+    pattern-not: |
+      &http.Server{..., ReadTimeout: ..., ...}
+    message: >
+      HTTP server created without read timeout. This may lead to slowloris DoS attacks.
+      Set ReadTimeout, WriteTimeout, and IdleTimeout.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-400"]
+      category: denial-of-service
+
+  - id: go-defer-in-loop
+    pattern: |
+      for ... {
+        ...
+        defer $FN(...)
+        ...
+      }
+    message: >
+      defer inside a loop won't execute until the function returns, not at loop iteration end.
+      This can lead to resource leaks.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-404"]
+      category: resource-leak
+
+  # ─── Python Security Rules ──────────────────────────────────────
+  - id: python-flask-debug
+    pattern: |
+      app.run(..., debug=True, ...)
+    message: >
+      Flask debug mode enabled. This exposes the Werkzeug debugger which allows
+      arbitrary code execution. Disable in production.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-489"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: security-misconfiguration
+
+  - id: python-hardcoded-bind-all
+    pattern-either:
+      - pattern: app.run(host="0.0.0.0", ...)
+      - pattern: app.run(host='0.0.0.0', ...)
+    message: >
+      Application binds to all network interfaces (0.0.0.0).
+      In production, bind to a specific interface or use a reverse proxy.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-668"]
+      category: security-misconfiguration
+
+  - id: python-assert-auth
+    pattern: |
+      assert $CONDITION
+    message: >
+      Using assert for security checks. Assertions are stripped in optimized bytecode (-O flag).
+      Use proper if/raise statements for security logic.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-617"]
+      category: improper-validation
+
+  # ─── Node.js/JavaScript Security Rules ──────────────────────────
+  - id: js-eval-usage
+    pattern-either:
+      - pattern: eval($INPUT)
+      - pattern: new Function($INPUT)
+    message: >
+      Use of eval() or new Function() with dynamic input enables code injection.
+      Use safer alternatives like JSON.parse() for data parsing.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-95"]
+      owasp: ["A03:2021 - Injection"]
+      category: code-injection
+
+  - id: js-cors-wildcard
+    pattern: |
+      cors({origin: "*", ...})
+    message: >
+      CORS configuration allows all origins. Restrict to specific trusted domains.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-942"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: cors-misconfiguration
+
+  - id: js-jwt-no-verify
+    pattern: |
+      jwt.decode($TOKEN)
+    message: >
+      JWT decoded without verification. Use jwt.verify() to validate signature.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-345"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: broken-authentication
+
+  # ─── Java Security Rules ────────────────────────────────────────
+  - id: java-xxe-parser
+    pattern: |
+      DocumentBuilderFactory.newInstance()
+    message: >
+      XML parser created without disabling external entities. Configure the parser
+      to prevent XXE attacks: setFeature("http://xml.org/sax/features/external-general-entities", false)
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: xxe
+
+  - id: java-crypto-ecb-mode
+    pattern: |
+      Cipher.getInstance("AES/ECB/...")
+    message: >
+      AES in ECB mode does not provide semantic security. Use AES/GCM/NoPadding instead.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: weak-crypto

@@ -1,0 +1,305 @@
+rules:
+  # ─── SQL Injection ───────────────────────────────────────────────
+  - id: sec-sqli-string-format-go
+    pattern-either:
+      - pattern: |
+          fmt.Sprintf("... SELECT ...%s...", $INPUT)
+      - pattern: |
+          fmt.Sprintf("... INSERT ...%s...", $INPUT)
+      - pattern: |
+          fmt.Sprintf("... UPDATE ...%s...", $INPUT)
+      - pattern: |
+          fmt.Sprintf("... DELETE ...%s...", $INPUT)
+    message: >
+      SQL query built with fmt.Sprintf using untrusted input $INPUT.
+      Use parameterized queries instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: sql-injection
+
+  - id: sec-sqli-concat-python
+    pattern-either:
+      - pattern: |
+          $CURSOR.execute("..." + $INPUT + "...")
+      - pattern: |
+          $CURSOR.execute(f"...{$INPUT}...")
+    message: >
+      SQL query built with string concatenation/f-string from untrusted input $INPUT.
+      Use parameterized queries: cursor.execute("SELECT ... WHERE x = %s", (input,))
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: sql-injection
+
+  - id: sec-sqli-concat-java
+    pattern-either:
+      - pattern: |
+          $STMT.executeQuery("..." + $INPUT + "...")
+      - pattern: |
+          $STMT.execute("..." + $INPUT + "...")
+    message: >
+      SQL query built with string concatenation from untrusted input $INPUT.
+      Use PreparedStatement with parameterized queries.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: sql-injection
+
+  - id: sec-sqli-concat-js
+    pattern-either:
+      - pattern: |
+          $DB.query("..." + $INPUT + "...")
+      - pattern: |
+          $DB.query(`...${$INPUT}...`)
+    message: >
+      SQL query built with string concatenation/template literal from untrusted input $INPUT.
+      Use parameterized queries with placeholders.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: sql-injection
+
+  # ─── Command Injection ──────────────────────────────────────────
+  - id: sec-cmdi-exec-go
+    pattern-either:
+      - pattern: exec.Command($SHELL, "-c", $INPUT)
+      - pattern: exec.CommandContext($CTX, $SHELL, "-c", $INPUT)
+    message: >
+      Command execution with user-controlled input $INPUT.
+      Avoid shell execution; use exec.Command with explicit args.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      category: command-injection
+
+  - id: sec-cmdi-subprocess-python
+    pattern-either:
+      - pattern: subprocess.call($INPUT, shell=True, ...)
+      - pattern: subprocess.run($INPUT, shell=True, ...)
+      - pattern: subprocess.Popen($INPUT, shell=True, ...)
+      - pattern: os.system($INPUT)
+    message: >
+      Command execution with shell=True and user-controlled input $INPUT.
+      Use subprocess with shell=False and pass args as a list.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      category: command-injection
+
+  - id: sec-cmdi-exec-js
+    pattern-either:
+      - pattern: child_process.exec($INPUT, ...)
+      - pattern: child_process.execSync($INPUT, ...)
+    message: >
+      Shell command execution with user-controlled input $INPUT.
+      Use child_process.execFile or child_process.spawn with explicit args.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      category: command-injection
+
+  # ─── Path Traversal ─────────────────────────────────────────────
+  - id: sec-path-traversal-go
+    pattern-either:
+      - pattern: os.Open(filepath.Join($BASE, $INPUT))
+      - pattern: os.ReadFile(filepath.Join($BASE, $INPUT))
+    message: >
+      File path constructed from user input $INPUT without sanitization.
+      Use filepath.Clean and validate the resolved path stays within the base directory.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: path-traversal
+
+  - id: sec-path-traversal-python
+    pattern-either:
+      - pattern: open(os.path.join($BASE, $INPUT), ...)
+      - pattern: open($INPUT, ...)
+    message: >
+      File path potentially from user input $INPUT. Validate that the resolved
+      path stays within the intended directory.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: path-traversal
+
+  # ─── Hardcoded Secrets ──────────────────────────────────────────
+  - id: sec-hardcoded-secret
+    pattern-either:
+      - pattern: $KEY = "AKIA..."
+      - pattern: $KEY = "sk-..."
+      - pattern: $KEY = "ghp_..."
+      - pattern: $KEY = "glpat-..."
+    message: >
+      Hardcoded API key or secret detected in $KEY.
+      Use environment variables or a secrets manager.
+    severity: ERROR
+    languages: [go, python, java, javascript, typescript]
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      category: hardcoded-secrets
+
+  # ─── Insecure TLS ───────────────────────────────────────────────
+  - id: sec-insecure-tls-go
+    pattern: |
+      &tls.Config{..., InsecureSkipVerify: true, ...}
+    message: >
+      TLS certificate verification is disabled. This allows man-in-the-middle attacks.
+      Remove InsecureSkipVerify or set it to false.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-tls
+
+  - id: sec-insecure-tls-python
+    pattern: |
+      $CTX.check_hostname = False
+    message: >
+      TLS hostname verification is disabled. This allows man-in-the-middle attacks.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-tls
+
+  # ─── Weak Cryptography ──────────────────────────────────────────
+  - id: sec-weak-hash-go
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: md5.Sum(...)
+      - pattern: sha1.New()
+      - pattern: sha1.Sum(...)
+    message: >
+      Use of weak hash algorithm (MD5/SHA1). Use SHA-256 or stronger for security-sensitive operations.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-328"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: weak-crypto
+
+  - id: sec-weak-hash-python
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    message: >
+      Use of weak hash algorithm (MD5/SHA1). Use hashlib.sha256() or stronger.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-328"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: weak-crypto
+
+  # ─── XSS ────────────────────────────────────────────────────────
+  - id: sec-xss-template-go
+    pattern: |
+      template.HTML($INPUT)
+    message: >
+      Marking user input as trusted HTML with template.HTML() disables auto-escaping.
+      Sanitize the input before using template.HTML().
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      category: xss
+
+  - id: sec-xss-dangerously-set-js
+    pattern-either:
+      - pattern: |
+          $EL.innerHTML = $INPUT
+      - pattern: |
+          document.write($INPUT)
+    message: >
+      Direct DOM manipulation with user-controlled input may lead to XSS.
+      Sanitize with DOMPurify before rendering.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      category: xss
+
+  # ─── Insecure Deserialization ───────────────────────────────────
+  - id: sec-unsafe-deserialize-python
+    pattern-either:
+      - pattern: pickle.loads($INPUT)
+      - pattern: pickle.load($INPUT)
+      - pattern: yaml.load($INPUT)
+      - pattern: yaml.unsafe_load($INPUT)
+    message: >
+      Deserialization of untrusted data using pickle/yaml.load.
+      Use yaml.safe_load() or avoid deserializing untrusted input.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021 - Software and Data Integrity Failures"]
+      category: insecure-deserialization
+
+  - id: sec-unsafe-deserialize-java
+    pattern: |
+      new ObjectInputStream($INPUT)
+    message: >
+      Java deserialization of untrusted data. Use allowlists or avoid
+      ObjectInputStream with untrusted sources.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021 - Software and Data Integrity Failures"]
+      category: insecure-deserialization
+
+  # ─── SSRF ───────────────────────────────────────────────────────
+  - id: sec-ssrf-go
+    pattern-either:
+      - pattern: http.Get($INPUT)
+      - pattern: http.Post($INPUT, ...)
+    message: >
+      HTTP request with user-controlled URL $INPUT may lead to SSRF.
+      Validate and restrict allowed URLs/hosts.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021 - SSRF"]
+      category: ssrf
+
+  - id: sec-ssrf-python
+    pattern-either:
+      - pattern: requests.get($INPUT, ...)
+      - pattern: requests.post($INPUT, ...)
+      - pattern: urllib.request.urlopen($INPUT)
+    message: >
+      HTTP request with user-controlled URL $INPUT may lead to SSRF.
+      Validate and restrict allowed URLs/hosts.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021 - SSRF"]
+      category: ssrf
