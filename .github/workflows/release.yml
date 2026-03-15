@@ -186,6 +186,11 @@ jobs:
           License:        Apache-2.0
           URL:            https://github.com/Calsoft-Pvt-Ltd/calvigil
 
+          # Disable debug package and binary stripping — binary is cross-compiled
+          %global debug_package %{nil}
+          %define __strip /bin/true
+          %define __os_install_post %{nil}
+
           %description
           Calvigil scans project dependencies against CVE databases (OSV, NVD, GitHub Advisory),
           performs AI-powered code analysis, and runs Semgrep SAST with bundled security rules.
