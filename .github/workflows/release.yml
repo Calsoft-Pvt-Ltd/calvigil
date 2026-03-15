@@ -128,13 +128,10 @@ jobs:
           # Remove leading spaces from heredoc (dpkg-deb requires no leading whitespace in fields)
           sed -i 's/^          //' ${PKG_DIR}/DEBIAN/control
 
+          mkdir -p dist
           dpkg-deb --build --root-owner-group ${PKG_DIR}
-
           mv ${PKG_DIR}.deb dist/
         shell: bash
-
-      - name: Create dist dir
-        run: mkdir -p dist
 
       - uses: actions/upload-artifact@v4
         with:
@@ -174,12 +171,14 @@ jobs:
       - name: Build .rpm package
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          mkdir -p rpmbuild/BUILDROOT/calvigil-${VERSION}-1.${{ matrix.rpm_arch }}/usr/bin
-          cp calvigil rpmbuild/BUILDROOT/calvigil-${VERSION}-1.${{ matrix.rpm_arch }}/usr/bin/calvigil
-          chmod 755 rpmbuild/BUILDROOT/calvigil-${VERSION}-1.${{ matrix.rpm_arch }}/usr/bin/calvigil
+          TOPDIR=$(pwd)/rpmbuild
+          mkdir -p ${TOPDIR}/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
-          cat > rpmbuild/SPECS/calvigil.spec <<'SPEC'
+          # Place binary where rpmbuild can find it
+          mkdir -p ${TOPDIR}/SOURCES
+          cp calvigil ${TOPDIR}/SOURCES/calvigil
+
+          cat > ${TOPDIR}/SPECS/calvigil.spec <<'SPEC'
           Name:           calvigil
           Version:        %{_version}
           Release:        1
@@ -193,21 +192,21 @@ jobs:
 
           %install
           mkdir -p %{buildroot}/usr/bin
-          cp %{_builddir}/../../BUILDROOT/%{name}-%{version}-1.%{_arch}/usr/bin/calvigil %{buildroot}/usr/bin/calvigil
+          cp %{_sourcedir}/calvigil %{buildroot}/usr/bin/calvigil
+          chmod 755 %{buildroot}/usr/bin/calvigil
 
           %files
           /usr/bin/calvigil
           SPEC
-          sed -i 's/^          //' rpmbuild/SPECS/calvigil.spec
+          sed -i 's/^          //' ${TOPDIR}/SPECS/calvigil.spec
 
-          rpmbuild --define "_topdir $(pwd)/rpmbuild" \
+          rpmbuild --define "_topdir ${TOPDIR}" \
                    --define "_version ${VERSION}" \
-                   --define "_arch ${{ matrix.rpm_arch }}" \
                    --target ${{ matrix.rpm_arch }} \
-                   -bb rpmbuild/SPECS/calvigil.spec
+                   -bb ${TOPDIR}/SPECS/calvigil.spec
 
           mkdir -p dist
-          find rpmbuild/RPMS -name '*.rpm' -exec cp {} dist/ \;
+          find ${TOPDIR}/RPMS -name '*.rpm' -exec cp {} dist/ \;
 
       - uses: actions/upload-artifact@v4
         with:
