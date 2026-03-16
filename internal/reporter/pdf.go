@@ -14,6 +14,10 @@ import (
 // converting it to PDF using headless Chrome/Chromium (--print-to-pdf).
 type PDFReporter struct{}
 
+func init() {
+	Register("pdf", func() Reporter { return &PDFReporter{} })
+}
+
 // chromePath returns the path to a usable Chrome or Chromium binary,
 // or an empty string if none is found.
 func chromePath() string {

@@ -21,6 +21,10 @@ var logoPNG []byte
 // executive / MIS audiences with charts, severity badges, and clear layout.
 type HTMLReporter struct{}
 
+func init() {
+	Register("html", func() Reporter { return &HTMLReporter{} })
+}
+
 // htmlData is the top-level data passed into the HTML template.
 type htmlData struct {
 	ProjectPath   string

@@ -10,6 +10,10 @@ import (
 // GoModParser parses Go module files (go.mod).
 type GoModParser struct{}
 
+func init() {
+	Register("go.mod", func() Parser { return &GoModParser{} })
+}
+
 func (p *GoModParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {

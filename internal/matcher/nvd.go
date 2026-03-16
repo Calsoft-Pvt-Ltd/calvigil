@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
@@ -22,7 +23,7 @@ type NVDMatcher struct {
 // NewNVDMatcher creates a new NVD matcher. apiKey is optional but recommended for higher rate limits.
 func NewNVDMatcher(apiKey string) *NVDMatcher {
 	return &NVDMatcher{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: sharedHTTPClient,
 		apiKey: apiKey,
 	}
 }
@@ -72,8 +73,6 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 		return nil, nil
 	}
 
-	var allVulns []models.Vulnerability
-
 	// NVD doesn't have a batch API for package queries, so we search by keyword
 	// To avoid excessive API calls, we query by unique package names only
 	seen := make(map[string]bool)
@@ -88,34 +87,57 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 		}
 	}
 
-	// Rate limit: NVD allows 5 requests per 30 seconds without a key, 50 with a key
+	// Limit to 20 NVD queries to keep scan times reasonable.
+	if len(uniqueNames) > 20 {
+		uniqueNames = uniqueNames[:20]
+	}
+
+	// NVD rate limits: 5 req/30s without key (~6s gap), 50 req/30s with key (~600ms gap).
+	// Use bounded concurrency that respects these limits.
+	concurrency := 1
+	if m.apiKey != "" {
+		concurrency = 5
+	}
+	sem := make(chan struct{}, concurrency)
+
 	delay := 6 * time.Second
 	if m.apiKey != "" {
 		delay = 600 * time.Millisecond
 	}
 
+	type nvdResult struct {
+		vulns []models.Vulnerability
+	}
+	results := make([]nvdResult, len(uniqueNames))
+	var wg sync.WaitGroup
+
 	for i, name := range uniqueNames {
+		// Stagger requests using rate-limit delay.
 		if i > 0 {
 			select {
 			case <-ctx.Done():
-				return allVulns, ctx.Err()
+				break
 			case <-time.After(delay):
 			}
 		}
 
-		vulns, err := m.queryPackage(ctx, name, pkgMap[name])
-		if err != nil {
-			// Don't fail the whole scan; just skip this package
-			continue
-		}
-		allVulns = append(allVulns, vulns...)
-
-		// Limit to 20 NVD queries to avoid long scan times
-		if i >= 19 {
-			break
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int, n string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			vulns, err := m.queryPackage(ctx, n, pkgMap[n])
+			if err == nil {
+				results[idx] = nvdResult{vulns: vulns}
+			}
+		}(i, name)
 	}
+	wg.Wait()
 
+	var allVulns []models.Vulnerability
+	for _, r := range results {
+		allVulns = append(allVulns, r.vulns...)
+	}
 	return allVulns, nil
 }
 
@@ -167,7 +189,7 @@ func (m *NVDMatcher) queryPackage(ctx context.Context, keyword string, pkg model
 		if len(cve.Metrics.CvssMetricV31) > 0 {
 			metric := cve.Metrics.CvssMetricV31[0]
 			score = metric.CvssData.BaseScore
-			severity = nvdSeverityToSeverity(metric.CvssData.BaseSeverity)
+			severity = models.ParseSeverity(metric.CvssData.BaseSeverity)
 		}
 
 		var refs []string
@@ -187,19 +209,4 @@ func (m *NVDMatcher) queryPackage(ctx context.Context, keyword string, pkg model
 	}
 
 	return vulns, nil
-}
-
-func nvdSeverityToSeverity(s string) models.Severity {
-	switch s {
-	case "CRITICAL":
-		return models.SeverityCritical
-	case "HIGH":
-		return models.SeverityHigh
-	case "MEDIUM":
-		return models.SeverityMedium
-	case "LOW":
-		return models.SeverityLow
-	default:
-		return models.SeverityUnknown
-	}
 }

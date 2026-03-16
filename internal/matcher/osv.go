@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
@@ -23,7 +24,7 @@ type OSVMatcher struct {
 // NewOSVMatcher creates a new OSV matcher.
 func NewOSVMatcher() *OSVMatcher {
 	return &OSVMatcher{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: sharedHTTPClient,
 	}
 }
 
@@ -171,8 +172,13 @@ func (m *OSVMatcher) queryBatch(ctx context.Context, packages []models.Package) 
 
 	// The batch endpoint only returns vuln IDs. We need to fetch full details
 	// for each matched vulnerability individually.
-	var vulns []models.Vulnerability
+	// First pass: collect unique vuln IDs we need to fetch and their associated packages.
+	type vulnPkg struct {
+		batchVuln osvVuln
+		pkg       models.Package
+	}
 	seen := make(map[string]bool)
+	var toFetch []vulnPkg
 
 	for i, result := range batchResp.Results {
 		if i >= len(packages) {
@@ -180,65 +186,92 @@ func (m *OSVMatcher) queryBatch(ctx context.Context, packages []models.Package) 
 		}
 		pkg := packages[i]
 
-		// Skip packages with invalid names (e.g. parsing artifacts)
 		if pkg.Name == "" || pkg.Name == "\"" || len(pkg.Name) < 2 {
 			continue
 		}
 
 		for _, batchVuln := range result.Vulns {
-			// Deduplicate within the batch (same vuln can match multiple packages)
 			vulnKey := batchVuln.ID + "|" + pkg.Name
 			if seen[vulnKey] {
 				continue
 			}
 			seen[vulnKey] = true
+			toFetch = append(toFetch, vulnPkg{batchVuln: batchVuln, pkg: pkg})
+		}
+	}
 
-			// Fetch full vulnerability details
-			fullVuln, err := m.fetchVulnDetails(ctx, batchVuln.ID)
-			if err != nil {
-				// Fall back to minimal data from batch response
-				vulns = append(vulns, models.Vulnerability{
-					ID:      batchVuln.ID,
-					Aliases: batchVuln.Aliases,
-					Summary: batchVuln.Summary,
-					Package: pkg,
-					Source:  models.SourceOSV,
-				})
-				continue
+	// Second pass: fetch details concurrently with bounded parallelism.
+	const maxConcurrentFetches = 20
+	sem := make(chan struct{}, maxConcurrentFetches)
+	detailCache := make(map[string]*osvVuln)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	uniqueIDs := make(map[string]bool)
+	for _, vp := range toFetch {
+		if uniqueIDs[vp.batchVuln.ID] {
+			continue
+		}
+		uniqueIDs[vp.batchVuln.ID] = true
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(id string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			vuln, err := m.fetchVulnDetails(ctx, id)
+			if err == nil {
+				mu.Lock()
+				detailCache[id] = vuln
+				mu.Unlock()
 			}
+		}(vp.batchVuln.ID)
+	}
+	wg.Wait()
 
-			vuln := models.Vulnerability{
-				ID:          fullVuln.ID,
-				Aliases:     fullVuln.Aliases,
-				Summary:     fullVuln.Summary,
-				Details:     fullVuln.Details,
-				Severity:    parseSeverityWithFallback(fullVuln),
-				Package:     pkg,
-				Source:      models.SourceOSV,
-				PublishedAt: fullVuln.Published,
-			}
+	// Third pass: assemble vulnerability results using cached details.
+	var vulns []models.Vulnerability
+	for _, vp := range toFetch {
+		fullVuln, ok := detailCache[vp.batchVuln.ID]
+		if !ok {
+			// Fall back to minimal data from batch response
+			vulns = append(vulns, models.Vulnerability{
+				ID:      vp.batchVuln.ID,
+				Aliases: vp.batchVuln.Aliases,
+				Summary: vp.batchVuln.Summary,
+				Package: vp.pkg,
+				Source:  models.SourceOSV,
+			})
+			continue
+		}
 
-			// Also extract CVSS score as a numeric value
-			vuln.Score = extractCVSSScore(fullVuln.Severity)
+		vuln := models.Vulnerability{
+			ID:          fullVuln.ID,
+			Aliases:     fullVuln.Aliases,
+			Summary:     fullVuln.Summary,
+			Details:     fullVuln.Details,
+			Severity:    parseSeverityWithFallback(fullVuln),
+			Package:     vp.pkg,
+			Source:      models.SourceOSV,
+			PublishedAt: fullVuln.Published,
+		}
 
-			// Extract fixed version from affected ranges
-			for _, affected := range fullVuln.Affected {
-				for _, r := range affected.Ranges {
-					for _, event := range r.Events {
-						if event.Fixed != "" {
-							vuln.FixedIn = event.Fixed
-						}
+		vuln.Score = extractCVSSScore(fullVuln.Severity)
+
+		for _, affected := range fullVuln.Affected {
+			for _, r := range affected.Ranges {
+				for _, event := range r.Events {
+					if event.Fixed != "" {
+						vuln.FixedIn = event.Fixed
 					}
 				}
 			}
-
-			// Extract references
-			for _, ref := range fullVuln.References {
-				vuln.References = append(vuln.References, ref.URL)
-			}
-
-			vulns = append(vulns, vuln)
 		}
+
+		for _, ref := range fullVuln.References {
+			vuln.References = append(vuln.References, ref.URL)
+		}
+
+		vulns = append(vulns, vuln)
 	}
 
 	return vulns, nil
@@ -298,15 +331,8 @@ func parseSeverityWithFallback(vuln *osvVuln) models.Severity {
 	// Fall back to database_specific.severity (used by GitHub Advisory)
 	if vuln.DatabaseSpecific != nil {
 		if sevStr, ok := vuln.DatabaseSpecific["severity"].(string); ok {
-			switch strings.ToUpper(sevStr) {
-			case "CRITICAL":
-				return models.SeverityCritical
-			case "HIGH":
-				return models.SeverityHigh
-			case "MODERATE", "MEDIUM":
-				return models.SeverityMedium
-			case "LOW":
-				return models.SeverityLow
+			if s := models.ParseSeverity(sevStr); s != models.SeverityUnknown {
+				return s
 			}
 		}
 	}

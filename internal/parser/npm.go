@@ -14,6 +14,12 @@ import (
 // NpmLockParser parses package-lock.json files (v2 and v3 format).
 type NpmLockParser struct{}
 
+func init() {
+	Register("package-lock.json", func() Parser { return &NpmLockParser{} })
+	Register("yarn.lock", func() Parser { return &YarnLockParser{} })
+	Register("pnpm-lock.yaml", func() Parser { return &PnpmLockParser{} })
+}
+
 type npmLockfile struct {
 	Packages map[string]npmPackage `json:"packages"`
 }

@@ -12,6 +12,12 @@ import (
 // PomXMLParser parses Maven pom.xml files.
 type PomXMLParser struct{}
 
+func init() {
+	Register("pom.xml", func() Parser { return &PomXMLParser{} })
+	Register("build.gradle", func() Parser { return &GradleParser{} })
+	Register("build.gradle.kts", func() Parser { return &GradleParser{} })
+}
+
 type pomProject struct {
 	XMLName      xml.Name        `xml:"project"`
 	Dependencies pomDependencies `xml:"dependencies"`

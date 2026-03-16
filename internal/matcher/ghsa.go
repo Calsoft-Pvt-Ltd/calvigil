@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
@@ -24,7 +25,7 @@ type GitHubAdvisoryMatcher struct {
 // token is optional but provides higher rate limits.
 func NewGitHubAdvisoryMatcher(token string) *GitHubAdvisoryMatcher {
 	return &GitHubAdvisoryMatcher{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: sharedHTTPClient,
 		token:  token,
 	}
 }
@@ -78,18 +79,28 @@ func (m *GitHubAdvisoryMatcher) Match(ctx context.Context, packages []models.Pac
 	}
 
 	var allVulns []models.Vulnerability
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
 	for eco, pkgs := range ecoPackages {
 		ghEco, ok := ghEcosystemMap[eco]
 		if !ok {
 			continue
 		}
 
-		vulns, err := m.queryEcosystem(ctx, ghEco, pkgs)
-		if err != nil {
-			continue // Skip on error, don't fail the whole scan
-		}
-		allVulns = append(allVulns, vulns...)
+		wg.Add(1)
+		go func(ghEco string, pkgs []models.Package) {
+			defer wg.Done()
+			vulns, err := m.queryEcosystem(ctx, ghEco, pkgs)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			allVulns = append(allVulns, vulns...)
+			mu.Unlock()
+		}(ghEco, pkgs)
 	}
+	wg.Wait()
 
 	return allVulns, nil
 }
@@ -161,7 +172,7 @@ func (m *GitHubAdvisoryMatcher) queryEcosystem(ctx context.Context, ecosystem st
 				Aliases:     aliases,
 				Summary:     adv.Summary,
 				Details:     adv.Description,
-				Severity:    ghSeverityToSeverity(adv.Severity),
+				Severity:    models.ParseSeverity(adv.Severity),
 				Score:       adv.CVSSScore,
 				Package:     pkg,
 				FixedIn:     fixedIn,
@@ -173,19 +184,4 @@ func (m *GitHubAdvisoryMatcher) queryEcosystem(ctx context.Context, ecosystem st
 	}
 
 	return vulns, nil
-}
-
-func ghSeverityToSeverity(s string) models.Severity {
-	switch strings.ToLower(s) {
-	case "critical":
-		return models.SeverityCritical
-	case "high":
-		return models.SeverityHigh
-	case "medium":
-		return models.SeverityMedium
-	case "low":
-		return models.SeverityLow
-	default:
-		return models.SeverityUnknown
-	}
 }

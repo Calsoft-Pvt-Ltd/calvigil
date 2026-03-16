@@ -15,6 +15,10 @@ import (
 // status of vulnerabilities in software products.
 type OpenVEXReporter struct{}
 
+func init() {
+	Register("openvex", func() Reporter { return &OpenVEXReporter{} })
+}
+
 // OpenVEX v0.2.0 types (https://github.com/openvex/spec)
 
 type vexDocument struct {

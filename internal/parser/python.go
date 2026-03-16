@@ -13,6 +13,13 @@ import (
 // RequirementsTxtParser parses Python requirements.txt files.
 type RequirementsTxtParser struct{}
 
+func init() {
+	Register("requirements.txt", func() Parser { return &RequirementsTxtParser{} })
+	Register("Pipfile.lock", func() Parser { return &PipfileLockParser{} })
+	Register("poetry.lock", func() Parser { return &PoetryLockParser{} })
+	Register("uv.lock", func() Parser { return &PoetryLockParser{} })
+}
+
 // requirementRegex matches lines like: package==1.2.3 or package>=1.2.3
 var requirementRegex = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9._-]*)\s*(?:==|>=|<=|~=|!=|>|<)\s*([^\s,;#]+)`)
 

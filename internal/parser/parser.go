@@ -2,6 +2,7 @@ package parser
 
 import (
 	"io"
+	"sync"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
@@ -12,28 +13,40 @@ type Parser interface {
 	Parse(r io.Reader, filePath string) ([]models.Package, error)
 }
 
+// --- Registry pattern: parsers self-register via init() ---
+
+var (
+	parserRegistry      = make(map[string]func() Parser)
+	parserRegistryMutex sync.RWMutex
+)
+
+// Register registers a parser factory for the given manifest filename.
+// Typically called from init() in each parser file.
+func Register(filename string, factory func() Parser) {
+	parserRegistryMutex.Lock()
+	defer parserRegistryMutex.Unlock()
+	parserRegistry[filename] = factory
+}
+
+// SupportedFiles returns the list of registered manifest filenames.
+func SupportedFiles() []string {
+	parserRegistryMutex.RLock()
+	defer parserRegistryMutex.RUnlock()
+	out := make([]string, 0, len(parserRegistry))
+	for f := range parserRegistry {
+		out = append(out, f)
+	}
+	return out
+}
+
 // ForFile returns the appropriate parser for a given filename, or nil if unsupported.
 func ForFile(filename string) Parser {
-	switch filename {
-	case "go.mod":
-		return &GoModParser{}
-	case "requirements.txt":
-		return &RequirementsTxtParser{}
-	case "Pipfile.lock":
-		return &PipfileLockParser{}
-	case "poetry.lock", "uv.lock":
-		return &PoetryLockParser{}
-	case "package-lock.json":
-		return &NpmLockParser{}
-	case "yarn.lock":
-		return &YarnLockParser{}
-	case "pnpm-lock.yaml":
-		return &PnpmLockParser{}
-	case "pom.xml":
-		return &PomXMLParser{}
-	case "build.gradle", "build.gradle.kts":
-		return &GradleParser{}
-	default:
+	parserRegistryMutex.RLock()
+	factory, ok := parserRegistry[filename]
+	parserRegistryMutex.RUnlock()
+
+	if !ok {
 		return nil
 	}
+	return factory()
 }

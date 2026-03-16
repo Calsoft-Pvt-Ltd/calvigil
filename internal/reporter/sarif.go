@@ -11,6 +11,10 @@ import (
 // SARIFReporter outputs scan results in SARIF v2.1.0 format.
 type SARIFReporter struct{}
 
+func init() {
+	Register("sarif", func() Reporter { return &SARIFReporter{} })
+}
+
 // SARIF v2.1.0 types
 
 type sarifReport struct {

@@ -13,6 +13,10 @@ import (
 // CycloneDXReporter outputs scan results as a CycloneDX v1.5 BOM with VDR (vulnerability data).
 type CycloneDXReporter struct{}
 
+func init() {
+	Register("cyclonedx", func() Reporter { return &CycloneDXReporter{} })
+}
+
 // CycloneDX v1.5 types
 
 type cdxBOM struct {

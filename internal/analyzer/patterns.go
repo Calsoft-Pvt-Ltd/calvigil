@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
@@ -173,42 +174,70 @@ type PatternMatch struct {
 	Content  string
 }
 
-// ScanPatterns walks the project directory and runs all pattern rules against source files.
+// ScanPatterns walks the project directory and runs all pattern rules against
+// source files using a worker pool for concurrent file scanning.
 func ScanPatterns(projectPath string) ([]PatternMatch, error) {
-	var matches []PatternMatch
+	const numWorkers = 8
 
-	err := filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
+	type fileJob struct {
+		path string
+		ext  string
+	}
 
-		if info.IsDir() {
-			if skipDirs[info.Name()] {
-				return filepath.SkipDir
+	jobs := make(chan fileJob, 64)
+	results := make(chan []PatternMatch, 64)
+	var wg sync.WaitGroup
+
+	// Start worker goroutines.
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				if m, err := scanFile(job.path, job.ext); err == nil && len(m) > 0 {
+					results <- m
+				}
 			}
+		}()
+	}
+
+	// Walk the tree and feed jobs.
+	go func() {
+		filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				if skipDirs[info.Name()] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			ext := filepath.Ext(info.Name())
+			if !sourceExtensions[ext] {
+				return nil
+			}
+			if info.Size() > 1024*1024 {
+				return nil
+			}
+			jobs <- fileJob{path: path, ext: ext}
 			return nil
-		}
+		})
+		close(jobs)
+	}()
 
-		ext := filepath.Ext(info.Name())
-		if !sourceExtensions[ext] {
-			return nil
-		}
+	// Close results channel once all workers are done.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
 
-		// Skip files larger than 1MB
-		if info.Size() > 1024*1024 {
-			return nil
-		}
-
-		fileMatches, err := scanFile(path, ext)
-		if err != nil {
-			return nil // skip files that can't be read
-		}
-		matches = append(matches, fileMatches...)
-
-		return nil
-	})
-
-	return matches, err
+	// Collect results.
+	var matches []PatternMatch
+	for batch := range results {
+		matches = append(matches, batch...)
+	}
+	return matches, nil
 }
 
 func scanFile(filePath string, ext string) ([]PatternMatch, error) {

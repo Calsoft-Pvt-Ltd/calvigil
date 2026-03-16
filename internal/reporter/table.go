@@ -7,13 +7,17 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
-	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 // TableReporter outputs scan results as a formatted terminal table.
 type TableReporter struct{}
+
+func init() {
+	Register("table", func() Reporter { return &TableReporter{} })
+}
 
 func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 	if len(result.Vulnerabilities) == 0 {
