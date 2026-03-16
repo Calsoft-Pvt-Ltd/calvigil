@@ -1244,7 +1244,7 @@ The image scanner maps syft artifact types to vulnerability ecosystems:
 | Ecosystem | Icon | PURL Type | Manifest Files Parsed |
 |-----------|------|-----------|----------------------|
 | **Go** | 🐹 | `golang` | `go.mod` |
-| **Python** | 🐍 | `pypi` | `requirements.txt`, `Pipfile.lock`, `poetry.lock` |
+| **Python** | 🐍 | `pypi` | `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `uv.lock` |
 | **Node.js** | 📗 | `npm` | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` |
 | **Java** | ☕ | `maven` | `pom.xml`, `build.gradle`, `build.gradle.kts` |
 

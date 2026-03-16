@@ -21,6 +21,7 @@ var knownMarkers = []MarkerFile{
 	{Name: "requirements.txt", Ecosystem: models.EcosystemPyPI},
 	{Name: "Pipfile.lock", Ecosystem: models.EcosystemPyPI},
 	{Name: "poetry.lock", Ecosystem: models.EcosystemPyPI},
+	{Name: "uv.lock", Ecosystem: models.EcosystemPyPI},
 	// Node.js
 	{Name: "package-lock.json", Ecosystem: models.EcosystemNpm},
 	{Name: "yarn.lock", Ecosystem: models.EcosystemNpm},

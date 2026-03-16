@@ -21,7 +21,7 @@ func ForFile(filename string) Parser {
 		return &RequirementsTxtParser{}
 	case "Pipfile.lock":
 		return &PipfileLockParser{}
-	case "poetry.lock":
+	case "poetry.lock", "uv.lock":
 		return &PoetryLockParser{}
 	case "package-lock.json":
 		return &NpmLockParser{}

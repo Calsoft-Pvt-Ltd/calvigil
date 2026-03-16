@@ -42,7 +42,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 - **Multi-Ecosystem Support** (grouped output with ecosystem icons):
   - **Go** 🐹: `go.mod`
   - **Java** ☕: `pom.xml`, `build.gradle`, `build.gradle.kts`
-  - **Python** 🐍: `requirements.txt`, `Pipfile.lock`, `poetry.lock`
+  - **Python** 🐍: `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `uv.lock`
   - **Node.js** 📗: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`
 
 - **Multiple Output Formats**: Terminal table, JSON, SARIF v2.1.0, CycloneDX v1.5, OpenVEX v0.2.0, HTML, PDF
