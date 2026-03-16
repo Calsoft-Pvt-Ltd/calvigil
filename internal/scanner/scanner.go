@@ -205,6 +205,7 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 	}
 
 	aggregated := matcher.NewAggregatedMatcher(matchers...)
+	aggregated.SetVerbose(s.opts.Verbose)
 	vulns, err := aggregated.Match(ctx, allPackages)
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("vulnerability matching error: %v", err))

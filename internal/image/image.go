@@ -65,6 +65,7 @@ func (s *Scanner) Scan(ctx context.Context) (*models.ScanResult, error) {
 	}
 
 	aggregated := matcher.NewAggregatedMatcher(s.matchers...)
+	aggregated.SetVerbose(s.verbose)
 	vulns, err := aggregated.Match(ctx, pkgs)
 	if err != nil {
 		return nil, fmt.Errorf("vulnerability matching failed: %w", err)
