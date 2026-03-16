@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="calvigil2.png" alt="Calvigil Logo" width="300">
+</p>
+
 # calvigil
 
 An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Python**, and **Node.js** projects.

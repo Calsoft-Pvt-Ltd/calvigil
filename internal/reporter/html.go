@@ -1,6 +1,8 @@
 package reporter
 
 import (
+	_ "embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io"
@@ -11,6 +13,9 @@ import (
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
+
+//go:embed assets/calvigil2.png
+var logoPNG []byte
 
 // HTMLReporter generates a self-contained HTML report suitable for
 // executive / MIS audiences with charts, severity badges, and clear layout.
@@ -35,6 +40,7 @@ type htmlData struct {
 	Errors        []string
 	HasEnrichment bool
 	TotalDepVulns int
+	LogoDataURL   template.URL
 }
 
 type htmlEcoGroup struct {
@@ -85,6 +91,7 @@ func (r *HTMLReporter) Report(result *models.ScanResult, w io.Writer) error {
 		Duration:      result.Duration.Round(time.Millisecond).String(),
 		TotalPackages: result.TotalPackages,
 		TotalVulns:    len(vulns),
+		LogoDataURL:   template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(logoPNG)),
 	}
 
 	for _, e := range result.Ecosystems {
@@ -289,7 +296,9 @@ const htmlTemplate = `<!DOCTYPE html>
     margin-bottom: 32px;
   }
   .header .container { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
-  .header h1 { font-size: 1.6rem; font-weight: 700; }
+  .header-brand { display: flex; align-items: center; gap: 14px; }
+  .header-logo { height: 48px; width: auto; }
+  .header h1 { font-size: 1.6rem; font-weight: 700; margin: 0; }
   .header .meta { font-size: 0.85rem; opacity: 0.85; text-align: right; }
   .header .meta span { display: block; }
 
@@ -488,9 +497,12 @@ const htmlTemplate = `<!DOCTYPE html>
 
 <div class="header">
   <div class="container">
-    <div>
-      <h1>&#x1F6E1; Calvigil Security Report</h1>
-      <div style="margin-top:6px;opacity:0.85">{{.ProjectPath}}</div>
+    <div class="header-brand">
+      <img src="{{.LogoDataURL}}" alt="Calvigil" class="header-logo">
+      <div>
+        <h1>Calvigil Security Report</h1>
+        <div style="margin-top:4px;opacity:0.85">{{.ProjectPath}}</div>
+      </div>
     </div>
     <div class="meta">
       <span>{{.GeneratedAt}}</span>
