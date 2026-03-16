@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
@@ -18,7 +19,12 @@ import (
 type OllamaAnalyzer struct {
 	baseURL string // e.g. "http://localhost:11434"
 	model   string // e.g. "llama3", "codellama", "mistral"
+	client  *http.Client
 }
+
+// ollamaTimeout is the maximum time to wait for a single Ollama API call.
+// Small models on CPU can be slow; 5 minutes is generous but prevents indefinite hangs.
+const ollamaTimeout = 5 * time.Minute
 
 // NewOllamaAnalyzer creates a new analyzer targeting a local Ollama instance.
 func NewOllamaAnalyzer(baseURL, model string) *OllamaAnalyzer {
@@ -28,6 +34,7 @@ func NewOllamaAnalyzer(baseURL, model string) *OllamaAnalyzer {
 	return &OllamaAnalyzer{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		model:   model,
+		client:  &http.Client{Timeout: ollamaTimeout},
 	}
 }
 
@@ -57,7 +64,8 @@ type ollamaChatChoice struct {
 
 // Available checks if the Ollama instance is reachable.
 func (o *OllamaAnalyzer) Available() bool {
-	resp, err := http.Get(o.baseURL + "/api/tags")
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(o.baseURL + "/api/tags")
 	if err != nil {
 		return false
 	}
@@ -154,11 +162,26 @@ func (o *OllamaAnalyzer) analyzeSourceFiles(ctx context.Context, projectPath str
 func (o *OllamaAnalyzer) callOllama(ctx context.Context, sysPrompt, userPrompt, projectPath string, verbose bool) ([]models.Vulnerability, error) {
 	if verbose {
 		fmt.Fprintf(os.Stderr, "  Sending code to Ollama (%s) for analysis...\n", o.model)
+		fmt.Fprintf(os.Stderr, "    Prompt size: %d chars (system: %d, user: %d)\n", len(sysPrompt)+len(userPrompt), len(sysPrompt), len(userPrompt))
 	}
 
+	start := time.Now()
 	content, err := o.chatCompletion(ctx, sysPrompt, userPrompt)
+	elapsed := time.Since(start)
 	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "    Failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
+		}
 		return nil, err
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "    Response received in %s (%d chars)\n", elapsed.Round(time.Millisecond), len(content))
+		preview := content
+		if len(preview) > 300 {
+			preview = preview[:300] + "..."
+		}
+		fmt.Fprintf(os.Stderr, "    Response preview: %s\n", strings.ReplaceAll(preview, "\n", " "))
 	}
 
 	// Use robust JSON extraction — local LLMs often wrap JSON in prose or markdown
@@ -167,9 +190,18 @@ func (o *OllamaAnalyzer) callOllama(ctx context.Context, sysPrompt, userPrompt, 
 	var results []aiVulnResult
 	if err := json.Unmarshal([]byte(content), &results); err != nil {
 		if verbose {
-			fmt.Fprintf(os.Stderr, "  Warning: could not parse Ollama response as JSON: %v\n", err)
+			fmt.Fprintf(os.Stderr, "    JSON parse failed: %v\n", err)
+			if len(content) > 200 {
+				fmt.Fprintf(os.Stderr, "    Extracted JSON (first 200 chars): %s\n", content[:200])
+			} else {
+				fmt.Fprintf(os.Stderr, "    Extracted JSON: %s\n", content)
+			}
 		}
 		return nil, nil
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "    Parsed %d vulnerability findings from AI response\n", len(results))
 	}
 
 	var vulns []models.Vulnerability
@@ -215,6 +247,11 @@ func (o *OllamaAnalyzer) EnrichVulnerabilities(ctx context.Context, vulns []mode
 		}
 		batch := evidenceBlocks[start:end]
 
+		if verbose {
+			fmt.Fprintf(os.Stderr, "  Enrichment batch %d/%d (findings %d-%d of %d)\n",
+				(start/batchSize)+1, (len(evidenceBlocks)+batchSize-1)/batchSize, start+1, end, len(evidenceBlocks))
+		}
+
 		prompt := fmt.Sprintf(enrichmentPromptTemplate, len(batch), strings.Join(batch, "\n\n"))
 
 		results, err := o.callEnrichment(ctx, prompt, verbose)
@@ -248,11 +285,26 @@ func (o *OllamaAnalyzer) EnrichVulnerabilities(ctx context.Context, vulns []mode
 func (o *OllamaAnalyzer) callEnrichment(ctx context.Context, userPrompt string, verbose bool) ([]aiEnrichmentResult, error) {
 	if verbose {
 		fmt.Fprintf(os.Stderr, "  Sending findings to Ollama (%s) for enrichment...\n", o.model)
+		fmt.Fprintf(os.Stderr, "    Prompt size: %d chars\n", len(enrichmentSystemPrompt)+len(userPrompt))
 	}
 
+	start := time.Now()
 	content, err := o.chatCompletion(ctx, enrichmentSystemPrompt, userPrompt)
+	elapsed := time.Since(start)
 	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "    Failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
+		}
 		return nil, fmt.Errorf("ollama enrichment call failed: %w", err)
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "    Response received in %s (%d chars)\n", elapsed.Round(time.Millisecond), len(content))
+		preview := content
+		if len(preview) > 300 {
+			preview = preview[:300] + "..."
+		}
+		fmt.Fprintf(os.Stderr, "    Response preview: %s\n", strings.ReplaceAll(preview, "\n", " "))
 	}
 
 	// Use robust JSON extraction — local LLMs often wrap JSON in prose or markdown
@@ -261,9 +313,21 @@ func (o *OllamaAnalyzer) callEnrichment(ctx context.Context, userPrompt string, 
 	var results []aiEnrichmentResult
 	if err := json.Unmarshal([]byte(content), &results); err != nil {
 		if verbose {
-			fmt.Fprintf(os.Stderr, "  Warning: could not parse Ollama enrichment response: %v\n", err)
+			fmt.Fprintf(os.Stderr, "    JSON parse failed: %v\n", err)
+			if len(content) > 200 {
+				fmt.Fprintf(os.Stderr, "    Extracted JSON (first 200 chars): %s\n", content[:200])
+			} else {
+				fmt.Fprintf(os.Stderr, "    Extracted JSON: %s\n", content)
+			}
 		}
 		return nil, nil
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "    Parsed %d enrichment results\n", len(results))
+		for _, r := range results {
+			fmt.Fprintf(os.Stderr, "      [%s] confidence=%s\n", r.VulnID, r.Confidence)
+		}
 	}
 
 	return results, nil
@@ -294,7 +358,7 @@ func (o *OllamaAnalyzer) chatCompletion(ctx context.Context, sysPrompt, userProm
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := o.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("ollama request failed: %w", err)
 	}
@@ -326,10 +390,10 @@ func (o *OllamaAnalyzer) chatCompletion(ctx context.Context, sysPrompt, userProm
 // chatCompletionNative uses Ollama's native /api/chat endpoint as fallback.
 func (o *OllamaAnalyzer) chatCompletionNative(ctx context.Context, sysPrompt, userPrompt string) (string, error) {
 	type nativeRequest struct {
-		Model    string              `json:"model"`
-		Messages []ollamaChatMessage `json:"messages"`
-		Stream   bool                `json:"stream"`
-		Options  map[string]float64  `json:"options,omitempty"`
+		Model    string                 `json:"model"`
+		Messages []ollamaChatMessage    `json:"messages"`
+		Stream   bool                   `json:"stream"`
+		Options  map[string]interface{} `json:"options,omitempty"`
 	}
 
 	reqBody := nativeRequest{
@@ -338,8 +402,10 @@ func (o *OllamaAnalyzer) chatCompletionNative(ctx context.Context, sysPrompt, us
 			{Role: "system", Content: sysPrompt},
 			{Role: "user", Content: userPrompt},
 		},
-		Stream:  false,
-		Options: map[string]float64{"temperature": 0.1},
+		Stream: false,
+		// num_ctx caps the context window — prevents small models from hanging
+		// on large inputs by truncating rather than running indefinitely.
+		Options: map[string]interface{}{"temperature": 0.1, "num_ctx": 4096},
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -354,7 +420,7 @@ func (o *OllamaAnalyzer) chatCompletionNative(ctx context.Context, sysPrompt, us
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := o.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("ollama native request failed: %w", err)
 	}

@@ -155,6 +155,14 @@ var skipDirs = map[string]bool{
 	"__pycache__": true, ".idea": true, ".vscode": true,
 	"target": true, "build": true, "dist": true,
 	".next": true, ".nuxt": true,
+	// Python virtual environments
+	".venv": true, "venv": true, ".env": true, "env": true,
+	"site-packages": true, ".tox": true, ".nox": true,
+	// Ruby, Rust, Go caches
+	".bundle": true, ".cargo": true, ".cache": true,
+	// Other build/output directories
+	"out": true, "bin": true, "obj": true, "lib": true,
+	".terraform": true, ".serverless": true,
 }
 
 // PatternMatch represents a match found by the pattern scanner.

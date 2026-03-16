@@ -111,6 +111,20 @@ func (s *SemgrepAnalyzer) Analyze(ctx context.Context, projectPath string, verbo
 		}
 	}
 
+	// Exclude dependency and virtual-environment directories from scanning
+	args = append(args,
+		"--exclude", ".venv",
+		"--exclude", "venv",
+		"--exclude", ".env",
+		"--exclude", "env",
+		"--exclude", "node_modules",
+		"--exclude", "vendor",
+		"--exclude", "site-packages",
+		"--exclude", "__pycache__",
+		"--exclude", ".tox",
+		"--exclude", ".nox",
+	)
+
 	args = append(args, projectPath)
 
 	if verbose {
