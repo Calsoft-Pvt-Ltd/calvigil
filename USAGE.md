@@ -1247,14 +1247,18 @@ The image scanner maps syft artifact types to vulnerability ecosystems:
 | **Python** | 🐍 | `pypi` | `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `uv.lock` |
 | **Node.js** | 📗 | `npm` | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` |
 | **Java** | ☕ | `maven` | `pom.xml`, `build.gradle`, `build.gradle.kts` |
+| **Rust** | 🦀 | `cargo` | `Cargo.lock` |
+| **Ruby** | 💎 | `gem` | `Gemfile.lock` |
+| **PHP** | 🐘 | `composer` | `composer.lock` |
+| **C/C++** | ⚙️ | `conan` | `conan.lock` |
 
 Table output groups vulnerabilities by ecosystem with icons for easy identification.
 
 **Source code analysis** scans files with these extensions:
-`.go`, `.py`, `.java`, `.js`, `.ts`, `.jsx`, `.tsx`, `.vue`, `.html`, `.yaml`, `.yml`, `.json`, `.env`, `.properties`
+`.go`, `.py`, `.java`, `.js`, `.ts`, `.jsx`, `.tsx`, `.vue`, `.html`, `.yaml`, `.yml`, `.json`, `.env`, `.properties`, `.rs`, `.rb`, `.erb`, `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`, `.php`
 
 **Auto-skipped directories:**
-`node_modules`, `.git`, `vendor`, `__pycache__`, `.idea`, `.vscode`, `target`, `build`, `dist`, `.next`, `.nuxt`
+`node_modules`, `.git`, `vendor`, `__pycache__`, `.idea`, `.vscode`, `target`, `build`, `dist`, `.next`, `.nuxt`, `.venv`, `venv`, `.env`, `env`, `site-packages`, `.tox`, `.nox`, `.bundle`, `.cargo`, `.cache`, `bin`, `obj`, `lib`
 
 ---
 

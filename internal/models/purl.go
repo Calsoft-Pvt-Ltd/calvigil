@@ -87,6 +87,32 @@ func ecosystemToPURL(eco Ecosystem, pkgName string) (purlType, namespace, name s
 			}
 		}
 
+	case EcosystemCrates:
+		// Rust: pkg:cargo/name@version
+		purlType = "cargo"
+		name = pkgName
+
+	case EcosystemRubyGem:
+		// Ruby: pkg:gem/name@version
+		purlType = "gem"
+		name = pkgName
+
+	case EcosystemPHP:
+		// PHP: pkg:composer/vendor/package@version
+		purlType = "composer"
+		parts := strings.SplitN(pkgName, "/", 2)
+		if len(parts) == 2 {
+			namespace = parts[0]
+			name = parts[1]
+		} else {
+			name = pkgName
+		}
+
+	case EcosystemConan:
+		// C/C++: pkg:conan/name@version
+		purlType = "conan"
+		name = pkgName
+
 	default:
 		return "", "", ""
 	}

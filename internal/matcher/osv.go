@@ -93,10 +93,14 @@ type osvReference struct {
 
 // ecosystemMap converts our internal ecosystem names to OSV API names.
 var ecosystemMap = map[models.Ecosystem]string{
-	models.EcosystemGo:    "Go",
-	models.EcosystemPyPI:  "PyPI",
-	models.EcosystemNpm:   "npm",
-	models.EcosystemMaven: "Maven",
+	models.EcosystemGo:      "Go",
+	models.EcosystemPyPI:    "PyPI",
+	models.EcosystemNpm:     "npm",
+	models.EcosystemMaven:   "Maven",
+	models.EcosystemCrates:  "crates.io",
+	models.EcosystemRubyGem: "RubyGems",
+	models.EcosystemPHP:     "Packagist",
+	models.EcosystemConan:   "ConanCenter",
 }
 
 func (m *OSVMatcher) Match(ctx context.Context, packages []models.Package) ([]models.Vulnerability, error) {

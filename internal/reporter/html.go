@@ -141,7 +141,7 @@ func (r *HTMLReporter) Report(result *models.ScanResult, w io.Writer) error {
 	}
 
 	// Build ordered ecosystem groups
-	ecoOrder := []string{"Go", "npm", "PyPI", "Maven"}
+	ecoOrder := []string{"Go", "npm", "PyPI", "Maven", "crates.io", "RubyGems", "Packagist", "ConanCenter"}
 	seen := make(map[string]bool)
 	for _, e := range ecoOrder {
 		seen[e] = true
@@ -254,6 +254,14 @@ func htmlEcoIcon(eco string) string {
 		return "🐍"
 	case "Maven":
 		return "☕"
+	case "crates.io":
+		return "🦀"
+	case "RubyGems":
+		return "💎"
+	case "Packagist":
+		return "🐘"
+	case "ConanCenter":
+		return "⚙️"
 	default:
 		return "📦"
 	}

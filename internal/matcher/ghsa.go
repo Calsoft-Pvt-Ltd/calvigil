@@ -61,10 +61,13 @@ type ghVersion struct {
 
 // ghEcosystemMap converts our ecosystems to GitHub's ecosystem names.
 var ghEcosystemMap = map[models.Ecosystem]string{
-	models.EcosystemGo:    "go",
-	models.EcosystemPyPI:  "pip",
-	models.EcosystemNpm:   "npm",
-	models.EcosystemMaven: "maven",
+	models.EcosystemGo:      "go",
+	models.EcosystemPyPI:    "pip",
+	models.EcosystemNpm:     "npm",
+	models.EcosystemMaven:   "maven",
+	models.EcosystemCrates:  "rust",
+	models.EcosystemRubyGem: "rubygems",
+	models.EcosystemPHP:     "composer",
 }
 
 func (m *GitHubAdvisoryMatcher) Match(ctx context.Context, packages []models.Package) ([]models.Vulnerability, error) {

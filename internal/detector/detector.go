@@ -30,6 +30,14 @@ var knownMarkers = []MarkerFile{
 	{Name: "pom.xml", Ecosystem: models.EcosystemMaven},
 	{Name: "build.gradle", Ecosystem: models.EcosystemGradle},
 	{Name: "build.gradle.kts", Ecosystem: models.EcosystemGradle},
+	// Rust
+	{Name: "Cargo.lock", Ecosystem: models.EcosystemCrates},
+	// Ruby
+	{Name: "Gemfile.lock", Ecosystem: models.EcosystemRubyGem},
+	// PHP
+	{Name: "composer.lock", Ecosystem: models.EcosystemPHP},
+	// C/C++
+	{Name: "conan.lock", Ecosystem: models.EcosystemConan},
 }
 
 // DetectedFile represents a discovered dependency manifest file.

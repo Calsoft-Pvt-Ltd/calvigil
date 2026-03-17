@@ -4,7 +4,7 @@
 
 # calvigil
 
-An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Python**, and **Node.js** projects.
+An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Python**, **Node.js**, **Rust**, **Ruby**, **PHP**, and **C/C++** projects.
 
 ## Features
 
