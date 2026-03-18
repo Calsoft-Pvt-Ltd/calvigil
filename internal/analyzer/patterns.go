@@ -22,36 +22,83 @@ type PatternRule struct {
 	Languages   []string // file extensions this rule applies to (e.g., ".go", ".py")
 }
 
+// sqlSyntax is a shared set of SQL keyword patterns requiring follow-on SQL syntax
+// to avoid matching natural language (e.g., "Failed to update" != "UPDATE users SET").
+var sqlSyntax = `SELECT\s+(?:\*|\w+\s*,)[\s\w,*]*\bFROM\b` +
+	`|INSERT\s+INTO\b` +
+	`|UPDATE\s+\w+\s+SET\b` +
+	`|DELETE\s+FROM\b` +
+	`|DROP\s+(?:TABLE|DATABASE|INDEX)\b` +
+	`|ALTER\s+TABLE\b` +
+	`|CREATE\s+(?:TABLE|INDEX|DATABASE)\b`
+
+// suppressionComment matches inline security suppression annotations commonly used
+// by security linters: #nosec (gosec), nolint (golangci-lint), NOSONAR, nosemgrep.
+var suppressionComment = regexp.MustCompile(`//\s*(?:#nosec|nolint|NOSONAR|nosemgrep)\b|#\s*(?:nosec|noqa)\b`)
+
 // knownPatterns contains regex rules for common vulnerability patterns across languages.
 var knownPatterns = []PatternRule{
 	// SQL Injection
-	// Requires SQL keywords to be followed by SQL-specific syntax to avoid false
-	// positives on log messages like fmt.Sprintf("Failed to update alias...").
+	// SQL keywords and interpolation markers (%s, %d, etc.) must appear in the
+	// SAME string literal to avoid false positives when SQL-like words appear in
+	// a separate argument (e.g., log.Infof("...%s...", "Create DATABASE")).
 	{
 		ID:          "SEC-001",
 		Name:        "Potential SQL Injection",
 		Description: "String concatenation or formatting used in SQL query construction. Use parameterized queries instead.",
 		Severity:    models.SeverityHigh,
-		Pattern:     regexp.MustCompile(`(?i)(?:fmt\.Sprintf|\.format\s*\(|String\.format|["'].*%[sdvq].*["']|["'].*\+.*["']).*(?:SELECT\s+(?:\*|\w+\s*,).+\bFROM\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b|DROP\s+(?:TABLE|DATABASE|INDEX)\b|ALTER\s+TABLE\b|CREATE\s+(?:TABLE|INDEX|DATABASE)\b)`),
-		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs"},
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// SQL keyword before format specifier in double-quoted string
+			`"[^"]*(?:` + sqlSyntax + `)[^"]*%[sdvq]` +
+			// Format specifier before SQL keyword in double-quoted string
+			`|"[^"]*%[sdvq][^"]*(?:` + sqlSyntax + `)` +
+			// SQL keyword before format specifier in single-quoted string
+			`|'[^']*(?:` + sqlSyntax + `)[^']*%[sdvq]` +
+			// Format specifier before SQL keyword in single-quoted string
+			`|'[^']*%[sdvq][^']*(?:` + sqlSyntax + `)` +
+			// SQL keyword in double-quoted string being concatenated
+			`|"[^"]*(?:` + sqlSyntax + `)[^"]*"\s*\+` +
+			// SQL keyword in single-quoted string being concatenated
+			`|'[^']*(?:` + sqlSyntax + `)[^']*'\s*\+` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs"},
 	},
 	{
 		ID:          "SEC-002",
 		Name:        "Potential SQL Injection (string concat)",
 		Description: "SQL query built with string concatenation. Use parameterized queries instead.",
 		Severity:    models.SeverityHigh,
-		Pattern:     regexp.MustCompile(`(?i)(?:query|sql|stmt)\s*(?:=|\+=)\s*["'].*(?:SELECT\s+(?:\*|\w+\s*,).+\bFROM\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b).*["']\s*\+`),
+		Pattern:     regexp.MustCompile(`(?i)(?:query|sql|stmt)\s*(?:=|\+=)\s*["'].*(?:` + sqlSyntax + `).*["']\s*\+`),
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
 	},
 
 	// Command Injection
+	// For Go's exec.Command, only flag shell invocations (sh/bash -c) or string
+	// concatenation in arguments. Passing separate args is safe (no shell).
 	{
 		ID:          "SEC-003",
 		Name:        "Potential Command Injection",
 		Description: "User input may be passed to a system command execution function. Validate and sanitize all inputs.",
 		Severity:    models.SeverityCritical,
-		Pattern:     regexp.MustCompile(`(?i)(?:exec\.Command|os\.system|subprocess\.(?:call|run|Popen)|child_process\.exec|Runtime\.getRuntime\(\)\.exec|system\s*\(|` + "`" + `.*\$|shell_exec\s*\(|passthru\s*\(|popen\s*\()\s*\(`),
-		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".c", ".cpp"},
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Go: exec.Command with shell invocation or string concat
+			`exec\.Command\s*\(\s*"(?:sh|bash|cmd)"\s*,\s*"-c"` +
+			`|exec\.Command\s*\(\s*(?:.*\+|.*fmt\.Sprintf)` +
+			// Python
+			`|os\.system\s*\(` +
+			`|subprocess\.(?:call|run|Popen)\s*\(` +
+			// JavaScript / Node.js
+			`|child_process\.exec\s*\(` +
+			// Java
+			`|Runtime\.getRuntime\(\)\.exec\s*\(` +
+			// C/C++/PHP shell execution
+			`|(?:^|[^\w.])system\s*\(` +
+			"|`" + `.*\$` +
+			`|shell_exec\s*\(` +
+			`|passthru\s*\(` +
+			`|popen\s*\(` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".c", ".cpp"},
 	},
 
 	// Path Traversal
@@ -93,12 +140,14 @@ var knownPatterns = []PatternRule{
 	},
 
 	// XSS
+	// The raw() match uses [^\w.] prefix to avoid flagging ORM methods like
+	// GORM's .Raw() or SQLAlchemy's .raw() — only standalone raw() (Rails).
 	{
 		ID:          "SEC-008",
 		Name:        "Potential Cross-Site Scripting (XSS)",
 		Description: "User input rendered without escaping in HTML template. Use proper escaping or a templating engine with auto-escaping.",
 		Severity:    models.SeverityHigh,
-		Pattern:     regexp.MustCompile(`(?i)(?:innerHTML\s*=|\.html\s*\(|document\.write\s*\(|v-html\s*=|dangerouslySetInnerHTML|\{\{!\s*|template\.HTML\(|\.html_safe|raw\s*\(|echo\s+\$_)`),
+		Pattern:     regexp.MustCompile(`(?i)(?:innerHTML\s*=|\.html\s*\(|document\.write\s*\(|v-html\s*=|dangerouslySetInnerHTML|\{\{!\s*|template\.HTML\(|\.html_safe|(?:^|[^\w.])raw\s*\(|echo\s+\$_)`),
 		Languages:   []string{".go", ".js", ".ts", ".jsx", ".tsx", ".html", ".vue", ".rb", ".erb", ".php"},
 	},
 
@@ -314,6 +363,11 @@ func scanFile(filePath string, ext string) ([]PatternMatch, error) {
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
+
+		// Respect inline security suppression comments (#nosec, nolint, NOSONAR, nosemgrep)
+		if suppressionComment.MatchString(line) {
+			continue
+		}
 
 		for _, rule := range knownPatterns {
 			// Check if this rule applies to this file extension

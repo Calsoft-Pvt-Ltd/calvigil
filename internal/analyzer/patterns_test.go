@@ -21,6 +21,10 @@ func TestSEC001_NoFalsePositiveOnLogMessages(t *testing.T) {
 		`fmt.Sprintf("Cannot alter configuration for %s", service)`,
 		`log.Warnf(fmt.Sprintf("Dropping connection to %s", host))`,
 		`msg := fmt.Sprintf("Execute retry for operation %s", op)`,
+		// SQL keywords in a SEPARATE argument from the format specifier
+		`log.Infof("------------ END: BeforeTest - %s ------------", "Create DATABASE")`,
+		`log.Debugf("Step %d complete", steps, "DROP TABLE cleanup")`,
+		`fmt.Sprintf("Processing %s", "INSERT INTO audit log")`,
 	}
 
 	for _, line := range falsePositives {
@@ -91,6 +95,126 @@ func TestSEC002_CatchesRealSQLInjection(t *testing.T) {
 	for _, line := range realInjections {
 		if !rule.Pattern.MatchString(line) {
 			t.Errorf("SEC-002 failed to detect:\n  %s", line)
+		}
+	}
+}
+
+func findRule(id string) PatternRule {
+	for _, r := range knownPatterns {
+		if r.ID == id {
+			return r
+		}
+	}
+	panic("rule not found: " + id)
+}
+
+func TestSEC003_NoFalsePositiveOnSafeExecCommand(t *testing.T) {
+	rule := findRule("SEC-003")
+
+	falsePositives := []string{
+		// exec.Command with separate arguments (no shell) — safe
+		`descCmd := exec.Command("kubectl", "describe", "pod", podName, "-n", "common")`,
+		`cmd := exec.Command("git", "log", "--oneline")`,
+		`cmd := exec.Command("ls", "-la", dir)`,
+	}
+
+	for _, line := range falsePositives {
+		if rule.Pattern.MatchString(line) {
+			t.Errorf("SEC-003 false positive:\n  %s", line)
+		}
+	}
+}
+
+func TestSEC003_CatchesRealCommandInjection(t *testing.T) {
+	rule := findRule("SEC-003")
+
+	realInjections := []string{
+		// Go: shell invocation
+		`cmd := exec.Command("sh", "-c", userInput)`,
+		`cmd := exec.Command("bash", "-c", query)`,
+		// Go: string concatenation in command
+		`cmd := exec.Command("cmd " + userInput)`,
+		`cmd := exec.Command(fmt.Sprintf("echo %s", input))`,
+		// Python
+		`os.system("rm -rf " + path)`,
+		`subprocess.call(["sh", "-c", cmd])`,
+		`subprocess.run(cmd, shell=True)`,
+		// JavaScript
+		`child_process.exec("ls " + dir)`,
+		// Java
+		`Runtime.getRuntime().exec("cmd /c " + input)`,
+		// PHP
+		`shell_exec("cat " . $file)`,
+		`passthru($cmd)`,
+		`system($input)`,
+		`popen("cmd " . $arg)`,
+	}
+
+	for _, line := range realInjections {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("SEC-003 failed to detect:\n  %s", line)
+		}
+	}
+}
+
+func TestSuppressionComments(t *testing.T) {
+	tests := []struct {
+		line       string
+		suppressed bool
+	}{
+		{`cmd := exec.Command("sh", "-c", x) // #nosec G204`, true},
+		{`cmd := exec.Command("sh", "-c", x) //nolint:gosec`, true},
+		{`cmd := exec.Command("sh", "-c", x) // NOSONAR`, true},
+		{`cmd := exec.Command("sh", "-c", x) // nosemgrep`, true},
+		{`os.system(user_input) # nosec`, true},
+		{`os.system(user_input) # noqa: S605`, true},
+		{`cmd := exec.Command("sh", "-c", x) // this is dangerous`, false},
+	}
+
+	for _, tt := range tests {
+		got := suppressionComment.MatchString(tt.line)
+		if got != tt.suppressed {
+			t.Errorf("suppressionComment(%q) = %v, want %v", tt.line, got, tt.suppressed)
+		}
+	}
+}
+
+func TestSEC008_NoFalsePositiveOnORMRaw(t *testing.T) {
+	rule := findRule("SEC-008")
+
+	falsePositives := []string{
+		// GORM .Raw() — parameterized database query, not HTML rendering
+		`result := dbhandlers.GetWorkingInstance().Instance.Raw(query, userId).Scan(&userSites)`,
+		`db.Raw("SELECT * FROM users WHERE id = ?", id).Scan(&user)`,
+		`session.Raw("UPDATE stats SET count = count + 1").Exec()`,
+		// SQLAlchemy .raw()
+		`cursor = connection.raw("SELECT 1")`,
+	}
+
+	for _, line := range falsePositives {
+		if rule.Pattern.MatchString(line) {
+			t.Errorf("SEC-008 false positive on ORM method:\n  %s", line)
+		}
+	}
+}
+
+func TestSEC008_CatchesRealXSS(t *testing.T) {
+	rule := findRule("SEC-008")
+
+	realXSS := []string{
+		`element.innerHTML = userInput`,
+		`$(selector).html(userInput)`,
+		`document.write(data)`,
+		`<div v-html="userContent"></div>`,
+		`dangerouslySetInnerHTML={{__html: data}}`,
+		`template.HTML(userInput)`,
+		`<%= raw(user_input) %>`,
+		`echo $_GET["name"]`,
+	}
+
+	for _, line := range realXSS {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("SEC-008 failed to detect XSS:\n  %s", line)
 		}
 	}
 }
