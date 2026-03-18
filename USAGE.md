@@ -16,6 +16,7 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
 - [Commands Reference](#commands-reference)
   - [scan](#scan)
   - [scan-binary](#scan-binary)
+  - [scan-iac](#scan-iac)
   - [scan-image](#scan-image)
   - [config set](#config-set)
   - [config get](#config-get)
@@ -68,6 +69,10 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
 - [Binary / SCA Scanning](#binary--sca-scanning)
   - [Supported Binary Types](#supported-binary-types)
   - [Examples](#binary-scanning-examples)
+- [IaC Scanning](#iac-scanning-infrastructure-as-code)
+  - [Supported IaC Types](#supported-iac-types)
+  - [Built-in Rules](#built-in-iac-rules)
+  - [Examples](#iac-scanning-examples)
 - [Supported Ecosystems & Files](#supported-ecosystems--files)
 - [Vulnerability Databases](#vulnerability-databases)
 - [Exit Codes](#exit-codes)
@@ -295,6 +300,31 @@ calvigil scan-binary <path> [flags]
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `path` | Yes | — | Path to a binary file, archive, or directory to scan recursively |
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `html`, `pdf` |
+| `--output` | `-o` | stdout | Write output to a file |
+| `--severity` | `-s` | (all) | Minimum severity filter: `critical`, `high`, `medium`, `low` |
+| `--verbose` | `-v` | `false` | Show detailed progress output |
+
+---
+
+### `scan-iac`
+
+Scan Infrastructure-as-Code files for security misconfigurations.
+
+```
+calvigil scan-iac <path> [flags]
+```
+
+**Arguments:**
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `path` | Yes | — | Path to an IaC file or directory to scan recursively |
 
 **Flags:**
 
@@ -1399,6 +1429,103 @@ calvigil scan-binary ./bin/myapp --format cyclonedx --output sbom.json
 │ HIGH     │ CVE-2021-38561     │ golang.org/x/text            │ v0.3.7  │ Transitive │ 0.3.8   │ Panic in language tag      │
 │ HIGH     │ CVE-2020-14040     │ golang.org/x/text            │ v0.3.7  │ Transitive │ 0.3.3   │ Infinite loop in encoding  │
 ╰──────────┴────────────────────┴──────────────────────────────┴─────────┴────────────┴─────────┴───────────────────────────╯
+```
+
+---
+
+## IaC Scanning (Infrastructure-as-Code)
+
+Scan Terraform, Kubernetes, Dockerfiles, CloudFormation, and Docker Compose files for security misconfigurations — no external tools required. Uses 20 built-in regex-based rules.
+
+### Supported IaC Types
+
+| Type | Files | Description |
+|------|-------|-------------|
+| Terraform | `.tf`, `.tfvars` | AWS security groups, S3 buckets, IAM policies, RDS encryption, CloudTrail |
+| Kubernetes | `.yaml`, `.yml` | Privileged containers, runAsRoot, hostNetwork, hostPID, default namespace, resource limits |
+| Dockerfile | `Dockerfile`, `Dockerfile.*` | Root user, latest tag, ADD vs COPY, curl-pipe-bash |
+| CloudFormation | `.yaml`, `.yml`, `.json` | Public S3, open security group ingress |
+| Docker Compose | `docker-compose.yml` | Privileged mode |
+
+### Built-in IaC Rules
+
+| ID | Category | Rule | Severity |
+|----|----------|------|----------|
+| IAC-001 | Terraform | Security Group — Unrestricted Ingress (0.0.0.0/0) | HIGH |
+| IAC-002 | Terraform | S3 Bucket — Public ACL | CRITICAL |
+| IAC-003 | Terraform | S3 Bucket — Encryption Disabled | MEDIUM |
+| IAC-004 | Terraform | IAM Policy — Wildcard Actions | CRITICAL |
+| IAC-005 | Terraform | RDS — Storage Not Encrypted | HIGH |
+| IAC-006 | Terraform | CloudTrail — Logging Disabled | HIGH |
+| IAC-007 | Terraform | Security Group — Unrestricted SSH | CRITICAL |
+| IAC-008 | Kubernetes | Privileged Container | CRITICAL |
+| IAC-009 | Kubernetes | Run As Root (UID 0) | HIGH |
+| IAC-010 | Kubernetes | Missing Resource Limits | MEDIUM |
+| IAC-011 | Kubernetes | Host Network Enabled | HIGH |
+| IAC-012 | Kubernetes | Default Namespace | LOW |
+| IAC-013 | Kubernetes | Host PID Enabled | HIGH |
+| IAC-014 | Dockerfile | Running as Root | MEDIUM |
+| IAC-015 | Dockerfile | Using :latest Tag | MEDIUM |
+| IAC-016 | Dockerfile | ADD Instead of COPY | LOW |
+| IAC-017 | Dockerfile | Curl Pipe to Shell | HIGH |
+| IAC-018 | CloudFormation | Public S3 Bucket | CRITICAL |
+| IAC-019 | CloudFormation | Open Security Group Ingress | HIGH |
+| IAC-020 | Docker Compose | Privileged Mode | CRITICAL |
+
+### IaC Scanning Examples
+
+```bash
+# Scan a Terraform directory
+calvigil scan-iac ./infra/
+
+# Scan Kubernetes manifests
+calvigil scan-iac ./k8s/
+
+# Scan a single file
+calvigil scan-iac Dockerfile
+
+# Verbose output with progress details
+calvigil scan-iac -v ./infra/
+
+# JSON output for CI pipelines
+calvigil scan-iac . --format json
+
+# Only report critical and high
+calvigil scan-iac . --severity high
+
+# SARIF for GitHub Code Scanning
+calvigil scan-iac . --format sarif --output iac.sarif
+
+# HTML executive report
+calvigil scan-iac . --format html --output iac-report.html
+```
+
+**Example output:**
+
+```
+🔍 Calvigil Scan Results for /path/to/infra
+   Scanned 3 packages across 0 ecosystems in 0s
+
+🏗️  IaC Misconfigurations (8 found)
+
+╭──────────┬─────────┬─────────────────┬──────┬──────────────────────────────────────────────╮
+│ SEVERITY │ ID      │ FILE            │ LINE │ FINDING                                      │
+├──────────┼─────────┼─────────────────┼──────┼──────────────────────────────────────────────┤
+│ CRITICAL │ IAC-007 │ main.tf         │    6 │ Security Group -- Unrestricted SSH            │
+│ CRITICAL │ IAC-002 │ main.tf         │   14 │ S3 Bucket -- Public ACL                      │
+│ CRITICAL │ IAC-008 │ deployment.yaml │   15 │ Kubernetes -- Privileged Container            │
+│ HIGH     │ IAC-001 │ main.tf         │    8 │ Security Group -- Unrestricted Ingress        │
+│ HIGH     │ IAC-017 │ Dockerfile      │    3 │ Dockerfile -- Curl Pipe to Shell              │
+│ MEDIUM   │ IAC-015 │ Dockerfile      │    1 │ Dockerfile -- Using latest Tag                │
+│ LOW      │ IAC-016 │ Dockerfile      │    2 │ Dockerfile -- ADD Instead of COPY             │
+│ LOW      │ IAC-012 │ deployment.yaml │    5 │ Kubernetes -- Default Namespace               │
+╰──────────┴─────────┴─────────────────┴──────┴──────────────────────────────────────────────╯
+
+Summary: 8 total vulnerabilities
+  🔴 Critical: 3
+  🟠 High:     2
+  🟡 Medium:   1
+  🔵 Low:      2
 ```
 
 ---

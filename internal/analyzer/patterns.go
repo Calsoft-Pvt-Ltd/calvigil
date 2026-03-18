@@ -25,12 +25,14 @@ type PatternRule struct {
 // knownPatterns contains regex rules for common vulnerability patterns across languages.
 var knownPatterns = []PatternRule{
 	// SQL Injection
+	// Requires SQL keywords to be followed by SQL-specific syntax to avoid false
+	// positives on log messages like fmt.Sprintf("Failed to update alias...").
 	{
 		ID:          "SEC-001",
 		Name:        "Potential SQL Injection",
 		Description: "String concatenation or formatting used in SQL query construction. Use parameterized queries instead.",
 		Severity:    models.SeverityHigh,
-		Pattern:     regexp.MustCompile(`(?i)(?:fmt\.Sprintf|format|["\'].*%s.*["\']|["\'].*\+.*["\']).*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)`),
+		Pattern:     regexp.MustCompile(`(?i)(?:fmt\.Sprintf|\.format\s*\(|String\.format|["'].*%[sdvq].*["']|["'].*\+.*["']).*(?:SELECT\s+(?:\*|\w+\s*,).+\bFROM\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b|DROP\s+(?:TABLE|DATABASE|INDEX)\b|ALTER\s+TABLE\b|CREATE\s+(?:TABLE|INDEX|DATABASE)\b)`),
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs"},
 	},
 	{
@@ -38,7 +40,7 @@ var knownPatterns = []PatternRule{
 		Name:        "Potential SQL Injection (string concat)",
 		Description: "SQL query built with string concatenation. Use parameterized queries instead.",
 		Severity:    models.SeverityHigh,
-		Pattern:     regexp.MustCompile(`(?i)(?:query|sql|stmt)\s*(?:=|\+=)\s*["\'].*(?:SELECT|INSERT|UPDATE|DELETE)\b.*["\']\s*\+`),
+		Pattern:     regexp.MustCompile(`(?i)(?:query|sql|stmt)\s*(?:=|\+=)\s*["'].*(?:SELECT\s+(?:\*|\w+\s*,).+\bFROM\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b).*["']\s*\+`),
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
 	},
 

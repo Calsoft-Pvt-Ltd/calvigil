@@ -27,6 +27,15 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Auto-detection: if Ollama is reachable, it's preferred over OpenAI
   - Configure via CLI flags (`--ollama-url`, `--ollama-model`) or config/env vars
 
+- **IaC Scanning** (Infrastructure-as-Code):
+  - 20 built-in rules for Terraform, Kubernetes, Dockerfile, CloudFormation, Docker Compose
+  - No external tools required — pure regex-based misconfiguration detection
+  - **Terraform**: open security groups, public S3 buckets, unencrypted storage, IAM wildcard, SSH exposure
+  - **Kubernetes**: privileged containers, runAsRoot, hostNetwork, hostPID, default namespace
+  - **Dockerfile**: root user, latest tag, ADD vs COPY, curl-pipe-bash
+  - **CloudFormation**: public S3, open ingress rules
+  - Recursive directory walk with concurrent file scanning
+
 - **Binary / SCA Scanning**:
   - Extract embedded dependencies from compiled binaries and archives
   - **Go binaries**: reads `debug/buildinfo` for embedded module info
@@ -151,6 +160,11 @@ calvigil scan --provider ollama --ollama-model llama3
 # Auto-detect: uses Ollama if reachable, otherwise OpenAI
 calvigil scan --provider auto
 
+# Scan IaC files for security misconfigurations
+calvigil scan-iac ./infra/
+calvigil scan-iac ./k8s/ --format json
+calvigil scan-iac . --severity high
+
 # Scan compiled binaries and archives for embedded dependencies
 calvigil scan-binary /path/to/binary
 calvigil scan-binary /path/to/libs/ --format json
@@ -235,6 +249,7 @@ calvigil [command]
 Available Commands:
   scan         Scan a project for security vulnerabilities
   scan-binary  Scan binaries and archives for embedded dependency vulnerabilities
+  scan-iac     Scan Infrastructure-as-Code files for security misconfigurations
   scan-image   Scan a container image for vulnerabilities
   config       Manage scanner configuration
   version     Print the version
@@ -254,6 +269,12 @@ Scan Flags:
   -v, --verbose                 Enable verbose output
 
 Scan-Binary Flags:
+  -f, --format string           Output format: table, json, sarif, cyclonedx, openvex, html, pdf (default "table")
+  -o, --output string           Write output to file (default: stdout)
+  -s, --severity string         Minimum severity: critical, high, medium, low
+  -v, --verbose                 Enable verbose output
+
+Scan-IaC Flags:
   -f, --format string           Output format: table, json, sarif, cyclonedx, openvex, html, pdf (default "table")
   -o, --output string           Write output to file (default: stdout)
   -s, --severity string         Minimum severity: critical, high, medium, low
@@ -393,6 +414,55 @@ For best enrichment coverage:
 | `llama3:8b`, `qwen3:8b` | ~90–95% | Good balance of quality and speed |
 | `codellama:13b`, `mistral:7b` | ~85–95% | Strong for code-focused analysis |
 | `qwen3:1.7b`, `phi3:mini` | ~50–70% | Lightweight but limited JSON reliability |
+
+## IaC Scanning (Infrastructure-as-Code)
+
+Scan Terraform, Kubernetes, Dockerfiles, CloudFormation, and Docker Compose files for security misconfigurations — no external tools needed:
+
+```bash
+# Scan a Terraform directory
+calvigil scan-iac ./infra/
+
+# Scan Kubernetes manifests
+calvigil scan-iac ./k8s/
+
+# Scan a single Dockerfile
+calvigil scan-iac Dockerfile
+
+# JSON output for CI
+calvigil scan-iac . --format json
+
+# Only critical and high
+calvigil scan-iac . --severity high
+
+# SARIF for GitHub Code Scanning
+calvigil scan-iac . --format sarif --output iac.sarif
+```
+
+**Built-in IaC Rules (20 rules):**
+
+| ID | Category | Rule | Severity |
+|----|----------|------|----------|
+| IAC-001 | Terraform | Security Group — Unrestricted Ingress (0.0.0.0/0) | HIGH |
+| IAC-002 | Terraform | S3 Bucket — Public ACL | CRITICAL |
+| IAC-003 | Terraform | S3 Bucket — Encryption Disabled | MEDIUM |
+| IAC-004 | Terraform | IAM Policy — Wildcard Actions ("*") | CRITICAL |
+| IAC-005 | Terraform | RDS — Storage Not Encrypted | HIGH |
+| IAC-006 | Terraform | CloudTrail — Logging Disabled | HIGH |
+| IAC-007 | Terraform | Security Group — Unrestricted SSH (port 22) | CRITICAL |
+| IAC-008 | Kubernetes | Privileged Container | CRITICAL |
+| IAC-009 | Kubernetes | Run As Root (UID 0) | HIGH |
+| IAC-010 | Kubernetes | Missing Resource Limits | MEDIUM |
+| IAC-011 | Kubernetes | Host Network Enabled | HIGH |
+| IAC-012 | Kubernetes | Default Namespace | LOW |
+| IAC-013 | Kubernetes | Host PID Enabled | HIGH |
+| IAC-014 | Dockerfile | Running as Root | MEDIUM |
+| IAC-015 | Dockerfile | Using :latest Tag | MEDIUM |
+| IAC-016 | Dockerfile | ADD Instead of COPY | LOW |
+| IAC-017 | Dockerfile | Curl Pipe to Shell | HIGH |
+| IAC-018 | CloudFormation | Public S3 Bucket | CRITICAL |
+| IAC-019 | CloudFormation | Open Security Group Ingress | HIGH |
+| IAC-020 | Docker Compose | Privileged Mode | CRITICAL |
 
 ## Binary / SCA Scanning
 

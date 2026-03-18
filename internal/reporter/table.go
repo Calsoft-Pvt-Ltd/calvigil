@@ -84,6 +84,13 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 		printEnrichmentDetails(w, semgrepVulns)
 	}
 
+	// IaC misconfiguration findings
+	iacVulns := filterBySource(vulns, models.SourceIaC)
+	if len(iacVulns) > 0 {
+		fmt.Fprintf(w, "\n🏗️  IaC Misconfigurations (%d found)\n\n", len(iacVulns))
+		printCodeTable(w, iacVulns, result.ProjectPath)
+	}
+
 	// Summary
 	fmt.Fprintln(w)
 	printSummary(w, vulns)

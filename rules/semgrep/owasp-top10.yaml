@@ -1,15 +1,18 @@
 rules:
   # ─── SQL Injection ───────────────────────────────────────────────
+  # Each pattern requires SQL keyword + syntax context (e.g. SELECT...FROM,
+  # UPDATE...SET) to avoid false positives on log messages that incidentally
+  # contain SQL keywords like "Failed to update alias...".
   - id: sec-sqli-string-format-go
     pattern-either:
       - pattern: |
-          fmt.Sprintf("... SELECT ...%s...", $INPUT)
+          fmt.Sprintf("... SELECT ... FROM ...%s...", $INPUT)
       - pattern: |
-          fmt.Sprintf("... INSERT ...%s...", $INPUT)
+          fmt.Sprintf("... INSERT INTO ...%s...", $INPUT)
       - pattern: |
-          fmt.Sprintf("... UPDATE ...%s...", $INPUT)
+          fmt.Sprintf("... UPDATE ... SET ...%s...", $INPUT)
       - pattern: |
-          fmt.Sprintf("... DELETE ...%s...", $INPUT)
+          fmt.Sprintf("... DELETE FROM ...%s...", $INPUT)
     message: >
       SQL query built with fmt.Sprintf using untrusted input $INPUT.
       Use parameterized queries instead.
