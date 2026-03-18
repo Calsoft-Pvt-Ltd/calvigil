@@ -15,6 +15,7 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
   - [All Config Keys](#all-config-keys)
 - [Commands Reference](#commands-reference)
   - [scan](#scan)
+  - [scan-binary](#scan-binary)
   - [scan-image](#scan-image)
   - [config set](#config-set)
   - [config get](#config-get)
@@ -64,6 +65,9 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
   - [Prerequisites](#prerequisites)
   - [Usage Examples](#image-scanning-examples)
   - [Supported Ecosystems](#image-supported-ecosystems)
+- [Binary / SCA Scanning](#binary--sca-scanning)
+  - [Supported Binary Types](#supported-binary-types)
+  - [Examples](#binary-scanning-examples)
 - [Supported Ecosystems & Files](#supported-ecosystems--files)
 - [Vulnerability Databases](#vulnerability-databases)
 - [Exit Codes](#exit-codes)
@@ -266,6 +270,31 @@ calvigil scan-image <image> [flags]
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `image` | Yes | Image reference: `nginx:latest`, `docker-archive:image.tar`, `dir:/path` |
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `html`, `pdf` |
+| `--output` | `-o` | stdout | Write output to a file |
+| `--severity` | `-s` | (all) | Minimum severity filter: `critical`, `high`, `medium`, `low` |
+| `--verbose` | `-v` | `false` | Show detailed progress output |
+
+---
+
+### `scan-binary`
+
+Scan compiled binaries and archives for embedded dependency vulnerabilities.
+
+```
+calvigil scan-binary <path> [flags]
+```
+
+**Arguments:**
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `path` | Yes | — | Path to a binary file, archive, or directory to scan recursively |
 
 **Flags:**
 
@@ -1308,6 +1337,69 @@ The image scanner maps syft artifact types to vulnerability ecosystems:
 | `deb` | DEB (Debian) | OSV |
 | `apk` | APK (Alpine) | OSV |
 | `rpm` | RPM (RHEL/CentOS) | OSV |
+
+---
+
+## Binary / SCA Scanning
+
+Scan compiled binaries and archives to extract embedded dependencies and check them for known vulnerabilities — no source code or lock files needed.
+
+### Supported Binary Types
+
+| Type | Extensions | Extraction Method |
+|------|-----------|-------------------|
+| Go binary | any executable | `debug/buildinfo` — reads module info embedded by the Go toolchain |
+| Java archive | `.jar`, `.war`, `.ear` | `pom.properties` (groupId:artifactId), `MANIFEST.MF` (Implementation-Title/Version), Spring Boot `BOOT-INF/lib/` |
+| Python package | `.whl`, `.egg` | `METADATA` / `PKG-INFO` — reads `Name` and `Version` headers |
+
+When scanning a directory, calvigil recursively walks all files and dispatches each to the appropriate scanner based on extension. Files that are not recognized binary types are tested as Go binaries via `debug/buildinfo`.
+
+### Binary Scanning Examples
+
+```bash
+# Scan a compiled Go binary
+calvigil scan-binary ./bin/myapp
+
+# Scan a compiled Go binary with verbose output
+calvigil scan-binary -v /usr/local/bin/calvigil
+
+# Scan a directory of JAR files
+calvigil scan-binary /path/to/libs/
+
+# Scan a Spring Boot uber-JAR
+calvigil scan-binary app.jar --format json
+
+# Scan a Python wheel
+calvigil scan-binary dist/mypackage-1.0.0-py3-none-any.whl
+
+# Filter by severity and write to file
+calvigil scan-binary ./bin/myapp --severity high --output results.json --format json
+
+# Scan with CycloneDX SBOM output
+calvigil scan-binary ./bin/myapp --format cyclonedx --output sbom.json
+```
+
+**Example output (verbose):**
+
+```
+🔍 Binary/SCA Scanning: /usr/local/bin/calvigil
+
+   📄 /usr/local/bin/calvigil — Go binary (9 packages)
+
+🔎 Querying vulnerability databases for 9 packages...
+   ✅ OSV: queried
+   ✅ NVD: queried
+   ✅ GitHub Advisory: queried
+
+📦 Binary Dependency Vulnerabilities (2 found)
+
+╭──────────┬────────────────────┬──────────────────────────────┬─────────┬────────────┬─────────┬───────────────────────────╮
+│ SEVERITY │ ID                 │ PACKAGE                      │ VERSION │ TYPE       │ FIXED   │ SUMMARY                   │
+├──────────┼────────────────────┼──────────────────────────────┼─────────┼────────────┼─────────┼───────────────────────────┤
+│ HIGH     │ CVE-2021-38561     │ golang.org/x/text            │ v0.3.7  │ Transitive │ 0.3.8   │ Panic in language tag      │
+│ HIGH     │ CVE-2020-14040     │ golang.org/x/text            │ v0.3.7  │ Transitive │ 0.3.3   │ Infinite loop in encoding  │
+╰──────────┴────────────────────┴──────────────────────────────┴─────────┴────────────┴─────────┴───────────────────────────╯
+```
 
 ---
 

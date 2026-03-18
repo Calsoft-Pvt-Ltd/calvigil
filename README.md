@@ -27,6 +27,14 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Auto-detection: if Ollama is reachable, it's preferred over OpenAI
   - Configure via CLI flags (`--ollama-url`, `--ollama-model`) or config/env vars
 
+- **Binary / SCA Scanning**:
+  - Extract embedded dependencies from compiled binaries and archives
+  - **Go binaries**: reads `debug/buildinfo` for embedded module info
+  - **Java JARs/WARs/EARs**: parses `pom.properties`, `MANIFEST.MF`, and Spring Boot uber-JAR `BOOT-INF/lib/`
+  - **Python wheels/eggs**: reads `METADATA` / `PKG-INFO` for package name and version
+  - Recursive directory walk with automatic file-type detection
+  - Full vulnerability matching against OSV, NVD, and GitHub Advisory
+
 - **Container Image Scanning**:
   - Scan Docker/OCI images for known vulnerabilities
   - Powered by [syft](https://github.com/anchore/syft) for SBOM extraction
@@ -143,6 +151,10 @@ calvigil scan --provider ollama --ollama-model llama3
 # Auto-detect: uses Ollama if reachable, otherwise OpenAI
 calvigil scan --provider auto
 
+# Scan compiled binaries and archives for embedded dependencies
+calvigil scan-binary /path/to/binary
+calvigil scan-binary /path/to/libs/ --format json
+
 # Scan a container image for vulnerabilities (requires syft)
 calvigil scan-image nginx:latest
 calvigil scan-image python:3.12-slim --format json
@@ -221,9 +233,10 @@ calvigil config get openai-model
 calvigil [command]
 
 Available Commands:
-  scan        Scan a project for security vulnerabilities
-  scan-image  Scan a container image for vulnerabilities
-  config      Manage scanner configuration
+  scan         Scan a project for security vulnerabilities
+  scan-binary  Scan binaries and archives for embedded dependency vulnerabilities
+  scan-image   Scan a container image for vulnerabilities
+  config       Manage scanner configuration
   version     Print the version
   help        Help about any command
 
@@ -238,6 +251,12 @@ Scan Flags:
       --provider string         AI provider: openai, ollama, or auto (default "auto")
       --ollama-url string       Ollama server URL (default: http://localhost:11434)
       --ollama-model string     Ollama model name (e.g. llama3, codellama, mistral)
+  -v, --verbose                 Enable verbose output
+
+Scan-Binary Flags:
+  -f, --format string           Output format: table, json, sarif, cyclonedx, openvex, html, pdf (default "table")
+  -o, --output string           Write output to file (default: stdout)
+  -s, --severity string         Minimum severity: critical, high, medium, low
   -v, --verbose                 Enable verbose output
 
 Scan-Image Flags:
@@ -374,6 +393,37 @@ For best enrichment coverage:
 | `llama3:8b`, `qwen3:8b` | ~90–95% | Good balance of quality and speed |
 | `codellama:13b`, `mistral:7b` | ~85–95% | Strong for code-focused analysis |
 | `qwen3:1.7b`, `phi3:mini` | ~50–70% | Lightweight but limited JSON reliability |
+
+## Binary / SCA Scanning
+
+Scan compiled binaries and archives to extract embedded dependencies and check them for known vulnerabilities:
+
+```bash
+# Scan a compiled Go binary
+calvigil scan-binary ./bin/myapp
+
+# Scan a directory of JARs
+calvigil scan-binary /path/to/libs/ --format json
+
+# Scan a Python wheel
+calvigil scan-binary dist/mypackage-1.0.0-py3-none-any.whl
+
+# Filter by severity
+calvigil scan-binary ./bin/myapp --severity high
+
+# Verbose output
+calvigil scan-binary ./bin/myapp -v
+```
+
+**Supported binary types:**
+
+| Type | Extensions | Extraction Method |
+|------|-----------|-------------------|
+| Go binary | any executable | `debug/buildinfo` — reads embedded module info |
+| Java archive | `.jar`, `.war`, `.ear` | `pom.properties`, `MANIFEST.MF`, Spring Boot `BOOT-INF/lib/` |
+| Python package | `.whl`, `.egg` | `METADATA` / `PKG-INFO` headers |
+
+All extracted packages are matched against OSV, NVD, and GitHub Advisory databases.
 
 ## Container Image Scanning
 
