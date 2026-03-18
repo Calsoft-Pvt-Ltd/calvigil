@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"io"
 	"regexp"
 	"strings"
@@ -19,30 +18,40 @@ func init() {
 var (
 	cargoNameRe    = regexp.MustCompile(`^name\s*=\s*"([^"]+)"`)
 	cargoVersionRe = regexp.MustCompile(`^version\s*=\s*"([^"]+)"`)
+	cargoDepsRe    = regexp.MustCompile(`^dependencies\s*=`)
 )
 
 func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
-	var packages []models.Package
-	scanner := bufio.NewScanner(r)
-
+	// Two-pass approach:
+	// Pass 1 — collect all packages and their dependency lists.
+	type cargoPkg struct {
+		name    string
+		version string
+		deps    []string // dependency names
+	}
+	var pkgs []cargoPkg
 	var name, version string
+	var deps []string
 	inPackage := false
+	inDeps := false
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
 
 		if line == "[[package]]" {
-			// Save previous package if complete
 			if inPackage && name != "" && version != "" {
-				packages = append(packages, models.Package{
-					Name:      name,
-					Version:   version,
-					Ecosystem: models.EcosystemCrates,
-					FilePath:  filePath,
-				})
+				pkgs = append(pkgs, cargoPkg{name: name, version: version, deps: deps})
 			}
 			name, version = "", ""
+			deps = nil
 			inPackage = true
+			inDeps = false
 			continue
 		}
 
@@ -52,20 +61,53 @@ func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package,
 
 		if m := cargoNameRe.FindStringSubmatch(line); len(m) == 2 {
 			name = m[1]
+			inDeps = false
 		} else if m := cargoVersionRe.FindStringSubmatch(line); len(m) == 2 {
 			version = m[1]
+			inDeps = false
+		} else if cargoDepsRe.MatchString(line) {
+			inDeps = true
+		} else if inDeps {
+			// Parse dependency entries like: "serde 1.0.0",
+			trimmed := strings.Trim(line, " \t\",[]")
+			if trimmed != "" && trimmed != "]" {
+				parts := strings.Fields(trimmed)
+				if len(parts) >= 1 {
+					deps = append(deps, parts[0])
+				}
+			}
+			if strings.Contains(line, "]") {
+				inDeps = false
+			}
+		}
+	}
+	if inPackage && name != "" && version != "" {
+		pkgs = append(pkgs, cargoPkg{name: name, version: version, deps: deps})
+	}
+
+	// Pass 2 — figure out which packages are direct (depended on by the first/root package)
+	// and which are transitive.
+	directNames := make(map[string]bool)
+	if len(pkgs) > 0 {
+		// The root package is typically the first [[package]] entry.
+		for _, d := range pkgs[0].deps {
+			directNames[d] = true
 		}
 	}
 
-	// Don't forget the last package
-	if inPackage && name != "" && version != "" {
+	var packages []models.Package
+	for i, p := range pkgs {
+		if i == 0 {
+			continue // skip the root package itself
+		}
 		packages = append(packages, models.Package{
-			Name:      name,
-			Version:   version,
+			Name:      p.name,
+			Version:   p.version,
 			Ecosystem: models.EcosystemCrates,
 			FilePath:  filePath,
+			Indirect:  !directNames[p.name],
 		})
 	}
 
-	return packages, scanner.Err()
+	return packages, nil
 }

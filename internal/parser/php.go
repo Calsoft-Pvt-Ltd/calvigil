@@ -3,6 +3,8 @@ package parser
 import (
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
@@ -24,11 +26,34 @@ type composerPkg struct {
 	Version string `json:"version"`
 }
 
+// composerJSON represents the root composer.json with require/require-dev.
+type composerJSON struct {
+	Require    map[string]string `json:"require"`
+	RequireDev map[string]string `json:"require-dev"`
+}
+
 func (p *ComposerLockParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
 	var lock composerLock
 	if err := json.NewDecoder(r).Decode(&lock); err != nil {
 		return nil, err
 	}
+
+	// Try reading composer.json from the same directory to identify direct deps.
+	directNames := make(map[string]bool)
+	jsonPath := filepath.Join(filepath.Dir(filePath), "composer.json")
+	if f, err := os.Open(jsonPath); err == nil {
+		var cj composerJSON
+		if err := json.NewDecoder(f).Decode(&cj); err == nil {
+			for name := range cj.Require {
+				directNames[name] = true
+			}
+			for name := range cj.RequireDev {
+				directNames[name] = true
+			}
+		}
+		f.Close()
+	}
+	hasDirect := len(directNames) > 0
 
 	var packages []models.Package
 	seen := make(map[string]bool)
@@ -55,6 +80,7 @@ func (p *ComposerLockParser) Parse(r io.Reader, filePath string) ([]models.Packa
 				Version:   version,
 				Ecosystem: models.EcosystemPHP,
 				FilePath:  filePath,
+				Indirect:  hasDirect && !directNames[pkg.Name],
 			})
 		}
 	}

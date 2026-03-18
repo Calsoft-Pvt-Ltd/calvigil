@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -84,11 +86,119 @@ func (p *PipfileLockParser) Parse(r io.Reader, filePath string) ([]models.Packag
 // PoetryLockParser parses poetry.lock TOML-like files.
 type PoetryLockParser struct{}
 
+// pyprojectDepRe matches dependency lines like: requests = "^2.28" or flask = {version = "..."}
+var pyprojectDepRe = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9._-]*)\s*=`)
+
+// readPyprojectDirectDeps reads pyproject.toml from dir and returns normalized direct dependency names.
+func readPyprojectDirectDeps(dir string) map[string]bool {
+	names := make(map[string]bool)
+	f, err := os.Open(filepath.Join(dir, "pyproject.toml"))
+	if err != nil {
+		return names
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	inDeps := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Detect relevant sections
+		if strings.HasPrefix(trimmed, "[") {
+			lower := strings.ToLower(trimmed)
+			inDeps = lower == "[tool.poetry.dependencies]" ||
+				lower == "[tool.poetry.dev-dependencies]" ||
+				lower == "[project.dependencies]" ||
+				lower == "[project]"
+			// [project] section has "dependencies = [...]" list syntax
+			continue
+		}
+
+		if !inDeps {
+			continue
+		}
+
+		// PEP 621 list syntax: dependencies = ["requests>=2.28", ...]
+		if strings.HasPrefix(trimmed, "dependencies") && strings.Contains(trimmed, "[") {
+			// Parse inline list items
+			for _, item := range extractBracketItems(trimmed) {
+				names[normalizePyName(item)] = true
+			}
+			// Handle multi-line list
+			if !strings.Contains(trimmed, "]") {
+				for scanner.Scan() {
+					inner := strings.TrimSpace(scanner.Text())
+					if inner == "]" || strings.HasSuffix(inner, "]") {
+						for _, item := range extractBracketItems(inner) {
+							names[normalizePyName(item)] = true
+						}
+						break
+					}
+					names[normalizePyName(inner)] = true
+				}
+			}
+			continue
+		}
+
+		// Poetry TOML key = value style
+		if m := pyprojectDepRe.FindStringSubmatch(trimmed); len(m) == 2 {
+			name := strings.ToLower(m[1])
+			if name != "python" {
+				names[name] = true
+			}
+		}
+	}
+	return names
+}
+
+// extractBracketItems parses items from a TOML/PEP 621 bracket list line.
+func extractBracketItems(line string) []string {
+	start := strings.Index(line, "[")
+	end := strings.Index(line, "]")
+	if start < 0 {
+		start = 0
+	}
+	if end < 0 {
+		end = len(line)
+	}
+	inner := line[start+1 : end]
+	var items []string
+	for _, part := range strings.Split(inner, ",") {
+		part = strings.TrimSpace(part)
+		part = strings.Trim(part, "\"' ")
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
+}
+
+// normalizePyName extracts the package name from a PEP 508 requirement string and normalizes it.
+func normalizePyName(s string) string {
+	s = strings.Trim(s, "\"', ")
+	// Split on version specifiers
+	for _, sep := range []string{">=", "<=", "!=", "~=", "==", ">", "<", ";"} {
+		if idx := strings.Index(s, sep); idx > 0 {
+			s = s[:idx]
+		}
+	}
+	// Split on extras bracket
+	if idx := strings.Index(s, "["); idx > 0 {
+		s = s[:idx]
+	}
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
 func (p *PoetryLockParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
+
+	// Read companion pyproject.toml for direct dependency identification.
+	directNames := readPyprojectDirectDeps(filepath.Dir(filePath))
+	hasDirect := len(directNames) > 0
 
 	var packages []models.Package
 	lines := strings.Split(string(data), "\n")
@@ -107,6 +217,7 @@ func (p *PoetryLockParser) Parse(r io.Reader, filePath string) ([]models.Package
 					Version:   currentVersion,
 					Ecosystem: models.EcosystemPyPI,
 					FilePath:  filePath,
+					Indirect:  hasDirect && !directNames[strings.ToLower(currentName)],
 				})
 			}
 			currentName = ""
@@ -131,6 +242,7 @@ func (p *PoetryLockParser) Parse(r io.Reader, filePath string) ([]models.Package
 			Version:   currentVersion,
 			Ecosystem: models.EcosystemPyPI,
 			FilePath:  filePath,
+			Indirect:  hasDirect && !directNames[strings.ToLower(currentName)],
 		})
 	}
 

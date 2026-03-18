@@ -106,21 +106,26 @@ func printDepTable(w io.Writer, vulns []models.Vulnerability) {
 	t.SetOutputMirror(w)
 	t.SetStyle(table.StyleRounded)
 
-	t.AppendHeader(table.Row{"Severity", "ID", "Package", "Version", "Fixed In", "Summary"})
+	t.AppendHeader(table.Row{"Severity", "ID", "Package", "Version", "Type", "Fixed In", "Summary"})
 
 	for _, v := range vulns {
+		depType := "Direct"
+		if v.Package.Indirect {
+			depType = "Transitive"
+		}
 		t.AppendRow(table.Row{
 			colorSeverity(v.Severity),
 			v.ID,
 			v.Package.Name,
 			v.Package.Version,
+			depType,
 			orDash(v.FixedIn),
 			truncate(v.Summary, 60),
 		})
 	}
 
 	t.SetColumnConfigs([]table.ColumnConfig{
-		{Number: 6, WidthMax: 60},
+		{Number: 7, WidthMax: 60},
 	})
 
 	t.Render()

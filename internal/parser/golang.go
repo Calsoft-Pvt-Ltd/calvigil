@@ -27,14 +27,12 @@ func (p *GoModParser) Parse(r io.Reader, filePath string) ([]models.Package, err
 
 	var packages []models.Package
 	for _, req := range f.Require {
-		if req.Indirect {
-			continue // skip indirect dependencies for now
-		}
 		packages = append(packages, models.Package{
 			Name:      req.Mod.Path,
 			Version:   req.Mod.Version,
 			Ecosystem: models.EcosystemGo,
 			FilePath:  filePath,
+			Indirect:  req.Indirect,
 		})
 	}
 

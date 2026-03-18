@@ -42,6 +42,10 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
   - [PURL (Package URL)](#purl-package-url)
   - [CycloneDX v1.5](#cyclonedx-v15)
   - [OpenVEX v0.2.0](#openvex-v020)
+- [Transitive Dependency Scanning](#transitive-dependency-scanning)
+  - [How It Works](#how-it-works-1)
+  - [Output Indicators](#output-indicators)
+  - [Conservative Defaults](#conservative-defaults)
 - [AI Use Cases](#ai-use-cases)
   - [Detecting SQL Injection](#detecting-sql-injection)
   - [Finding Hardcoded Secrets](#finding-hardcoded-secrets)
@@ -344,13 +348,13 @@ calvigil scan --skip-ai /path/to/node-project
 
 📦 Dependency Vulnerabilities (3 found)
 
-╭──────────┬────────────────────┬──────────────┬─────────┬─────────┬────────────────────────────────────────╮
-│ SEVERITY │ ID                 │ PACKAGE      │ VERSION │ FIXED   │ SUMMARY                                │
-├──────────┼────────────────────┼──────────────┼─────────┼─────────┼────────────────────────────────────────┤
-│ CRITICAL │ GHSA-xxxx-xxxx     │ lodash       │ 4.17.15 │ 4.17.21 │ Prototype Pollution in lodash           │
-│ HIGH     │ CVE-2023-xxxxx     │ express      │ 4.17.1  │ 4.17.3  │ Open redirect vulnerability             │
-│ MEDIUM   │ CVE-2022-xxxxx     │ minimatch    │ 3.0.4   │ 3.1.2   │ ReDoS vulnerability                     │
-╰──────────┴────────────────────┴──────────────┴─────────┴─────────┴────────────────────────────────────────╯
+╭──────────┬────────────────────┬──────────────┬─────────┬────────────┬─────────┬────────────────────────────────────────╮
+│ SEVERITY │ ID                 │ PACKAGE      │ VERSION │ TYPE       │ FIXED   │ SUMMARY                                │
+├──────────┼────────────────────┼──────────────┼─────────┼────────────┼─────────┼────────────────────────────────────────┤
+│ CRITICAL │ GHSA-xxxx-xxxx     │ lodash       │ 4.17.15 │ Direct     │ 4.17.21 │ Prototype Pollution in lodash           │
+│ HIGH     │ CVE-2023-xxxxx     │ express      │ 4.17.1  │ Direct     │ 4.17.3  │ Open redirect vulnerability             │
+│ MEDIUM   │ CVE-2022-xxxxx     │ minimatch    │ 3.0.4   │ Transitive │ 3.1.2   │ ReDoS vulnerability                     │
+╰──────────┴────────────────────┴──────────────┴─────────┴────────────┴─────────┴────────────────────────────────────────╯
 
 Summary: 3 total vulnerabilities
   🔴 Critical: 1
@@ -379,7 +383,7 @@ calvigil scan --skip-ai -v /path/to/go-project
 
 📦 Parsing dependencies...
    Parsed 5 packages from go.mod
-   Total: 5 packages
+   Total: 5 packages (3 direct, 2 transitive)
 
 🔎 Querying vulnerability databases...
    Skipping NVD (no API key configured)
@@ -695,11 +699,11 @@ calvigil scan -v /path/to/project
 
 📦 Dependency Vulnerabilities (1 found)
 
-╭──────────┬────────────────────┬──────────────┬─────────┬─────────┬──────────────────────────────╮
-│ SEVERITY │ ID                 │ PACKAGE      │ VERSION │ FIXED   │ SUMMARY                      │
-├──────────┼────────────────────┼──────────────┼─────────┼─────────┼──────────────────────────────┤
-│ HIGH     │ CVE-2023-xxxxx     │ pyyaml       │ 5.3.1   │ 6.0.1   │ Arbitrary code execution     │
-╰──────────┴────────────────────┴──────────────┴─────────┴─────────┴──────────────────────────────╯
+╭──────────┬────────────────────┬──────────────┬─────────┬────────┬─────────┬──────────────────────────────╮
+│ SEVERITY │ ID                 │ PACKAGE      │ VERSION │ TYPE   │ FIXED   │ SUMMARY                      │
+├──────────┼────────────────────┼──────────────┼─────────┼────────┼─────────┼──────────────────────────────┤
+│ HIGH     │ CVE-2023-xxxxx     │ pyyaml       │ 5.3.1   │ Direct │ 6.0.1   │ Arbitrary code execution     │
+╰──────────┴────────────────────┴──────────────┴─────────┴────────┴─────────┴──────────────────────────────╯
 
 🔬 Code Analysis Findings (3 found)
 
@@ -762,9 +766,9 @@ When Semgrep is not installed, the scanner gracefully skips SAST analysis and co
 
 ### Bundled Rule Packs
 
-The scanner ships with **30 security rules** in `rules/semgrep/`:
+The scanner ships with **31 security rules** in `rules/semgrep/`:
 
-**`owasp-top10.yaml`** — 18 rules covering OWASP Top 10:
+**`owasp-top10.yaml`** — 20 rules covering OWASP Top 10:
 
 | Category | Languages | Rules |
 |----------|-----------|-------|
@@ -778,7 +782,7 @@ The scanner ships with **30 security rules** in `rules/semgrep/`:
 | Insecure Deserialization | Python, Java | `pickle.loads`, `ObjectInputStream` |
 | SSRF | Go, Python | Unvalidated URL from user input |
 
-**`language-specific.yaml`** — 12 language-specific rules:
+**`language-specific.yaml`** — 11 language-specific rules:
 
 | Language | Rules |
 |----------|-------|
@@ -786,6 +790,10 @@ The scanner ships with **30 security rules** in `rules/semgrep/`:
 | Python | Flask debug mode, bind to `0.0.0.0`, `assert` for auth checks |
 | JavaScript/TypeScript | `eval()`, CORS wildcard `*`, JWT without verification |
 | Java | XXE-vulnerable XML parser, ECB mode encryption |
+| Rust | `unsafe` block detection (SEC-013) |
+| C/C++ | Buffer overflow (`strcpy`, `gets`, `sprintf`) (SEC-014), format string vulnerabilities (SEC-015) |
+| PHP | File inclusion with user input (`include`/`require`) (SEC-016) |
+| Ruby | Mass assignment vulnerabilities (SEC-017) |
 
 ### Custom Rules
 
@@ -838,6 +846,10 @@ All packages are identified using standard [Package URLs](https://github.com/pac
 | npm (unscoped) | `npm` | `pkg:npm/ajv@6.12.6` |
 | PyPI | `pypi` | `pkg:pypi/requests@2.28.0` |
 | Maven | `maven` | `pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0` |
+| Rust | `cargo` | `pkg:cargo/serde@1.0.180` |
+| Ruby | `gem` | `pkg:gem/rails@7.0.4` |
+| PHP | `composer` | `pkg:composer/monolog/monolog@3.5.0` |
+| C/C++ | `conan` | `pkg:conan/openssl@3.1.0` |
 
 PURLs are auto-generated from package metadata and appear in:
 - JSON output: `package.purl` field
@@ -885,6 +897,66 @@ VEX status is derived from AI enrichment confidence:
 | N/A | `affected` | Default when no AI enrichment |
 
 Compatible with the [OpenVEX](https://openvex.dev/) ecosystem and tools like [vexctl](https://github.com/openvex/vexctl).
+
+---
+
+## Transitive Dependency Scanning
+
+Calvigil distinguishes **direct** dependencies (explicitly declared in your manifest) from **transitive** (indirect) dependencies pulled in by your direct dependencies. This helps prioritize remediation — a vulnerability in a direct dependency you control is more actionable than one buried deep in the transitive tree.
+
+### How It Works
+
+Each parser uses the best available signal for the ecosystem:
+
+| Ecosystem | Detection Method |
+|-----------|------------------|
+| **Go** | `// indirect` comment in `go.mod` |
+| **npm** (v2/v3) | `node_modules/` nesting depth — depth 1 = direct, depth 2+ = transitive |
+| **npm** (v1) | Recursive tree walk of nested `dependencies` objects |
+| **Rust** | First `[[package]]` in `Cargo.lock` is root; its `dependencies` list = direct; all others = transitive |
+| **Ruby** | Indentation in `Gemfile.lock` — 4-space = direct gem, 6+ space = transitive sub-dependency |
+| **PHP** | Cross-references `composer.json` `require`/`require-dev` fields; packages not listed = transitive |
+| **Python** (poetry/uv) | Cross-references `pyproject.toml` dependency declarations |
+| **Python** (requirements.txt, Pipfile.lock) | All treated as direct (conservative default — these formats don't encode hierarchy) |
+| **Java** | All treated as direct (Maven/Gradle resolution requires build tool execution) |
+
+### Output Indicators
+
+**Terminal table** — a "Type" column shows "Direct" or "Transitive":
+
+```
+╭──────────┬────────────────────┬──────────────┬─────────┬────────────┬─────────┬──────────────────────────╮
+│ SEVERITY │ ID                 │ PACKAGE      │ VERSION │ TYPE       │ FIXED   │ SUMMARY                  │
+├──────────┼────────────────────┼──────────────┼─────────┼────────────┼─────────┼──────────────────────────┤
+│ HIGH     │ GHSA-xxxx-xxxx     │ lodash       │ 4.17.15 │ Direct     │ 4.17.21 │ Prototype Pollution      │
+│ MEDIUM   │ CVE-2022-xxxxx     │ cookie       │ 0.4.1   │ Transitive │ 0.5.0   │ Cookie parsing flaw      │
+╰──────────┴────────────────────┴──────────────┴─────────┴────────────┴─────────┴──────────────────────────╯
+```
+
+**Verbose mode** — package summary includes direct/transitive breakdown:
+
+```
+📦 Parsing dependencies...
+   Total: 142 packages (38 direct, 104 transitive)
+```
+
+**Dependency path** — transitive packages are tagged in the dep path:
+
+```
+Dep Path: my-project → package-lock.json → cookie@0.4.1 [transitive]
+```
+
+**HTML report** — a gray "transitive" badge appears next to the severity badge on transitive dependency findings.
+
+**JSON output** — each package includes `"indirect": true` or `"indirect": false`.
+
+**CycloneDX** — direct dependencies use `"scope": "required"`, transitive use `"scope": "optional"` (per CycloneDX spec).
+
+**SARIF** — transitive packages are annotated as `(transitive)` in the result message.
+
+### Conservative Defaults
+
+When the companion manifest (e.g., `composer.json`, `pyproject.toml`) is not found, or the lock file format doesn't encode hierarchy (e.g., `requirements.txt`), all packages default to **direct**. This avoids false transitive classifications.
 
 ---
 
@@ -981,16 +1053,16 @@ The scanner detects vulnerabilities mapped to the OWASP Top 10:
 
 | OWASP Category | Detection Rules |
 |----------------|----------------|
-| A01: Broken Access Control | AI analysis of auth/middleware patterns |
+| A01: Broken Access Control | AI analysis of auth/middleware patterns, SEC-017 (Ruby mass assignment) |
 | A02: Cryptographic Failures | SEC-007 (weak MD5/SHA1), SEC-005 (hardcoded secrets), SEC-006 (AWS keys) |
-| A03: Injection | SEC-001/SEC-002 (SQL injection), SEC-003 (command injection), SEC-008 (XSS) |
-| A04: Insecure Design | AI analysis of architectural patterns |
+| A03: Injection | SEC-001/SEC-002 (SQL injection), SEC-003 (command injection), SEC-008 (XSS), SEC-015 (C format string), SEC-016 (PHP file inclusion) |
+| A04: Insecure Design | AI analysis of architectural patterns, SEC-013 (unsafe Rust) |
 | A05: Security Misconfiguration | SEC-010 (TLS disabled), SEC-012 (CORS wildcard), SEC-009 (HTTP) |
-| A06: Vulnerable Components | Dependency scanning (OSV, NVD, GitHub Advisory) |
+| A06: Vulnerable Components | Dependency scanning (OSV, NVD, GitHub Advisory) with direct/transitive classification |
 | A07: Auth Failures | AI analysis of authentication code |
 | A08: Data Integrity | SEC-011 (insecure deserialization) |
 | A09: Logging Failures | AI analysis of logging practices |
-| A10: SSRF | SEC-004 (path traversal), AI analysis of URL handling |
+| A10: SSRF | SEC-004 (path traversal), SEC-014 (C buffer overflow), AI analysis of URL handling |
 
 ---
 
@@ -1021,11 +1093,11 @@ When an OpenAI API key is configured, the scanner automatically enriches **all**
 ```
 📦 Dependency Vulnerabilities (1 found)
 
-╭──────────┬────────────────┬────────┬────────┬─────────┬──────────────────────────╮
-│ Severity │ ID             │ Package│ Version│ Fixed In│ Summary                  │
-├──────────┼────────────────┼────────┼────────┼─────────┼──────────────────────────┤
-│ HIGH     │ GHSA-xxxx-xxxx │ lodash │ 4.17.15│ 4.17.21 │ Prototype Pollution      │
-╰──────────┴────────────────┴────────┴────────┴─────────┴──────────────────────────╯
+╭──────────┬────────────────┬────────┬────────┬────────┬─────────┬──────────────────────────╮
+│ Severity │ ID             │ Package│ Version│ Type   │ Fixed In│ Summary                  │
+├──────────┼────────────────┼────────┼────────┼────────┼─────────┼──────────────────────────┤
+│ HIGH     │ GHSA-xxxx-xxxx │ lodash │ 4.17.15│ Direct │ 4.17.21 │ Prototype Pollution      │
+╰──────────┴────────────────┴────────┴────────┴────────┴─────────┴──────────────────────────╯
 
   🤖 AI Enrichment Details:
 

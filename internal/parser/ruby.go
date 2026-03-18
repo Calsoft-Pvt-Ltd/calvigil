@@ -17,7 +17,8 @@ func init() {
 }
 
 // gemLineRe matches lines like "    actionpack (7.0.4)" in the SPECS section.
-var gemLineRe = regexp.MustCompile(`^\s{4}([a-zA-Z0-9][a-zA-Z0-9._-]*)\s+\(([^)]+)\)`)
+// 4-space indent = direct gem, 6-space indent = transitive sub-dependency.
+var gemLineRe = regexp.MustCompile(`^(\s{4,})([a-zA-Z0-9][a-zA-Z0-9._-]*)\s+\(([^)]+)\)`)
 
 func (p *GemfileLockParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
 	var packages []models.Package
@@ -49,13 +50,15 @@ func (p *GemfileLockParser) Parse(r io.Reader, filePath string) ([]models.Packag
 			continue
 		}
 
-		// Match gem entries (4-space indented = top-level gem, 6+ = sub-dependencies)
-		if m := gemLineRe.FindStringSubmatch(line); len(m) == 3 {
+		// Match gem entries — check indentation depth for direct vs transitive
+		if m := gemLineRe.FindStringSubmatch(line); len(m) == 4 {
+			indent := len(m[1])
 			packages = append(packages, models.Package{
-				Name:      m[1],
-				Version:   m[2],
+				Name:      m[2],
+				Version:   m[3],
 				Ecosystem: models.EcosystemRubyGem,
 				FilePath:  filePath,
+				Indirect:  indent > 4, // 4 spaces = direct; 6+ spaces = transitive
 			})
 		}
 	}

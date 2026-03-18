@@ -201,7 +201,11 @@ func severityToSARIFLevel(s models.Severity) string {
 func formatSARIFMessage(v models.Vulnerability) string {
 	msg := v.Summary
 	if v.Package.Name != "" {
-		msg += " in " + v.Package.Name + "@" + v.Package.Version
+		pkg := v.Package.Name + "@" + v.Package.Version
+		if v.Package.Indirect {
+			pkg += " (transitive)"
+		}
+		msg += " in " + pkg
 	}
 	if v.FixedIn != "" {
 		msg += " (fix available: " + v.FixedIn + ")"

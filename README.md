@@ -34,8 +34,8 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Full vulnerability matching against OSV, NVD, and GitHub Advisory
 
 - **SAST Engine — Semgrep CE Integration** with custom rule packs:
-  - 30 bundled security rules covering OWASP Top 10 + language-specific patterns
-  - Custom rule packs for Go, Python, Java, and JavaScript/TypeScript
+  - 31 bundled security rules covering OWASP Top 10 + language-specific patterns
+  - Custom rule packs for Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, and C/C++
   - Bring your own rules with `--semgrep-rules`
 
 - **Standards Compliance**:
@@ -43,11 +43,25 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - **CycloneDX v1.5** — SBOM/VDR format with components, vulnerabilities, and PURLs
   - **OpenVEX v0.2.0** — Vulnerability Exploitability Exchange with status and justification
 
+- **Transitive Dependency Scanning**:
+  - Distinguishes direct vs transitive (indirect) dependencies across all ecosystems
+  - Go: `// indirect` comment detection in `go.mod`
+  - npm: nesting depth (v2/v3) and recursive tree walk (v1)
+  - Rust: root crate dependency list analysis in `Cargo.lock`
+  - Ruby: indentation depth in `Gemfile.lock` (4-space direct, 6+ transitive)
+  - PHP: companion `composer.json` cross-reference
+  - Python: companion `pyproject.toml` cross-reference for `poetry.lock`/`uv.lock`
+  - Transitive badge in HTML reports, `[transitive]` marker in dependency paths
+
 - **Multi-Ecosystem Support** (grouped output with ecosystem icons):
   - **Go** 🐹: `go.mod`
   - **Java** ☕: `pom.xml`, `build.gradle`, `build.gradle.kts`
   - **Python** 🐍: `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `uv.lock`
   - **Node.js** 📗: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`
+  - **Rust** 🦀: `Cargo.lock`
+  - **Ruby** 💎: `Gemfile.lock`
+  - **PHP** 🐘: `composer.lock`
+  - **C/C++** ⚙️: `conan.lock`
 
 - **Multiple Output Formats**: Terminal table, JSON, SARIF v2.1.0, CycloneDX v1.5, OpenVEX v0.2.0, HTML, PDF
 
@@ -247,8 +261,8 @@ Scan-Image Flags:
                     └──────────────┘                     └──────────────┘
 ```
 
-1. **Detect**: Walks the project directory to find dependency manifest files (go.mod, pom.xml, package-lock.json, etc.)
-2. **Parse & PURL**: Extracts package names and versions, generates Package URLs (PURLs) per the [PURL spec](https://github.com/package-url/purl-spec)
+1. **Detect**: Walks the project directory to find dependency manifest files (go.mod, pom.xml, package-lock.json, Cargo.lock, Gemfile.lock, composer.lock, conan.lock, etc.)
+2. **Parse & PURL**: Extracts package names and versions, classifies direct vs transitive dependencies, generates Package URLs (PURLs) per the [PURL spec](https://github.com/package-url/purl-spec)
 3. **Match**: Queries OSV, NVD, and GitHub Advisory databases for known CVEs
 4. **Analyze**: Runs regex pattern matching + AI analysis (OpenAI or Ollama) on source code
 5. **Semgrep SAST**: Runs Semgrep CE with bundled or custom rule packs for static analysis
@@ -271,6 +285,11 @@ Scan-Image Flags:
 | SEC-010 | TLS Verification Disabled | CRITICAL |
 | SEC-011 | Insecure Deserialization | HIGH |
 | SEC-012 | Permissive CORS | MEDIUM |
+| SEC-013 | Unsafe Rust (`unsafe` blocks) | MEDIUM |
+| SEC-014 | C/C++ Buffer Overflow (`strcpy`, `gets`, `sprintf`) | HIGH |
+| SEC-015 | C/C++ Format String Vulnerability | HIGH |
+| SEC-016 | PHP File Inclusion (`include`/`require` with user input) | HIGH |
+| SEC-017 | Ruby Mass Assignment | MEDIUM |
 
 ## Semgrep CE Integration
 
@@ -290,8 +309,8 @@ calvigil scan --skip-semgrep /path/to/project
 ```
 
 **Bundled rule packs** (in `rules/semgrep/`):
-- `owasp-top10.yaml` — 18 rules: SQL injection, command injection, path traversal, hardcoded secrets, insecure TLS, weak crypto, XSS, insecure deserialization, SSRF
-- `language-specific.yaml` — 12 rules: Go (unsafe pointer, HTTP no timeout, defer in loop), Python (Flask debug, bind 0.0.0.0), JS (eval, CORS wildcard, JWT no verify), Java (XXE, ECB mode)
+- `owasp-top10.yaml` — 20 rules: SQL injection, command injection, path traversal, hardcoded secrets, insecure TLS, weak crypto, XSS, insecure deserialization, SSRF
+- `language-specific.yaml` — 11 rules: Go (unsafe pointer, HTTP no timeout, defer in loop), Python (Flask debug, bind 0.0.0.0), JS (eval, CORS wildcard, JWT no verify), Java (XXE, ECB mode), plus Rust, C/C++, PHP, Ruby patterns
 
 ## Standards & Output Formats
 
@@ -315,6 +334,10 @@ All packages are identified using [PURL](https://github.com/package-url/purl-spe
 | npm | `pkg:npm/@babel/helpers@7.15.4` |
 | PyPI | `pkg:pypi/requests@2.28.0` |
 | Maven | `pkg:maven/org.apache.logging.log4j/log4j-core@2.17.0` |
+| Rust | `pkg:cargo/serde@1.0.180` |
+| Ruby | `pkg:gem/rails@7.0.4` |
+| PHP | `pkg:composer/monolog/monolog@3.5.0` |
+| C/C++ | `pkg:conan/openssl@3.1.0` |
 
 ## Ollama (Local LLM) Support
 

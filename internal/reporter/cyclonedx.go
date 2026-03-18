@@ -129,6 +129,11 @@ func (r *CycloneDXReporter) Report(result *models.ScanResult, w io.Writer) error
 				Version: v.Package.Version,
 				PURL:    v.Package.PURL,
 			}
+			if v.Package.Indirect {
+				comp.Scope = "optional"
+			} else {
+				comp.Scope = "required"
+			}
 			componentMap[key] = comp
 		}
 	}

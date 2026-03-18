@@ -183,7 +183,15 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 	}
 
 	if s.opts.Verbose {
-		fmt.Fprintf(os.Stderr, "   Total: %d packages\n\n", len(allPackages))
+		direct, transitive := 0, 0
+		for _, p := range allPackages {
+			if p.Indirect {
+				transitive++
+			} else {
+				direct++
+			}
+		}
+		fmt.Fprintf(os.Stderr, "   Total: %d packages (%d direct, %d transitive)\n\n", len(allPackages), direct, transitive)
 		fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
 	}
 
@@ -364,7 +372,11 @@ func populateDepPaths(vulns []models.Vulnerability, projectPath string) {
 		if manifest == "" || manifest == "." {
 			manifest = string(pkg.Ecosystem)
 		}
-		vulns[i].DepPath = projectName + " → " + manifest + " → " + pkg.Name + "@" + pkg.Version
+		depLabel := pkg.Name + "@" + pkg.Version
+		if pkg.Indirect {
+			depLabel += " [transitive]"
+		}
+		vulns[i].DepPath = projectName + " → " + manifest + " → " + depLabel
 	}
 }
 

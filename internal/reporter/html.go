@@ -70,6 +70,7 @@ type htmlVuln struct {
 	Reachable     string
 	Source        string
 	PURL          string
+	IsTransitive  bool
 	Enrichment    *htmlEnrichment
 }
 
@@ -207,6 +208,7 @@ func toHTMLVuln(v models.Vulnerability, projectPath string) htmlVuln {
 		Reachable:     v.Reachable,
 		Source:        string(v.Source),
 		PURL:          v.Package.PURL,
+		IsTransitive:  v.Package.Indirect,
 	}
 
 	if v.AIEnrichment != nil {
@@ -581,6 +583,7 @@ const htmlTemplate = `<!DOCTYPE html>
     <div class="vuln-card sev-{{.SeverityClass}}">
       <div class="vuln-card-header">
         <span class="badge {{.SeverityClass}}">{{.Severity}}</span>
+        {{if .IsTransitive}}<span class="badge" style="background:#6c757d;color:#fff;font-size:0.7rem;padding:2px 8px;border-radius:4px">transitive</span>{{end}}
         <span class="vuln-id">{{.ID}}</span>
         {{if .Score}}<span style="font-size:0.8rem;color:var(--muted)">CVSS {{.Score}}</span>{{end}}
       </div>

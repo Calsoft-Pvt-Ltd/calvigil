@@ -21,11 +21,19 @@ func init() {
 }
 
 type npmLockfile struct {
-	Packages map[string]npmPackage `json:"packages"`
+	Packages     map[string]npmPackage `json:"packages"`
+	Dependencies map[string]npmDep     `json:"dependencies"` // v1 format
 }
 
 type npmPackage struct {
 	Version string `json:"version"`
+	Dev     bool   `json:"dev"`
+}
+
+type npmDep struct {
+	Version      string            `json:"version"`
+	Requires     map[string]string `json:"requires"`
+	Dependencies map[string]npmDep `json:"dependencies"` // nested = transitive
 }
 
 func (p *NpmLockParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
@@ -34,27 +42,71 @@ func (p *NpmLockParser) Parse(r io.Reader, filePath string) ([]models.Package, e
 		return nil, err
 	}
 
-	var packages []models.Package
-	for path, pkg := range lock.Packages {
-		// Skip the root package (empty key)
-		if path == "" {
-			continue
+	// v2/v3: use "packages" (flat map, path nesting depth determines direct vs transitive)
+	if len(lock.Packages) > 0 {
+		// Collect top-level direct dependency names from root package's deps
+		directNames := make(map[string]bool)
+		if root, ok := lock.Packages[""]; ok {
+			// The root entry doesn't expose a deps list in the flat format,
+			// so top-level is identified by path depth: "node_modules/name" (one level).
+			_ = root
 		}
-		// Extract package name from path like "node_modules/express"
-		name := path
-		if idx := strings.LastIndex(path, "node_modules/"); idx != -1 {
-			name = path[idx+len("node_modules/"):]
+
+		var packages []models.Package
+		for path, pkg := range lock.Packages {
+			if path == "" {
+				continue
+			}
+			name := path
+			if idx := strings.LastIndex(path, "node_modules/"); idx != -1 {
+				name = path[idx+len("node_modules/"):]
+			}
+			if pkg.Version == "" {
+				continue
+			}
+
+			// Direct deps live at "node_modules/<name>" (exactly one level).
+			// Transitive deps are nested: "node_modules/a/node_modules/b"
+			nmCount := strings.Count(path, "node_modules/")
+			indirect := nmCount > 1
+
+			// Track direct names for reference
+			if !indirect {
+				directNames[name] = true
+			}
+
+			packages = append(packages, models.Package{
+				Name:      name,
+				Version:   pkg.Version,
+				Ecosystem: models.EcosystemNpm,
+				FilePath:  filePath,
+				Indirect:  indirect,
+			})
 		}
-		if pkg.Version == "" {
-			continue
-		}
-		packages = append(packages, models.Package{
-			Name:      name,
-			Version:   pkg.Version,
-			Ecosystem: models.EcosystemNpm,
-			FilePath:  filePath,
-		})
+		return packages, nil
 	}
+
+	// v1 fallback: use "dependencies" (nested tree structure)
+	var packages []models.Package
+	var walkDeps func(deps map[string]npmDep, indirect bool)
+	walkDeps = func(deps map[string]npmDep, indirect bool) {
+		for name, dep := range deps {
+			if dep.Version == "" {
+				continue
+			}
+			packages = append(packages, models.Package{
+				Name:      name,
+				Version:   dep.Version,
+				Ecosystem: models.EcosystemNpm,
+				FilePath:  filePath,
+				Indirect:  indirect,
+			})
+			if dep.Dependencies != nil {
+				walkDeps(dep.Dependencies, true)
+			}
+		}
+	}
+	walkDeps(lock.Dependencies, false)
 
 	return packages, nil
 }
