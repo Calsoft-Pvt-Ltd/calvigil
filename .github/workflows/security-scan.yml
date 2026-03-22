@@ -1,0 +1,92 @@
+name: Daily Security Scan
+
+on:
+  schedule:
+    # Run every day at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest calvigil
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Fetch the latest release tag
+          LATEST=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
+          echo "Latest release: ${LATEST}"
+
+          # Download the linux-amd64 tarball
+          ASSET="calvigil-${LATEST}-linux-amd64.tar.gz"
+          gh release download "${LATEST}" \
+            --repo "${{ github.repository }}" \
+            --pattern "${ASSET}" \
+            --dir /tmp
+
+          # Extract and install
+          tar xzf "/tmp/${ASSET}" -C /tmp
+          chmod +x /tmp/calvigil
+          echo "Installed calvigil ${LATEST}"
+          /tmp/calvigil version
+
+      - name: Run dependency & code scan
+        run: |
+          /tmp/calvigil scan . \
+            --skip-ai \
+            --format json \
+            --output calvigil-report.json
+
+      - name: Run IaC scan
+        run: |
+          /tmp/calvigil scan-iac . \
+            --format json \
+            --output calvigil-iac-report.json
+        continue-on-error: true  # Don't fail if no IaC files found
+
+      - name: Check for critical vulnerabilities
+        run: |
+          set -euo pipefail
+
+          CRITICAL_COUNT=0
+
+          # Count criticals from dependency/code scan
+          if [ -f calvigil-report.json ]; then
+            COUNT=$(jq '[.vulnerabilities[] | select(.severity == "CRITICAL")] | length' calvigil-report.json)
+            echo "Dependency/code scan: ${COUNT} critical(s)"
+            CRITICAL_COUNT=$((CRITICAL_COUNT + COUNT))
+          fi
+
+          # Count criticals from IaC scan
+          if [ -f calvigil-iac-report.json ]; then
+            COUNT=$(jq '[.vulnerabilities[] | select(.severity == "CRITICAL")] | length' calvigil-iac-report.json)
+            echo "IaC scan: ${COUNT} critical(s)"
+            CRITICAL_COUNT=$((CRITICAL_COUNT + COUNT))
+          fi
+
+          echo "Total critical vulnerabilities: ${CRITICAL_COUNT}"
+
+          if [ "${CRITICAL_COUNT}" -gt 0 ]; then
+            echo "::error::Found ${CRITICAL_COUNT} critical vulnerability(s). Failing pipeline."
+            exit 1
+          fi
+
+          echo "No critical vulnerabilities found."
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: calvigil-reports-${{ github.run_id }}
+          path: |
+            calvigil-report.json
+            calvigil-iac-report.json
+          retention-days: 90
