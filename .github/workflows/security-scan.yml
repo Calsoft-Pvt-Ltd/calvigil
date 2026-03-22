@@ -38,19 +38,26 @@ jobs:
           echo "Installed calvigil ${LATEST}"
           /tmp/calvigil version
 
+      - name: Install Semgrep
+        run: pip install semgrep --quiet
+
       - name: Run dependency & code scan
         run: |
           /tmp/calvigil scan . \
             --skip-ai \
+            --semgrep-rules rules/semgrep \
             --format json \
             --output calvigil-report.json
 
-      - name: Run IaC scan
+      - name: Run Semgrep static analysis
         run: |
-          /tmp/calvigil scan-iac . \
-            --format json \
-            --output calvigil-iac-report.json
-        continue-on-error: true  # Don't fail if no IaC files found
+          semgrep \
+            --config rules/semgrep \
+            --json \
+            --metrics off \
+            --no-git-ignore \
+            --output semgrep-report.json \
+            . || true  # semgrep exits non-zero when findings exist; handle below
 
       - name: Check for critical vulnerabilities
         run: |
@@ -65,10 +72,10 @@ jobs:
             CRITICAL_COUNT=$((CRITICAL_COUNT + COUNT))
           fi
 
-          # Count criticals from IaC scan
-          if [ -f calvigil-iac-report.json ]; then
-            COUNT=$(jq '[(.vulnerabilities // [])[] | select(.severity == "CRITICAL")] | length' calvigil-iac-report.json)
-            echo "IaC scan: ${COUNT} critical(s)"
+          # Count criticals from Semgrep (severity ERROR maps to critical)
+          if [ -f semgrep-report.json ]; then
+            COUNT=$(jq '[(.results // [])[] | select(.extra.severity == "ERROR")] | length' semgrep-report.json)
+            echo "Semgrep SAST: ${COUNT} critical(s)"
             CRITICAL_COUNT=$((CRITICAL_COUNT + COUNT))
           fi
 
@@ -88,5 +95,5 @@ jobs:
           name: calvigil-reports-${{ github.run_id }}
           path: |
             calvigil-report.json
-            calvigil-iac-report.json
+            semgrep-report.json
           retention-days: 90
