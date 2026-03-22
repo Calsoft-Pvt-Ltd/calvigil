@@ -60,14 +60,14 @@ jobs:
 
           # Count criticals from dependency/code scan
           if [ -f calvigil-report.json ]; then
-            COUNT=$(jq '[.vulnerabilities[] | select(.severity == "CRITICAL")] | length' calvigil-report.json)
+            COUNT=$(jq '[(.vulnerabilities // [])[] | select(.severity == "CRITICAL")] | length' calvigil-report.json)
             echo "Dependency/code scan: ${COUNT} critical(s)"
             CRITICAL_COUNT=$((CRITICAL_COUNT + COUNT))
           fi
 
           # Count criticals from IaC scan
           if [ -f calvigil-iac-report.json ]; then
-            COUNT=$(jq '[.vulnerabilities[] | select(.severity == "CRITICAL")] | length' calvigil-iac-report.json)
+            COUNT=$(jq '[(.vulnerabilities // [])[] | select(.severity == "CRITICAL")] | length' calvigil-iac-report.json)
             echo "IaC scan: ${COUNT} critical(s)"
             CRITICAL_COUNT=$((CRITICAL_COUNT + COUNT))
           fi
