@@ -99,17 +99,19 @@ func TestSEC002_CatchesRealSQLInjection(t *testing.T) {
 	}
 }
 
-func findRule(id string) PatternRule {
+func findRule(t *testing.T, id string) PatternRule {
+	t.Helper()
 	for _, r := range knownPatterns {
 		if r.ID == id {
 			return r
 		}
 	}
-	panic("rule not found: " + id)
+	t.Fatalf("rule not found: %s", id)
+	return PatternRule{} // unreachable
 }
 
 func TestSEC003_NoFalsePositiveOnSafeExecCommand(t *testing.T) {
-	rule := findRule("SEC-003")
+	rule := findRule(t, "SEC-003")
 
 	falsePositives := []string{
 		// exec.Command with separate arguments (no shell) — safe
@@ -126,7 +128,7 @@ func TestSEC003_NoFalsePositiveOnSafeExecCommand(t *testing.T) {
 }
 
 func TestSEC003_CatchesRealCommandInjection(t *testing.T) {
-	rule := findRule("SEC-003")
+	rule := findRule(t, "SEC-003")
 
 	realInjections := []string{
 		// Go: shell invocation
@@ -180,7 +182,7 @@ func TestSuppressionComments(t *testing.T) {
 }
 
 func TestSEC008_NoFalsePositiveOnORMRaw(t *testing.T) {
-	rule := findRule("SEC-008")
+	rule := findRule(t, "SEC-008")
 
 	falsePositives := []string{
 		// GORM .Raw() — parameterized database query, not HTML rendering
@@ -199,7 +201,7 @@ func TestSEC008_NoFalsePositiveOnORMRaw(t *testing.T) {
 }
 
 func TestSEC008_CatchesRealXSS(t *testing.T) {
-	rule := findRule("SEC-008")
+	rule := findRule(t, "SEC-008")
 
 	realXSS := []string{
 		`element.innerHTML = userInput`,
@@ -222,7 +224,7 @@ func TestSEC008_CatchesRealXSS(t *testing.T) {
 // ── SEC-006: Cloud Provider Credential ────────────────────────────
 
 func TestSEC006_DetectsCloudCredentials(t *testing.T) {
-	rule := findRule("SEC-006")
+	rule := findRule(t, "SEC-006")
 
 	positives := []string{
 		`AWS_KEY = "AKIAIOSFODNN7EXAMPLE"`,
@@ -245,7 +247,7 @@ func TestSEC006_DetectsCloudCredentials(t *testing.T) {
 // ── SEC-009: Insecure HTTP (with exclusions) ──────────────────────
 
 func TestSEC009_ExcludesLocalhost(t *testing.T) {
-	rule := findRule("SEC-009")
+	rule := findRule(t, "SEC-009")
 
 	excluded := []string{
 		`url := "http://localhost:8080/api"`,
@@ -264,7 +266,7 @@ func TestSEC009_ExcludesLocalhost(t *testing.T) {
 }
 
 func TestSEC009_DetectsExternalHTTP(t *testing.T) {
-	rule := findRule("SEC-009")
+	rule := findRule(t, "SEC-009")
 
 	positives := []string{
 		`url := "http://api.example-service.com/data"`,
@@ -281,7 +283,7 @@ func TestSEC009_DetectsExternalHTTP(t *testing.T) {
 // ── SEC-018: Insecure Random ──────────────────────────────────────
 
 func TestSEC018_DetectsWeakRandom(t *testing.T) {
-	rule := findRule("SEC-018")
+	rule := findRule(t, "SEC-018")
 
 	positives := []string{
 		`n := rand.Intn(100)`,
@@ -303,7 +305,7 @@ func TestSEC018_DetectsWeakRandom(t *testing.T) {
 // ── SEC-019: Weak Cipher ──────────────────────────────────────────
 
 func TestSEC019_DetectsWeakCipher(t *testing.T) {
-	rule := findRule("SEC-019")
+	rule := findRule(t, "SEC-019")
 
 	positives := []string{
 		`block, _ := des.NewCipher(key)`,
@@ -327,7 +329,7 @@ func TestSEC019_DetectsWeakCipher(t *testing.T) {
 // ── SEC-020: XXE ──────────────────────────────────────────────────
 
 func TestSEC020_DetectsXXE(t *testing.T) {
-	rule := findRule("SEC-020")
+	rule := findRule(t, "SEC-020")
 
 	positives := []string{
 		`DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance()`,
@@ -349,7 +351,7 @@ func TestSEC020_DetectsXXE(t *testing.T) {
 // ── SEC-021: JWT Misconfiguration ─────────────────────────────────
 
 func TestSEC021_DetectsJWTMisconfig(t *testing.T) {
-	rule := findRule("SEC-021")
+	rule := findRule(t, "SEC-021")
 
 	positives := []string{
 		`payload = jwt.decode(token, verify=False)`,
@@ -369,7 +371,7 @@ func TestSEC021_DetectsJWTMisconfig(t *testing.T) {
 // ── SEC-022: Debug Mode ───────────────────────────────────────────
 
 func TestSEC022_DetectsDebugMode(t *testing.T) {
-	rule := findRule("SEC-022")
+	rule := findRule(t, "SEC-022")
 
 	positives := []string{
 		`app.run(host="0.0.0.0", debug=True)`,
@@ -389,7 +391,7 @@ func TestSEC022_DetectsDebugMode(t *testing.T) {
 // ── SEC-023: Empty Catch Block ────────────────────────────────────
 
 func TestSEC023_DetectsEmptyCatch(t *testing.T) {
-	rule := findRule("SEC-023")
+	rule := findRule(t, "SEC-023")
 
 	positives := []string{
 		`} catch (Exception e) {}`,
@@ -407,7 +409,7 @@ func TestSEC023_DetectsEmptyCatch(t *testing.T) {
 // ── SEC-024: SSRF ─────────────────────────────────────────────────
 
 func TestSEC024_DetectsSSRF(t *testing.T) {
-	rule := findRule("SEC-024")
+	rule := findRule(t, "SEC-024")
 
 	positives := []string{
 		`resp, err := http.Get(userURL)`,
@@ -428,7 +430,7 @@ func TestSEC024_DetectsSSRF(t *testing.T) {
 }
 
 func TestSEC024_NoFalsePositiveOnLiterals(t *testing.T) {
-	rule := findRule("SEC-024")
+	rule := findRule(t, "SEC-024")
 
 	// String literals (hardcoded URLs) should NOT match since the pattern
 	// requires a variable (starts with [a-zA-Z_]) after the function call.
@@ -447,7 +449,7 @@ func TestSEC024_NoFalsePositiveOnLiterals(t *testing.T) {
 // ── SEC-025: Open Redirect ────────────────────────────────────────
 
 func TestSEC025_DetectsOpenRedirect(t *testing.T) {
-	rule := findRule("SEC-025")
+	rule := findRule(t, "SEC-025")
 
 	positives := []string{
 		`http.Redirect(w, r, r.URL.Query().Get("next"), http.StatusFound)`,
@@ -467,7 +469,7 @@ func TestSEC025_DetectsOpenRedirect(t *testing.T) {
 // ── Excludes field test ───────────────────────────────────────────
 
 func TestExcludesFieldWorks(t *testing.T) {
-	rule := findRule("SEC-009")
+	rule := findRule(t, "SEC-009")
 	if rule.Excludes == nil {
 		t.Fatal("SEC-009 should have an Excludes pattern")
 	}
@@ -494,7 +496,7 @@ func TestExcludesFieldWorks(t *testing.T) {
 // ── SEC-026: Private Key Detection ────────────────────────────────
 
 func TestSEC026_DetectsPrivateKeys(t *testing.T) {
-	rule := findRule("SEC-026")
+	rule := findRule(t, "SEC-026")
 
 	positives := []string{
 		`-----BEGIN RSA PRIVATE KEY-----`,
@@ -513,7 +515,7 @@ func TestSEC026_DetectsPrivateKeys(t *testing.T) {
 }
 
 func TestSEC026_NoFalsePositiveOnPublicKeys(t *testing.T) {
-	rule := findRule("SEC-026")
+	rule := findRule(t, "SEC-026")
 
 	negatives := []string{
 		`-----BEGIN PUBLIC KEY-----`,
@@ -533,7 +535,7 @@ func TestSEC026_NoFalsePositiveOnPublicKeys(t *testing.T) {
 // ── SEC-027: Database Connection Strings ──────────────────────────
 
 func TestSEC027_DetectsConnectionStrings(t *testing.T) {
-	rule := findRule("SEC-027")
+	rule := findRule(t, "SEC-027")
 
 	positives := []string{
 		`dsn := "mongodb://admin:password123@cluster.mongodb.net/db"`,
@@ -555,7 +557,7 @@ func TestSEC027_DetectsConnectionStrings(t *testing.T) {
 }
 
 func TestSEC027_NoFalsePositiveOnSafeStrings(t *testing.T) {
-	rule := findRule("SEC-027")
+	rule := findRule(t, "SEC-027")
 
 	negatives := []string{
 		`dsn := "postgres://localhost:5432/db"`,
@@ -574,7 +576,7 @@ func TestSEC027_NoFalsePositiveOnSafeStrings(t *testing.T) {
 // ── SEC-028: Bearer/Auth Token ────────────────────────────────────
 
 func TestSEC028_DetectsBearerTokens(t *testing.T) {
-	rule := findRule("SEC-028")
+	rule := findRule(t, "SEC-028")
 
 	positives := []string{
 		`"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0"`,
@@ -593,7 +595,7 @@ func TestSEC028_DetectsBearerTokens(t *testing.T) {
 }
 
 func TestSEC028_NoFalsePositiveOnShortTokens(t *testing.T) {
-	rule := findRule("SEC-028")
+	rule := findRule(t, "SEC-028")
 
 	negatives := []string{
 		`"Authorization": "Bearer short"`,
@@ -612,7 +614,7 @@ func TestSEC028_NoFalsePositiveOnShortTokens(t *testing.T) {
 // ── SEC-029: Generic API Key / Secret ─────────────────────────────
 
 func TestSEC029_DetectsGenericSecrets(t *testing.T) {
-	rule := findRule("SEC-029")
+	rule := findRule(t, "SEC-029")
 
 	positives := []string{
 		`api_key = "abcdefghijklmnopqrstuvwxyz1234567890"`,
@@ -631,7 +633,7 @@ func TestSEC029_DetectsGenericSecrets(t *testing.T) {
 }
 
 func TestSEC029_NoFalsePositiveOnShortValues(t *testing.T) {
-	rule := findRule("SEC-029")
+	rule := findRule(t, "SEC-029")
 
 	negatives := []string{
 		`api_key = "short"`,

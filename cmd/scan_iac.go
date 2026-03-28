@@ -96,7 +96,7 @@ func runScanIaC(cmd *cobra.Command, args []string) error {
 	// Step 3: Filter by severity
 	if scanIaCOpts.Severity != "" {
 		minSev := models.Severity(strings.ToUpper(scanIaCOpts.Severity))
-		vulns = filterIaCSev(vulns, minSev)
+		vulns = filterVulnsBySeverity(vulns, minSev)
 	}
 
 	result := &models.ScanResult{
@@ -108,28 +108,5 @@ func runScanIaC(cmd *cobra.Command, args []string) error {
 	}
 
 	rep := reporter.ForFormat(scanIaCOpts.Format)
-	return writeIaCReportTo(rep, result, scanIaCOpts.Output)
-}
-
-func writeIaCReportTo(rep reporter.Reporter, result *models.ScanResult, outputFile string) error {
-	if outputFile != "" {
-		f, err := os.Create(outputFile)
-		if err != nil {
-			return fmt.Errorf("cannot create output file: %w", err)
-		}
-		defer f.Close()
-		return rep.Report(result, f)
-	}
-	return rep.Report(result, os.Stdout)
-}
-
-func filterIaCSev(vulns []models.Vulnerability, min models.Severity) []models.Vulnerability {
-	minRank := min.Rank()
-	var filtered []models.Vulnerability
-	for _, v := range vulns {
-		if v.Severity.Rank() >= minRank {
-			filtered = append(filtered, v)
-		}
-	}
-	return filtered
+	return writeReport(rep, result, scanIaCOpts.Output)
 }

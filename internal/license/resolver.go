@@ -115,13 +115,14 @@ func resolvePyPI(ctx context.Context, name string) string {
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
 
 	var result struct {
 		Info struct {
@@ -152,21 +153,24 @@ func resolveNpm(ctx context.Context, name, version string) string {
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
 	var result struct {
-		License interface{} `json:"license"`
+		License  interface{} `json:"license"`
+		Licenses interface{} `json:"licenses"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return ""
 	}
 
+	// Try "license" field first (modern npm format)
 	switch lic := result.License.(type) {
 	case string:
 		return lic
@@ -175,6 +179,16 @@ func resolveNpm(ctx context.Context, name, version string) string {
 			return t
 		}
 	}
+
+	// Fallback: "licenses" field (legacy npm format, array of {type, url} objects)
+	if arr, ok := result.Licenses.([]interface{}); ok && len(arr) > 0 {
+		if obj, ok := arr[0].(map[string]interface{}); ok {
+			if t, ok := obj["type"].(string); ok {
+				return t
+			}
+		}
+	}
+
 	return ""
 }
 
@@ -204,13 +218,14 @@ func resolveRubyGem(ctx context.Context, name string) string {
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
 
 	var result struct {
 		Licenses []string `json:"licenses"`
@@ -235,13 +250,14 @@ func queryDepsDevLicense(ctx context.Context, url string) string {
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
 
 	var result struct {
 		// deps.dev v3alpha package-level response

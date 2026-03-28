@@ -18,6 +18,7 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
   - [scan-binary](#scan-binary)
   - [scan-iac](#scan-iac)
   - [scan-image](#scan-image)
+  - [scan-license](#scan-license)
   - [config set](#config-set)
   - [config get](#config-get)
   - [version](#version)
@@ -287,6 +288,74 @@ calvigil scan-image <image> [flags]
 | `--output` | `-o` | stdout | Write output to a file |
 | `--severity` | `-s` | (all) | Minimum severity filter: `critical`, `high`, `medium`, `low` |
 | `--verbose` | `-v` | `false` | Show detailed progress output |
+
+---
+
+### `scan-license`
+
+Scan project dependencies for license compliance. No API keys or vulnerability databases required.
+
+This command:
+1. Detects project ecosystems and parses dependency manifests
+2. Resolves missing license information from package registries (deps.dev, PyPI, npm, RubyGems)
+3. Classifies each license as **permissive**, **copyleft**, or **unknown** using the SPDX license database (~610 identifiers)
+4. Handles SPDX compound expressions (`OR`, `AND`, `WITH`)
+5. Reports issues for copyleft and unknown licenses
+
+```
+calvigil scan-license [path] [flags]
+```
+
+**Arguments:**
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `path` | No | Current directory | Path to the project directory to scan |
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--format` | `-f` | `table` | Output format: `table`, `json`, `html`, `pdf` |
+| `--output` | `-o` | stdout | Write output to a file |
+| `--risk` | | (all) | Filter by risk level: `copyleft`, `unknown` |
+| `--verbose` | `-v` | `false` | Show detailed progress output |
+
+**SPDX Expression Handling:**
+- **OR** expressions (e.g., `MIT OR Apache-2.0`): classified by the most permissive option (developer chooses)
+- **AND** expressions (e.g., `MIT AND GPL-2.0`): classified by the most restrictive option (both apply)
+- **WITH** exceptions (e.g., `GPL-2.0-only WITH Classpath-exception-2.0`): exception is ignored, base license is classified
+
+**License-Only Reports:**
+When using `scan-license`, HTML and PDF reports display only the License Compliance section — vulnerability-related sections (severity cards, dependency vulns, code analysis) are hidden. The report title changes to "License Compliance Report" and features an SVG donut chart showing the distribution of permissive, copyleft, and unknown licenses.
+
+**Examples:**
+
+```bash
+# Scan current directory
+calvigil scan-license
+
+# Scan a specific project with verbose output
+calvigil scan-license /path/to/project -v
+
+# Output as JSON
+calvigil scan-license --format json
+
+# Show only copyleft license issues
+calvigil scan-license --risk copyleft
+
+# Show only unknown/unresolved licenses
+calvigil scan-license --risk unknown
+
+# Write report to file
+calvigil scan-license --format json --output licenses.json
+
+# Generate HTML license compliance report
+calvigil scan-license --format html --output licenses.html
+
+# Generate PDF license compliance report (requires Chrome/Chromium)
+calvigil scan-license --format pdf --output licenses.pdf
+```
 
 ---
 
@@ -949,6 +1018,22 @@ calvigil scan --format openvex --output vex.json /path/to/project
 - **Status**: `affected`, `not_affected`, or `under_investigation`
 - **Justification**: AI-derived rationale for non-affected status
 - **Action**: remediation guidance (e.g., upgrade instructions)
+
+### SPDX 2.3
+
+The SPDX output produces an SBOM compliant with the [SPDX 2.3 specification](https://spdx.github.io/spdx-spec/v2.3/):
+
+```bash
+calvigil scan --format spdx --output sbom.spdx.json /path/to/project
+```
+
+**Includes:**
+- **Document info**: SPDX version, data license (CC0-1.0), document namespace with UUID
+- **Packages**: all detected dependencies with PURLs, names, versions, and SPDX external references
+- **Relationships**: `DESCRIBES` (root → packages) and `DEPENDS_ON` relationships
+- **Vulnerability annotations**: scan findings annotated with severity and advisory references
+
+Compatible with SPDX ecosystem tools and compliance workflows.
 
 VEX status is derived from AI enrichment confidence:
 

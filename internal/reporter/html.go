@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/license"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
@@ -27,24 +28,27 @@ func init() {
 
 // htmlData is the top-level data passed into the HTML template.
 type htmlData struct {
-	ProjectPath   string
-	GeneratedAt   string
-	Duration      string
-	TotalPackages int
-	Ecosystems    []string
-	TotalVulns    int
-	CriticalCount int
-	HighCount     int
-	MediumCount   int
-	LowCount      int
-	UnknownCount  int
-	DepGroups     []htmlEcoGroup
-	CodeVulns     []htmlVuln
-	SemgrepVulns  []htmlVuln
-	Errors        []string
-	HasEnrichment bool
-	TotalDepVulns int
-	LogoDataURL   template.URL
+	ProjectPath    string
+	GeneratedAt    string
+	Duration       string
+	TotalPackages  int
+	Ecosystems     []string
+	TotalVulns     int
+	CriticalCount  int
+	HighCount      int
+	MediumCount    int
+	LowCount       int
+	UnknownCount   int
+	DepGroups      []htmlEcoGroup
+	CodeVulns      []htmlVuln
+	SemgrepVulns   []htmlVuln
+	LicenseIssues  []htmlLicense
+	LicenseSummary *htmlLicenseSummary
+	Errors         []string
+	HasEnrichment  bool
+	TotalDepVulns  int
+	LogoDataURL    template.URL
+	LicenseOnly    bool
 }
 
 type htmlEcoGroup struct {
@@ -74,6 +78,24 @@ type htmlVuln struct {
 	Enrichment    *htmlEnrichment
 }
 
+type htmlLicense struct {
+	PackageName string
+	PackageVer  string
+	Ecosystem   string
+	License     string
+	Risk        string
+	RiskClass   string
+	Reason      string
+}
+
+type htmlLicenseSummary struct {
+	Total      int
+	Permissive int
+	Copyleft   int
+	Unknown    int
+	NoLicense  int
+}
+
 type htmlEnrichment struct {
 	Summary              string
 	LikelyImpact         string
@@ -97,6 +119,7 @@ func (r *HTMLReporter) Report(result *models.ScanResult, w io.Writer) error {
 		TotalPackages: result.TotalPackages,
 		TotalVulns:    len(vulns),
 		LogoDataURL:   template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(logoPNG)),
+		LicenseOnly:   result.LicenseOnly,
 	}
 
 	for _, e := range result.Ecosystems {
@@ -162,6 +185,55 @@ func (r *HTMLReporter) Report(result *models.ScanResult, w io.Writer) error {
 		}
 	}
 
+	// License compliance issues
+	if len(result.LicenseIssues) > 0 {
+		for _, iss := range result.LicenseIssues {
+			riskStr := "Unknown"
+			riskClass := "unknown"
+			switch iss.Risk {
+			case models.LicenseCopyleft:
+				riskStr = "Copyleft"
+				riskClass = "high"
+			case models.LicenseUnknown:
+				riskStr = "Unknown"
+				riskClass = "medium"
+			}
+			lic := iss.License
+			if lic == "" {
+				lic = "(none)"
+			}
+			data.LicenseIssues = append(data.LicenseIssues, htmlLicense{
+				PackageName: iss.Package.Name,
+				PackageVer:  iss.Package.Version,
+				Ecosystem:   string(iss.Package.Ecosystem),
+				License:     lic,
+				Risk:        riskStr,
+				RiskClass:   riskClass,
+				Reason:      iss.Reason,
+			})
+		}
+	}
+
+	// License summary (only when license checking was performed)
+	if result.LicenseOnly || len(result.LicenseIssues) > 0 {
+		ls := &htmlLicenseSummary{Total: result.TotalPackages}
+		for _, pkg := range result.Packages {
+			if pkg.License == "" {
+				ls.NoLicense++
+				continue
+			}
+			switch license.Classify(pkg.License) {
+			case models.LicensePermissive:
+				ls.Permissive++
+			case models.LicenseCopyleft:
+				ls.Copyleft++
+			default:
+				ls.Unknown++
+			}
+		}
+		data.LicenseSummary = ls
+	}
+
 	data.Errors = result.Errors
 
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
@@ -170,6 +242,18 @@ func (r *HTMLReporter) Report(result *models.ScanResult, w io.Writer) error {
 				return "0"
 			}
 			return fmt.Sprintf("%.1f", float64(count)*100/float64(total))
+		},
+		"pctSum": func(a, b, total int) string {
+			if total == 0 {
+				return "0"
+			}
+			return fmt.Sprintf("%.1f", float64(a+b)*100/float64(total))
+		},
+		"pctSum3": func(a, b, c, total int) string {
+			if total == 0 {
+				return "0"
+			}
+			return fmt.Sprintf("%.1f", float64(a+b+c)*100/float64(total))
 		},
 	}).Parse(htmlTemplate)
 	if err != nil {
@@ -278,7 +362,7 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Calvigil Security Report — {{.ProjectPath}}</title>
+<title>Calvigil {{if .LicenseOnly}}License Compliance{{else}}Security{{end}} Report — {{.ProjectPath}}</title>
 <style>
   :root {
     --critical: #d32f2f;
@@ -514,7 +598,7 @@ const htmlTemplate = `<!DOCTYPE html>
     <div class="header-brand">
       <img src="{{.LogoDataURL}}" alt="Calvigil" class="header-logo">
       <div>
-        <h1>Calvigil Security Report</h1>
+        <h1>Calvigil {{if .LicenseOnly}}License Compliance{{else}}Security{{end}} Report</h1>
         <div style="margin-top:4px;opacity:0.85">{{.ProjectPath}}</div>
       </div>
     </div>
@@ -528,6 +612,7 @@ const htmlTemplate = `<!DOCTYPE html>
 
 <div class="container">
 
+  {{if not .LicenseOnly}}
   <!-- Severity cards -->
   <div class="severity-cards">
     <div class="sev-card total">
@@ -666,6 +751,89 @@ const htmlTemplate = `<!DOCTYPE html>
   </div>
   {{end}}
 
+  {{end}}{{/* end if not .LicenseOnly */}}
+
+  <!-- License Compliance -->
+  {{if or .LicenseIssues .LicenseSummary}}
+  <div class="section">
+    <h2>&#x1F4DC; License Compliance</h2>
+    {{if .LicenseSummary}}
+    <div style="display:flex;align-items:center;gap:32px;margin-bottom:24px;flex-wrap:wrap;">
+      <div style="position:relative;width:160px;height:160px;flex-shrink:0;">
+        <svg viewBox="0 0 36 36" style="width:100%;height:100%;transform:rotate(-90deg);">
+          <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e0e4e8" stroke-width="3"/>
+          {{if gt .LicenseSummary.Total 0}}
+          <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#4caf50" stroke-width="3"
+            stroke-dasharray="{{pct .LicenseSummary.Permissive .LicenseSummary.Total}} 100"
+            stroke-dashoffset="0"/>
+          <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--high)" stroke-width="3"
+            stroke-dasharray="{{pct .LicenseSummary.Copyleft .LicenseSummary.Total}} 100"
+            stroke-dashoffset="-{{pct .LicenseSummary.Permissive .LicenseSummary.Total}}"/>
+          <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--medium)" stroke-width="3"
+            stroke-dasharray="{{pct .LicenseSummary.Unknown .LicenseSummary.Total}} 100"
+            stroke-dashoffset="-{{pctSum .LicenseSummary.Permissive .LicenseSummary.Copyleft .LicenseSummary.Total}}"/>
+          <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--unknown)" stroke-width="3"
+            stroke-dasharray="{{pct .LicenseSummary.NoLicense .LicenseSummary.Total}} 100"
+            stroke-dashoffset="-{{pctSum3 .LicenseSummary.Permissive .LicenseSummary.Copyleft .LicenseSummary.Unknown .LicenseSummary.Total}}"/>
+          {{end}}
+        </svg>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;">
+          <div style="font-size:1.6rem;font-weight:800;">{{.LicenseSummary.Total}}</div>
+          <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Packages</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 32px;flex:1;min-width:280px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:12px;height:12px;border-radius:50%;background:#4caf50;flex-shrink:0;"></div>
+          <div><span style="font-weight:700;font-size:1.3rem;">{{.LicenseSummary.Permissive}}</span> <span style="color:var(--muted);font-size:0.85rem;">Permissive</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:12px;height:12px;border-radius:50%;background:var(--high);flex-shrink:0;"></div>
+          <div><span style="font-weight:700;font-size:1.3rem;">{{.LicenseSummary.Copyleft}}</span> <span style="color:var(--muted);font-size:0.85rem;">Copyleft</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:12px;height:12px;border-radius:50%;background:var(--medium);flex-shrink:0;"></div>
+          <div><span style="font-weight:700;font-size:1.3rem;">{{.LicenseSummary.Unknown}}</span> <span style="color:var(--muted);font-size:0.85rem;">Unknown</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:12px;height:12px;border-radius:50%;background:var(--unknown);flex-shrink:0;"></div>
+          <div><span style="font-weight:700;font-size:1.3rem;">{{.LicenseSummary.NoLicense}}</span> <span style="color:var(--muted);font-size:0.85rem;">No License</span></div>
+        </div>
+      </div>
+    </div>
+    {{end}}
+    {{if .LicenseIssues}}
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:#f0f2f5;text-align:left;">
+          <th style="padding:8px 12px;border-bottom:2px solid var(--border);">Package</th>
+          <th style="padding:8px 12px;border-bottom:2px solid var(--border);">Version</th>
+          <th style="padding:8px 12px;border-bottom:2px solid var(--border);">Ecosystem</th>
+          <th style="padding:8px 12px;border-bottom:2px solid var(--border);">License</th>
+          <th style="padding:8px 12px;border-bottom:2px solid var(--border);">Risk</th>
+          <th style="padding:8px 12px;border-bottom:2px solid var(--border);">Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+      {{range .LicenseIssues}}
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px;font-weight:500;">{{.PackageName}}</td>
+          <td style="padding:8px 12px;">{{.PackageVer}}</td>
+          <td style="padding:8px 12px;">{{.Ecosystem}}</td>
+          <td style="padding:8px 12px;font-family:monospace;">{{.License}}</td>
+          <td style="padding:8px 12px;"><span class="badge {{.RiskClass}}">{{.Risk}}</span></td>
+          <td style="padding:8px 12px;color:var(--muted);">{{.Reason}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p style="text-align:center;padding:24px;color:var(--muted);">&#x2705; All {{.LicenseSummary.Total}} packages have permissive licenses.</p>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if not .LicenseOnly}}
   <!-- No vulnerabilities -->
   {{if eq .TotalVulns 0}}
   <div class="section" style="text-align:center;padding:48px;">
@@ -673,6 +841,7 @@ const htmlTemplate = `<!DOCTYPE html>
     <h2 style="border:none;margin-top:12px;">No Vulnerabilities Found</h2>
     <p style="color:var(--muted);margin-top:8px;">Scanned {{.TotalPackages}} packages across {{len .Ecosystems}} ecosystems.</p>
   </div>
+  {{end}}
   {{end}}
 
   <!-- Errors -->

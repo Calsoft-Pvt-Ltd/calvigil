@@ -19,9 +19,10 @@
 9. [Scanner Orchestrator — `internal/scanner/`](#9-scanner-orchestrator)
 10. [Reporters — `internal/reporter/`](#10-reporters)
 11. [Container Image Scanner — `internal/image/`](#11-container-image-scanner)
-12. [Semgrep Rules — `rules/semgrep/`](#12-semgrep-rules)
-13. [Error Handling Strategy](#13-error-handling-strategy)
-14. [Sequence Diagrams](#14-sequence-diagrams)
+12. [License Compliance — `internal/license/`](#12-license-compliance--internallicense)
+13. [Semgrep Rules — `rules/semgrep/`](#13-semgrep-rules)
+14. [Error Handling Strategy](#14-error-handling-strategy)
+15. [Sequence Diagrams](#15-sequence-diagrams)
 
 ---
 
@@ -34,11 +35,12 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   ├── root.go                      # Root cobra command + global flags
 │   ├── scan.go                      # `scan [path]` command
 │   ├── scan_image.go                # `scan-image <image>` command
+│   ├── scan_license.go              # `scan-license [path]` command (license-only)
 │   ├── config.go                    # `config set/get` commands
 │   └── version.go                   # `version` command
 ├── internal/
 │   ├── models/
-│   │   ├── vulnerability.go         # Vulnerability, Package, ScanResult, ScanOptions, Severity
+│   │   ├── vulnerability.go         # Vulnerability, Package, ScanResult, ScanOptions, Severity, LicenseIssue, LicenseRisk
 │   │   └── purl.go                  # PURL generation (pkg:type/ns/name@version)
 │   ├── config/
 │   │   └── config.go                # Config load/save, env var override, secret masking
@@ -70,8 +72,15 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   ├── sarif.go                 # SARIFReporter (v2.1.0)
 │   │   ├── cyclonedx.go             # CycloneDXReporter (v1.5 BOM + VDR)
 │   │   ├── openvex.go               # OpenVEXReporter (v0.2.0)
-│   │   ├── html.go                  # HTMLReporter (self-contained HTML)
+│   │   ├── spdx.go                  # SPDXReporter (SPDX 2.3 JSON)
+│   │   ├── html.go                  # HTMLReporter (self-contained HTML with license donut chart)
 │   │   └── pdf.go                   # PDFReporter (headless Chrome)
+│   ├── license/
+│   │   ├── license.go               # Classify(), CheckPackages(), SPDX expression parser (OR/AND/WITH)
+│   │   ├── spdx_licenses.go         # Comprehensive SPDX license database (~480 permissive + ~130 copyleft)
+│   │   └── resolver.go              # License resolver (deps.dev, PyPI, npm, RubyGems)
+│   ├── cache/
+│   │   └── cache.go                 # File-based vulnerability cache (~/.calvigil/cache/, configurable TTL)
 │   ├── scanner/
 │   │   └── scanner.go               # Pipeline orchestrator
 │   └── image/
@@ -183,10 +192,34 @@ type ScanResult struct {
     ProjectPath     string          `json:"project_path"`
     Ecosystems      []Ecosystem     `json:"ecosystems"`
     TotalPackages   int             `json:"total_packages"`
+    Packages        []Package       `json:"packages,omitempty"`       // All packages (for SBOM/license reports)
+    LicenseIssues   []LicenseIssue  `json:"license_issues,omitempty"` // License compliance findings
     Vulnerabilities []Vulnerability `json:"vulnerabilities"`
     ScannedAt       time.Time       `json:"scanned_at"`
     Duration        time.Duration   `json:"duration"`
     Errors          []string        `json:"errors,omitempty"`
+    LicenseOnly     bool            `json:"license_only,omitempty"`   // True for scan-license command
+}
+```
+
+#### LicenseRisk Enum
+```go
+type LicenseRisk string
+
+const (
+    LicensePermissive LicenseRisk = "permissive"
+    LicenseCopyleft   LicenseRisk = "copyleft"
+    LicenseUnknown    LicenseRisk = "unknown"
+)
+```
+
+#### LicenseIssue Struct
+```go
+type LicenseIssue struct {
+    Package Package     `json:"package"`
+    License string      `json:"license"`
+    Risk    LicenseRisk `json:"risk"`
+    Reason  string      `json:"reason"`
 }
 ```
 
@@ -194,7 +227,7 @@ type ScanResult struct {
 ```go
 type ScanOptions struct {
     Path           string
-    Format         string       // table, json, sarif, cyclonedx, openvex, html, pdf
+    Format         string       // table, json, sarif, cyclonedx, openvex, spdx, html, pdf
     SeverityFilter Severity
     SkipAI         bool
     SkipDeps       bool
@@ -246,6 +279,9 @@ func init()              // Registers subcommands: scan, scanImage, configCmd, v
 calvigil
 ├── scan [path]              # Project vulnerability scan
 ├── scan-image <image>       # Container image scan
+├── scan-license [path]      # License compliance scan (standalone)
+├── scan-binary <path>       # Binary/SCA scan
+├── scan-iac <path>          # IaC misconfiguration scan
 ├── config
 │   ├── set <key> <value>    # Set configuration key
 │   └── get <key>            # Get configuration value
@@ -267,6 +303,9 @@ calvigil
 | `--provider` | | string | `""` | AI provider: openai, ollama, auto |
 | `--ollama-url` | | string | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | | string | `""` | Ollama model name |
+| `--check-licenses` | | bool | `false` | Enable license compliance checking |
+| `--no-cache` | | bool | `false` | Disable vulnerability response caching |
+| `--cache-ttl` | | string | `"24h"` | Cache TTL duration |
 | `--verbose` | `-v` | bool | `false` | Verbose output |
 
 **Logic:**
@@ -291,7 +330,28 @@ calvigil
 7. Select reporter via `reporter.ForFormat(format)`
 8. Output to file or stdout
 
-### 3.4 `cmd/config.go` — Configuration Commands
+### 3.4 `cmd/scan_license.go` — License Scan Command
+
+**Flags:**
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--format` | `-f` | string | `"table"` | Output format: table, json, html, pdf |
+| `--output` | `-o` | string | `""` | Output file path |
+| `--risk` | | string | `""` | Filter: copyleft, unknown |
+| `--verbose` | `-v` | bool | `false` | Verbose output |
+
+**Logic:**
+1. Validate path exists and is a directory
+2. `detector.Detect(path)` → find manifest files
+3. Parse dependencies from each manifest file
+4. `license.ResolvePackages()` → resolve missing licenses from registries (parallel, bounded at 10)
+5. `license.CheckPackages()` → classify and flag copyleft/unknown licenses
+6. Apply `--risk` filter if specified (`filterByRisk()`)
+7. Build `ScanResult` with `LicenseOnly: true` (hides vuln sections in reports)
+8. `printLicenseSummary()` → table summary to stderr
+9. Select reporter and output results
+
+### 3.5 `cmd/config.go` — Configuration Commands
 
 **Supported keys:**
 | Key | Environment Variable | Description |
@@ -303,7 +363,7 @@ calvigil
 | `ollama-url` | `OLLAMA_URL` | Ollama server URL |
 | `ollama-model` | `OLLAMA_MODEL` | Ollama model name |
 
-### 3.5 `cmd/version.go`
+### 3.6 `cmd/version.go`
 
 ```go
 var version = "dev"   // Overridden at build time via LDFLAGS
@@ -1068,6 +1128,7 @@ func ForFormat(format string) Reporter
 // "sarif"     → &SARIFReporter{}
 // "cyclonedx" → &CycloneDXReporter{}
 // "openvex"   → &OpenVEXReporter{}
+// "spdx"      → &SPDXReporter{}
 // "html"      → &HTMLReporter{}
 // "pdf"       → &PDFReporter{}
 // default     → &TableReporter{}
@@ -1078,13 +1139,17 @@ func ForFormat(format string) Reporter
 **Output Sections:**
 1. **Header** — Project path, scan duration, total packages
 2. **Dependency Vulns Table** — Grouped by ecosystem with emoji badges:
-   - Go 🐹, npm 📗, PyPI 🐍, Maven ☕
+   - Go 🐹, npm 📗, PyPI 🐍, Maven ☕, Rust 🦀, Ruby 💎, PHP 🐘, C/C++ ⚙️
    - Columns: `Severity | ID | Package | Version | Fixed In | Summary`
 3. **Code Analysis Table** — `Severity | ID | File | Line | Finding`
 4. **Semgrep SAST Table** — Same format as code analysis
-5. **AI Enrichment Details** (if present) — Summary, impact, confidence, remediation, suppression
-6. **Summary** — Severity distribution counts
-7. **Warnings/Errors** — Non-fatal errors from scan
+5. **License Issues Table** (if `--check-licenses` used) — `Risk | Package | Version | License | Reason`
+6. **AI Enrichment Details** (if present) — Summary, impact, confidence, remediation, suppression
+7. **Summary** — Severity distribution counts
+8. **Warnings/Errors** — Non-fatal errors from scan
+
+**License-Only Mode:**
+When `result.LicenseOnly` is true (from `scan-license` command), the `reportLicenseOnly()` method is called, which outputs only the License Issues table and a license compliance summary.
 
 **Color Scheme:**
 | Severity | Color |
@@ -1197,21 +1262,45 @@ func determineVEXStatus(v Vulnerability) (status, justification, impact, action 
 **Template Data:**
 ```go
 type htmlData struct {
-    ProjectPath   string
-    GeneratedAt   string
-    Duration      string
-    TotalPackages int
-    Ecosystems    []string
-    TotalVulns    int
-    CriticalCount int
-    HighCount     int
-    MediumCount   int
-    LowCount      int
-    DepGroups     []htmlEcoGroup   // Grouped by ecosystem
-    CodeVulns     []htmlVuln
-    SemgrepVulns  []htmlVuln
-    Errors        []string
-    HasEnrichment bool
+    ProjectPath    string
+    GeneratedAt    string
+    Duration       string
+    TotalPackages  int
+    Ecosystems     []string
+    TotalVulns     int
+    CriticalCount  int
+    HighCount      int
+    MediumCount    int
+    LowCount       int
+    DepGroups      []htmlEcoGroup    // Grouped by ecosystem
+    CodeVulns      []htmlVuln
+    SemgrepVulns   []htmlVuln
+    IaCVulns       []htmlVuln
+    LicenseSummary *htmlLicenseSummary // License compliance donut chart data
+    LicenseIssues  []htmlLicense       // License compliance findings
+    LicenseOnly    bool                // True when only license scanning was performed
+    Errors         []string
+    HasEnrichment  bool
+}
+```
+
+**License Compliance Section:**
+```go
+type htmlLicenseSummary struct {
+    Total      int
+    Permissive int
+    Copyleft   int
+    Unknown    int
+}
+
+type htmlLicense struct {
+    Package   string
+    Version   string
+    Ecosystem string
+    License   string
+    Risk      string    // "copyleft" or "unknown"
+    Reason    string
+    RiskClass string    // CSS class for styling
 }
 ```
 
@@ -1219,10 +1308,42 @@ type htmlData struct {
 - Responsive CSS grid layout
 - Color-coded severity badges
 - Severity distribution bar chart (CSS-based)
+- **SVG donut chart** for license compliance (permissive/copyleft/unknown distribution with 2x2 legend)
+- License compliance issues table with risk badges
 - Expandable AI enrichment sections
 - Grouped by ecosystem with section headers
+- **LicenseOnly mode**: when `LicenseOnly` is true, vulnerability sections (severity cards, dep/code/semgrep/IaC sections) are hidden via `{{if not .LicenseOnly}}` guards; title changes to "License Compliance Report"
 
-### 10.7 PDFReporter (`pdf.go`)
+**Template Helper Functions:**
+- `pctSum(a, b int) float64` — sum two values as percentage of total, used for donut chart stroke-dashoffset
+- `pctSum3(a, b, c int) float64` — sum three values as percentage
+
+### 10.7 SPDXReporter (`spdx.go`)
+
+```go
+type SPDXReporter struct{}
+```
+
+**SPDX 2.3 JSON Document:**
+```go
+type spdxDocument struct {
+    SPDXVersion       string             // "SPDX-2.3"
+    DataLicense       string             // "CC0-1.0"
+    SPDXID            string             // "SPDXRef-DOCUMENT"
+    Name              string             // Project name
+    DocumentNamespace string             // UUID-based namespace
+    CreationInfo      spdxCreationInfo   // Tool, timestamp
+    Packages          []spdxPackage      // All detected packages with PURLs
+    Relationships     []spdxRelationship // DESCRIBES and DEPENDS_ON
+}
+```
+
+**Package generation:** One SPDX package per detected dependency, with:
+- SPDX ID derived from package name
+- External references (PURLs)
+- DESCRIBES relationship from document to each package
+
+### 10.8 PDFReporter (`pdf.go`)
 
 ```go
 func ChromeAvailable() bool
@@ -1295,9 +1416,77 @@ type syftArtifact struct {
 
 ---
 
-## 12. Semgrep Rules
+## 12. License Compliance — `internal/license/`
 
-### 12.1 OWASP Top 10 Rules (`rules/semgrep/owasp-top10.yaml`)
+### 12.1 Classifier (`license.go`)
+
+```go
+func Classify(spdxID string) models.LicenseRisk
+```
+
+**Algorithm:**
+1. Strip outer parentheses
+2. Handle **OR** expressions (case-insensitive): recursively classify each side, return the most permissive (developer chooses which license to comply with)
+3. Handle **AND** expressions: recursively classify each side, return the most restrictive (both apply)
+4. Handle **WITH** exceptions: ignore the exception clause, classify the base license
+5. Check `licenseAliases` map for common non-SPDX names (e.g., `"BSD"` → `BSD-2-Clause`, `"Apache 2.0"` → `Apache-2.0`)
+6. Case-insensitive O(1) lookup in precomputed lowercase maps
+7. Look up in `permissiveLicenses` map (~480 entries) → `LicensePermissive`
+8. Look up in `copyleftLicenses` map (~130 entries) → `LicenseCopyleft`
+9. Otherwise → `LicenseUnknown`
+
+```go
+func splitSPDXOp(expr, op string) []string
+// Case-insensitive split of SPDX expression by binary operator
+
+func CheckPackages(packages []models.Package) []models.LicenseIssue
+// Evaluates all packages and returns issues for copyleft and unknown licenses
+
+func normalizeID(spdxID string) string
+// Normalizes informal license names to canonical SPDX identifiers via alias map + O(1) lookup
+
+var licenseAliases map[string]string
+// ~60 common non-SPDX names mapped to canonical SPDX IDs (BSD, Apache 2.0, GPL, etc.)
+```
+
+### 12.2 SPDX License Database (`spdx_licenses.go`)
+
+Two maps containing comprehensive SPDX license identifiers sourced from spdx.org:
+
+```go
+var permissiveLicenses = map[string]bool{ ... }  // ~480 identifiers
+var copyleftLicenses   = map[string]bool{ ... }   // ~130 identifiers
+```
+
+Includes standard SPDX short identifiers plus common variants (e.g., `mit`, `apache-2.0`, `bsd-3-clause`).
+
+### 12.3 License Resolver (`resolver.go`)
+
+```go
+func ResolvePackages(ctx context.Context, packages []models.Package, verbose bool)
+```
+
+**Algorithm:**
+1. Scan packages for missing license metadata (`pkg.License == ""`)
+2. Resolve in parallel with bounded concurrency (10 goroutines + semaphore)
+3. For each package, dispatch by ecosystem:
+
+| Ecosystem | Registry | API Endpoint |
+|-----------|----------|-------------|
+| Go | deps.dev | `GET /v3alpha/systems/go/packages/{name}/versions/{version}` |
+| Maven | deps.dev | `GET /v3alpha/systems/maven/packages/{name}` |
+| Rust | deps.dev | `GET /v3alpha/systems/cargo/packages/{name}` |
+| Python | PyPI | `GET /pypi/{name}/json` → `.info.license` (skips >60 chars) |
+| Node.js | npm | `GET /{name}/{version}` → `.license` or legacy `.licenses[]` array |
+| Ruby | RubyGems | `GET /api/v1/gems/{name}.json` → `.licenses[]` |
+
+4. Modify packages slice in place with resolved license data
+
+---
+
+## 13. Semgrep Rules
+
+### 13.1 OWASP Top 10 Rules (`rules/semgrep/owasp-top10.yaml`)
 
 | Rule ID | Category | Languages | CWE |
 |---------|---------|-----------|-----|
@@ -1324,7 +1513,7 @@ type syftArtifact struct {
 | `calvigil.ssrf-python` | Server-Side Request Forgery | Python | CWE-918 |
 | `calvigil.cors-misconfiguration` | CORS Misconfiguration | Go/Python/JS | CWE-942 |
 
-### 12.2 Language-Specific Rules (`rules/semgrep/language-specific.yaml`)
+### 13.2 Language-Specific Rules (`rules/semgrep/language-specific.yaml`)
 
 | Rule ID | Category | Language | CWE |
 |---------|---------|----------|-----|
@@ -1336,7 +1525,7 @@ type syftArtifact struct {
 
 ---
 
-## 13. Error Handling Strategy
+## 14. Error Handling Strategy
 
 Calvigil uses a **non-fatal error accumulation** strategy:
 
@@ -1354,9 +1543,9 @@ All non-fatal errors are collected in `ScanResult.Errors[]` and displayed in the
 
 ---
 
-## 14. Sequence Diagrams
+## 15. Sequence Diagrams
 
-### 14.1 Project Scan (`calvigil scan ./myproject`)
+### 15.1 Project Scan (`calvigil scan ./myproject`)
 
 ```
 User         CLI(cmd)       Scanner       Detector    Parser    Matcher(OSV)   Analyzer(AI)   Reporter
@@ -1384,7 +1573,7 @@ User         CLI(cmd)       Scanner       Detector    Parser    Matcher(OSV)   A
  │←─output─────│              │              │          │           │              │              │
 ```
 
-### 14.2 Image Scan (`calvigil scan-image nginx:latest`)
+### 15.2 Image Scan (`calvigil scan-image nginx:latest`)
 
 ```
 User         CLI(cmd)       ImageScanner    Syft(ext)    Matcher(OSV)    Reporter
@@ -1403,7 +1592,7 @@ User         CLI(cmd)       ImageScanner    Syft(ext)    Matcher(OSV)    Reporte
  │←─output─────│              │               │              │              │
 ```
 
-### 14.3 AI Enrichment Flow
+### 15.3 AI Enrichment Flow
 
 ```
 Scanner             Analyzer(AI)           OpenAI/Ollama API

@@ -29,10 +29,15 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 
 - **License Compliance Scanning**:
   - Detect and classify licenses from package metadata (SPDX identifiers)
+  - **Standalone `scan-license` command** — lightweight, no API keys or vuln DBs required
+  - **License resolver** queries deps.dev, PyPI, npm, and RubyGems registries for missing license data
+  - **SPDX compound expression support**: handles `OR` (most permissive), `AND` (most restrictive), and `WITH` (exception) clauses
+  - Comprehensive SPDX license database (~480 permissive + ~130 copyleft identifiers)
   - Flags copyleft licenses (GPL, AGPL, LGPL, MPL) that may require source disclosure
   - Flags unknown/unrecognized licenses for manual review
-  - Enable with `--check-licenses` flag
-  - License info extracted from npm `package-lock.json` and other manifest files
+  - Enable with `--check-licenses` flag (integrated scan) or use `scan-license` (standalone)
+  - Filter by risk level with `--risk copyleft` or `--risk unknown`
+  - License-only reports hide vulnerability sections for focused compliance audits
 
 - **Offline Vulnerability Cache**:
   - File-based cache for vulnerability query results (~/.calvigil/cache/)
@@ -217,6 +222,11 @@ calvigil scan --skip-semgrep
 # License compliance checking
 calvigil scan --check-licenses
 
+# Standalone license-only scan (no API keys needed)
+calvigil scan-license
+calvigil scan-license /path/to/project --format html --output licenses.html
+calvigil scan-license --risk copyleft
+
 # Disable vulnerability cache
 calvigil scan --no-cache
 
@@ -280,6 +290,7 @@ Available Commands:
   scan-binary  Scan binaries and archives for embedded dependency vulnerabilities
   scan-iac     Scan Infrastructure-as-Code files for security misconfigurations
   scan-image   Scan a container image for vulnerabilities
+  scan-license Scan project dependencies for license compliance
   config       Manage scanner configuration
   version     Print the version
   help        Help about any command
@@ -316,6 +327,12 @@ Scan-Image Flags:
   -f, --format string           Output format: table, json, sarif, cyclonedx, openvex, html, pdf (default "table")
   -o, --output string           Write output to file (default: stdout)
   -s, --severity string         Minimum severity: critical, high, medium, low
+  -v, --verbose                 Enable verbose output
+
+Scan-License Flags:
+  -f, --format string           Output format: table, json, html, pdf (default "table")
+  -o, --output string           Write output to file (default: stdout)
+      --risk string             Filter by risk level: copyleft, unknown (default: show all)
   -v, --verbose                 Enable verbose output
 ```
 

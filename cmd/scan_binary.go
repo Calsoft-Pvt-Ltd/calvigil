@@ -104,7 +104,7 @@ func runScanBinary(cmd *cobra.Command, args []string) error {
 			Duration:    time.Since(start),
 		}
 		rep := reporter.ForFormat(scanBinaryOpts.Format)
-		return writeReportTo(rep, result, scanBinaryOpts.Output)
+		return writeReport(rep, result, scanBinaryOpts.Output)
 	}
 
 	// Generate PURLs
@@ -159,7 +159,7 @@ func runScanBinary(cmd *cobra.Command, args []string) error {
 
 	// Filter by severity
 	if scanBinaryOpts.Severity != "" {
-		vulns = filterBySev(vulns, models.Severity(strings.ToUpper(scanBinaryOpts.Severity)))
+		vulns = filterVulnsBySeverity(vulns, models.Severity(strings.ToUpper(scanBinaryOpts.Severity)))
 	}
 
 	// Collect unique ecosystems
@@ -182,28 +182,5 @@ func runScanBinary(cmd *cobra.Command, args []string) error {
 	}
 
 	rep := reporter.ForFormat(scanBinaryOpts.Format)
-	return writeReportTo(rep, result, scanBinaryOpts.Output)
-}
-
-func writeReportTo(rep reporter.Reporter, result *models.ScanResult, outputFile string) error {
-	if outputFile != "" {
-		f, err := os.Create(outputFile)
-		if err != nil {
-			return fmt.Errorf("cannot create output file: %w", err)
-		}
-		defer f.Close()
-		return rep.Report(result, f)
-	}
-	return rep.Report(result, os.Stdout)
-}
-
-func filterBySev(vulns []models.Vulnerability, min models.Severity) []models.Vulnerability {
-	minRank := min.Rank()
-	var out []models.Vulnerability
-	for _, v := range vulns {
-		if v.Severity.Rank() >= minRank {
-			out = append(out, v)
-		}
-	}
-	return out
+	return writeReport(rep, result, scanBinaryOpts.Output)
 }

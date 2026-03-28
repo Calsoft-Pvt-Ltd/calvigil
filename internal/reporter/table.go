@@ -20,6 +20,10 @@ func init() {
 }
 
 func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
+	if result.LicenseOnly {
+		return r.reportLicenseOnly(result, w)
+	}
+
 	if len(result.Vulnerabilities) == 0 {
 		fmt.Fprintf(w, "\n✅ No vulnerabilities found in %s\n", result.ProjectPath)
 		fmt.Fprintf(w, "   Scanned %d packages across %d ecosystems in %s\n\n",
@@ -359,4 +363,27 @@ func printLicenseTable(w io.Writer, issues []models.LicenseIssue) {
 	})
 
 	t.Render()
+}
+
+func (r *TableReporter) reportLicenseOnly(result *models.ScanResult, w io.Writer) error {
+	fmt.Fprintf(w, "\n📜 Calvigil License Compliance Report for %s\n", result.ProjectPath)
+	fmt.Fprintf(w, "   Scanned %d packages across %d ecosystems in %s\n\n",
+		result.TotalPackages, len(result.Ecosystems), result.Duration.Round(1e8))
+
+	if len(result.LicenseIssues) > 0 {
+		fmt.Fprintf(w, "License Issues (%d found)\n\n", len(result.LicenseIssues))
+		printLicenseTable(w, result.LicenseIssues)
+	} else {
+		fmt.Fprintf(w, "✅ All %d packages have permissive licenses.\n", result.TotalPackages)
+	}
+
+	if len(result.Errors) > 0 {
+		fmt.Fprintf(w, "\n⚠️  Completed with %d warnings:\n", len(result.Errors))
+		for _, e := range result.Errors {
+			fmt.Fprintf(w, "   - %s\n", e)
+		}
+	}
+
+	fmt.Fprintln(w)
+	return nil
 }

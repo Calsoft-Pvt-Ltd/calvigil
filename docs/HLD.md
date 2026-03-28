@@ -9,7 +9,7 @@
 ## 1. Introduction
 
 ### 1.1 Purpose
-Calvigil is an open-source, AI-powered vulnerability scanner CLI designed to detect security vulnerabilities in **Go**, **Java (Maven/Gradle)**, **Python (pip/poetry/pipenv)**, and **Node.js (npm/yarn/pnpm)** projects. It combines three distinct detection engines — dependency scanning, AI code analysis, and static analysis (SAST) — into a single unified tool.
+Calvigil is an open-source, AI-powered vulnerability scanner CLI designed to detect security vulnerabilities in **Go**, **Java (Maven/Gradle)**, **Python (pip/poetry/pipenv/uv)**, **Node.js (npm/yarn/pnpm)**, **Rust**, **Ruby**, **PHP**, and **C/C++** projects. It combines dependency scanning, AI code analysis, static analysis (SAST), IaC scanning, binary/SCA scanning, container image scanning, and license compliance — into a single unified tool.
 
 ### 1.2 Scope
 This document covers the high-level architecture, major components, data flow, external integrations, and deployment model of the Calvigil system.
@@ -19,7 +19,10 @@ This document covers the high-level architecture, major components, data flow, e
 - Identify OWASP Top 10 security issues in source code using AI (GPT-4/Ollama) and pattern matching
 - Perform static analysis using Semgrep CE with bundled security rules
 - Scan container images for vulnerable packages
-- Generate reports in 7 formats: Table, JSON, SARIF, CycloneDX, OpenVEX, HTML, PDF
+- Scan compiled binaries and archives for embedded dependency vulnerabilities
+- Scan IaC files (Terraform, Kubernetes, Dockerfile, CloudFormation, Docker Compose, Helm) for misconfigurations
+- License compliance scanning with SPDX expression support and registry-based license resolution
+- Generate reports in 8 formats: Table, JSON, SARIF, CycloneDX, OpenVEX, SPDX 2.3, HTML, PDF
 - Enrich findings with AI-generated impact analysis, remediation, and confidence scores
 
 ---
@@ -32,6 +35,8 @@ This document covers the high-level architecture, major components, data flow, e
 │                                                                 │
 │   $ calvigil scan ./myproject --format sarif                    │
 │   $ calvigil scan-image nginx:latest                            │
+│   $ calvigil scan-license ./myproject --format html              │
+│   $ calvigil scan-iac ./infra/ --format json                    │
 │   $ calvigil config set openai-key sk-...                       │
 └────────────────────────┬────────────────────────────────────────┘
                          │
@@ -41,17 +46,20 @@ This document covers the high-level architecture, major components, data flow, e
 │                                                                 │
 │  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌───────────────┐  │
 │  │ Dep Scan │  │ AI Scan   │  │ SAST     │  │ Image Scan    │  │
+│  ├──────────┤  ├───────────┤  ├──────────┤  ├───────────────┤  │
+│  │ License  │  │ IaC Scan  │  │ Binary   │  │ Cache Layer   │  │
 │  └────┬─────┘  └─────┬─────┘  └────┬─────┘  └──────┬────────┘  │
 │       │              │              │               │           │
 └───────┼──────────────┼──────────────┼───────────────┼───────────┘
         │              │              │               │
         ▼              ▼              ▼               ▼
-┌──────────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────────┐
-│ CVE Databases│ │ LLM APIs │ │ Semgrep CE│ │ Syft (Anchore)   │
-│ • OSV.dev    │ │ • OpenAI │ │ (external │ │ (SBOM extraction)│
-│ • NVD (NIST) │ │ • Ollama │ │  binary)  │ │                  │
-│ • GitHub Adv │ │          │ │           │ │                  │
-└──────────────┘ └──────────┘ └───────────┘ └──────────────────┘
+┌──────────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────────┐ ┌──────────────────┐
+│ CVE Databases│ │ LLM APIs │ │ Semgrep CE│ │ Syft (Anchore)   │ │ License Registries│
+│ • OSV.dev    │ │ • OpenAI │ │ (external │ │ (SBOM extraction)│ │ • deps.dev        │
+│ • NVD (NIST) │ │ • Ollama │ │  binary)  │ │                  │ │ • PyPI            │
+│ • GitHub Adv │ │          │ │           │ │                  │ │ • npm registry    │
+└──────────────┘ └──────────┘ └───────────┘ └──────────────────┘ │ • RubyGems        │
+                                                                 └──────────────────┘
 ```
 
 ---
@@ -103,8 +111,10 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama), pattern matching, Semgrep |
 | **Reporter** | `internal/reporter/` | Format and emit scan results |
 | **Image Scanner** | `internal/image/` | Container image scanning via Syft |
+| **License** | `internal/license/` | License classification, SPDX expression parser, registry resolver |
+| **Cache** | `internal/cache/` | File-based vulnerability response caching (~/.calvigil/cache/) |
 | **Config** | `internal/config/` | Credential and preference management |
-| **Models** | `internal/models/` | Shared data structures (Vulnerability, Package, ScanResult) |
+| **Models** | `internal/models/` | Shared data structures (Vulnerability, Package, ScanResult, LicenseIssue) |
 
 ---
 
@@ -113,9 +123,13 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | Ecosystem | Manifest Files | Parser |
 |-----------|---------------|--------|
 | **Go** | `go.mod` | `GoModParser` (uses `golang.org/x/mod`) |
-| **Python** | `requirements.txt`, `Pipfile.lock`, `poetry.lock` | `RequirementsTxtParser`, `PipfileLockParser`, `PoetryLockParser` |
+| **Python** | `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `uv.lock` | `RequirementsTxtParser`, `PipfileLockParser`, `PoetryLockParser`, `UvLockParser` |
 | **Node.js** | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` | `NpmLockParser`, `YarnLockParser`, `PnpmLockParser` |
 | **Java** | `pom.xml`, `build.gradle`, `build.gradle.kts` | `PomXMLParser`, `GradleParser` |
+| **Rust** | `Cargo.lock` | `CargoLockParser` |
+| **Ruby** | `Gemfile.lock` | `GemfileLockParser` |
+| **PHP** | `composer.lock` | `ComposerLockParser` |
+| **C/C++** | `conan.lock` | `ConanLockParser` |
 
 ---
 
@@ -136,7 +150,18 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **OpenAI** | ChatCompletion API (GPT-4) | Cloud AI analysis (higher quality) |
 | **Ollama** | `/v1/chat/completions` (local) | Privacy-first local LLM (llama3, codellama, mistral) |
 
-### 5.3 External Tools
+### 5.3 License Registries
+
+| Registry | API Endpoint | Ecosystems |
+|----------|-------------|------------|
+| **deps.dev** | `GET /v3alpha/systems/{go,maven,cargo}/packages/{name}` | Go, Maven, Rust |
+| **PyPI** | `GET /pypi/{name}/json` | Python |
+| **npm** | `GET /{name}/{version}` | Node.js |
+| **RubyGems** | `GET /api/v1/gems/{name}.json` | Ruby |
+
+License resolution runs in parallel (bounded at 10 goroutines) and enriches packages missing license metadata from lockfiles.
+
+### 5.4 External Tools
 
 | Tool | Purpose | Required For |
 |------|---------|-------------|
@@ -200,7 +225,49 @@ User runs: calvigil scan ./myproject --format json
 
 ---
 
-## 7. Data Flow — Container Image Scan
+## 7. Data Flow — License Scan (`calvigil scan-license`)
+
+```
+User runs: calvigil scan-license ./myproject --format html
+                         │
+            ┌────────────▼───────────────┐
+            │ 1. DETECT ECOSYSTEMS       │
+            │    Walk project directory   │
+            │    Match known lock files   │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 2. PARSE DEPENDENCIES      │
+            │    Extract (name, version)  │
+            │    from manifest/lock files │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 3. RESOLVE LICENSES        │
+            │    Query registries for     │
+            │    missing license metadata │
+            │    (deps.dev, PyPI, npm,    │
+            │     RubyGems) — 10 parallel │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 4. CLASSIFY & CHECK        │
+            │    SPDX expression parsing  │
+            │    (OR/AND/WITH support)    │
+            │    → permissive/copyleft/   │
+            │      unknown classification │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 5. REPORT (LicenseOnly)    │
+            │    License Compliance Report│
+            │    with SVG donut chart     │
+            └────────────────────────────┘
+```
+
+---
+
+## 8. Data Flow — Container Image Scan
 
 ```
 User runs: calvigil scan-image nginx:latest
@@ -231,7 +298,7 @@ User runs: calvigil scan-image nginx:latest
 
 ---
 
-## 8. Output Formats
+## 9. Output Formats
 
 | Format | Standard/Spec | Primary Use Case |
 |--------|--------------|-----------------|
@@ -240,19 +307,20 @@ User runs: calvigil scan-image nginx:latest
 | **SARIF** | SARIF v2.1.0 | GitHub Code Scanning, VS Code, IDE integration |
 | **CycloneDX** | CycloneDX v1.5 | SBOM + VDR for supply chain compliance |
 | **OpenVEX** | OpenVEX v0.2.0 | Vulnerability exploitability exchange |
-| **HTML** | Self-contained HTML | Executive reports, sharing with stakeholders |
+| **SPDX** | SPDX v2.3 | SBOM with packages, licenses, PURLs, and vulnerability annotations |
+| **HTML** | Self-contained HTML | Executive reports with severity charts and license donut chart |
 | **PDF** | Rendered via Chrome | Formal audit reports |
 
 ---
 
-## 9. Configuration & Security
+## 10. Configuration & Security
 
-### 9.1 Configuration Storage
+### 10.1 Configuration Storage
 - **Location:** `~/.calvigil.json`
 - **Environment overrides:** `OPENAI_API_KEY`, `NVD_API_KEY`, `GITHUB_TOKEN`, `OLLAMA_URL`, `OLLAMA_MODEL`
 - **Secret masking:** API keys displayed as `****<last4>` in `config get`
 
-### 9.2 AI Provider Selection
+### 10.2 AI Provider Selection
 Automatic provider resolution priority:
 1. Explicit `--provider` flag → use specified
 2. Ollama available locally → prefer Ollama (privacy)
@@ -261,7 +329,7 @@ Automatic provider resolution priority:
 
 ---
 
-## 10. Deployment Model
+## 11. Deployment Model
 
 Calvigil is a **single static Go binary** with no runtime dependencies beyond optional external tools:
 
@@ -273,7 +341,7 @@ Optional:   Semgrep CE (pip install semgrep)   — for SAST
             Ollama     (ollama serve)            — for local AI
 ```
 
-### 10.1 Build
+### 11.1 Build
 ```bash
 make build          # → bin/calvigil
 make install        # → $GOPATH/bin/calvigil
@@ -286,7 +354,7 @@ Version is embedded at build time via `-ldflags`:
 
 ---
 
-## 11. Technology Stack
+## 12. Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -301,7 +369,7 @@ Version is embedded at build time via `-ldflags`:
 
 ---
 
-## 12. Non-Functional Requirements
+## 13. Non-Functional Requirements
 
 | Attribute | Design Decision |
 |-----------|----------------|

@@ -93,6 +93,80 @@ func TestClassify_WhitespaceHandling(t *testing.T) {
 	}
 }
 
+func TestClassify_SPDXExpressions(t *testing.T) {
+	tests := []struct {
+		expr string
+		want models.LicenseRisk
+	}{
+		// OR: pick the most permissive
+		{"(MIT OR Apache-2.0)", models.LicensePermissive},
+		{"MIT OR GPL-3.0", models.LicensePermissive},
+		{"GPL-2.0-only OR MIT", models.LicensePermissive},
+		{"(GPL-3.0 OR LGPL-2.1)", models.LicenseCopyleft},        // both copyleft
+		{"CustomLicense OR MIT", models.LicensePermissive},       // one permissive wins
+		{"CustomLicense OR UnknownThing", models.LicenseUnknown}, // both unknown
+
+		// AND: pick the most restrictive
+		{"MIT AND Apache-2.0", models.LicensePermissive},   // both permissive
+		{"MIT AND GPL-3.0", models.LicenseCopyleft},        // copyleft wins
+		{"Apache-2.0 AND MPL-2.0", models.LicenseCopyleft}, // copyleft wins
+		{"MIT AND CustomLicense", models.LicenseUnknown},   // unknown wins
+
+		// WITH: ignore exception, classify base
+		{"GPL-2.0-only WITH Classpath-exception-2.0", models.LicenseCopyleft},
+		{"Apache-2.0 WITH LLVM-exception", models.LicensePermissive},
+
+		// Nested parens
+		{"(MIT OR BSD-2-Clause)", models.LicensePermissive},
+
+		// Mixed case operators
+		{"MIT or Apache-2.0", models.LicensePermissive},
+		{"MIT and GPL-3.0", models.LicenseCopyleft},
+		{"GPL-2.0 with Classpath-exception-2.0", models.LicenseCopyleft},
+	}
+	for _, tt := range tests {
+		got := Classify(tt.expr)
+		if got != tt.want {
+			t.Errorf("Classify(%q) = %q, want %q", tt.expr, got, tt.want)
+		}
+	}
+}
+
+func TestClassify_LicenseAliases(t *testing.T) {
+	permissiveCases := []string{
+		"BSD", "bsd", "BSD License",
+		"Apache 2.0", "apache 2.0", "Apache 2", "ASL 2.0",
+		"Apache License, Version 2.0", "Apache Software License",
+		"MIT License", "The MIT License",
+		"ISC License",
+		"Public Domain", "CC0",
+		"Zlib", "zlib/libpng",
+		"Artistic 2.0",
+		"Python", "Python Software Foundation License", "PSF",
+		"WTFPL", "Unlicense", "The Unlicense",
+	}
+	for _, lic := range permissiveCases {
+		got := Classify(lic)
+		if got != models.LicensePermissive {
+			t.Errorf("Classify(%q) = %q, want %q", lic, got, models.LicensePermissive)
+		}
+	}
+
+	copyleftCases := []string{
+		"GPL", "GPL2", "GPL 2", "GPL V2", "GPLv2", "GNU GPL v2",
+		"GPL3", "GPL 3", "GPL V3", "GPLv3", "GNU GPL v3",
+		"LGPL", "LGPL 2.1", "LGPL V2.1", "LGPL 3", "LGPL V3",
+		"AGPL", "AGPL 3", "AGPL V3",
+		"MPL", "MPL 2", "MPL 2.0", "Mozilla Public License 2.0",
+	}
+	for _, lic := range copyleftCases {
+		got := Classify(lic)
+		if got != models.LicenseCopyleft {
+			t.Errorf("Classify(%q) = %q, want %q", lic, got, models.LicenseCopyleft)
+		}
+	}
+}
+
 func TestCheckPackages_MixedLicenses(t *testing.T) {
 	pkgs := []models.Package{
 		{Name: "safe-pkg", Version: "1.0", License: "MIT"},
