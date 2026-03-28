@@ -27,13 +27,27 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Auto-detection: if Ollama is reachable, it's preferred over OpenAI
   - Configure via CLI flags (`--ollama-url`, `--ollama-model`) or config/env vars
 
+- **License Compliance Scanning**:
+  - Detect and classify licenses from package metadata (SPDX identifiers)
+  - Flags copyleft licenses (GPL, AGPL, LGPL, MPL) that may require source disclosure
+  - Flags unknown/unrecognized licenses for manual review
+  - Enable with `--check-licenses` flag
+  - License info extracted from npm `package-lock.json` and other manifest files
+
+- **Offline Vulnerability Cache**:
+  - File-based cache for vulnerability query results (~/.calvigil/cache/)
+  - Configurable TTL (default 24h) via `--cache-ttl`
+  - Dramatically speeds up repeated scans of the same project
+  - Disable with `--no-cache` flag
+
 - **IaC Scanning** (Infrastructure-as-Code):
-  - 20 built-in rules for Terraform, Kubernetes, Dockerfile, CloudFormation, Docker Compose
+  - 25 built-in rules for Terraform, Kubernetes, Dockerfile, CloudFormation, Docker Compose, Helm
   - No external tools required — pure regex-based misconfiguration detection
   - **Terraform**: open security groups, public S3 buckets, unencrypted storage, IAM wildcard, SSH exposure
   - **Kubernetes**: privileged containers, runAsRoot, hostNetwork, hostPID, default namespace
   - **Dockerfile**: root user, latest tag, ADD vs COPY, curl-pipe-bash
   - **CloudFormation**: public S3, open ingress rules
+  - **Helm Charts**: Tiller detection, latest tag, no resource limits, hostNetwork, privileged
   - Recursive directory walk with concurrent file scanning
 
 - **Binary / SCA Scanning**:
@@ -51,7 +65,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Full vulnerability matching against OSV, NVD, and GitHub Advisory
 
 - **SAST Engine — Semgrep CE Integration** with custom rule packs:
-  - 31 bundled security rules covering OWASP Top 10 + language-specific patterns
+  - 52 bundled security rules covering OWASP Top 10 + SonarQube-aligned + language-specific patterns
   - Custom rule packs for Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, and C/C++
   - Bring your own rules with `--semgrep-rules`
 
@@ -80,7 +94,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - **PHP** 🐘: `composer.lock`
   - **C/C++** ⚙️: `conan.lock`
 
-- **Multiple Output Formats**: Terminal table, JSON, SARIF v2.1.0, CycloneDX v1.5, OpenVEX v0.2.0, HTML, PDF
+- **Multiple Output Formats**: Terminal table, JSON, SARIF v2.1.0, CycloneDX v1.5, SPDX 2.3, OpenVEX v0.2.0, HTML, PDF
 
 ## Installation
 
@@ -182,6 +196,9 @@ calvigil scan --format sarif --output results.sarif
 # Output as CycloneDX SBOM
 calvigil scan --format cyclonedx --output sbom.json
 
+# Output as SPDX 2.3 SBOM
+calvigil scan --format spdx --output sbom.spdx.json
+
 # Output as OpenVEX
 calvigil scan --format openvex --output vex.json
 
@@ -196,6 +213,18 @@ calvigil scan --semgrep-rules ./my-rules/
 
 # Skip Semgrep SAST analysis
 calvigil scan --skip-semgrep
+
+# License compliance checking
+calvigil scan --check-licenses
+
+# Disable vulnerability cache
+calvigil scan --no-cache
+
+# Set cache TTL to 1 hour
+calvigil scan --cache-ttl 1h
+
+# Scan Helm charts for misconfigurations
+calvigil scan-iac ./charts/
 
 # Only show high and critical vulnerabilities
 calvigil scan --severity high
@@ -256,7 +285,7 @@ Available Commands:
   help        Help about any command
 
 Scan Flags:
-  -f, --format string           Output format: table, json, sarif, cyclonedx, openvex, html, pdf (default "table")
+  -f, --format string           Output format: table, json, sarif, cyclonedx, openvex, spdx, html, pdf (default "table")
   -o, --output string           Write output to file (default: stdout)
   -s, --severity string         Minimum severity: critical, high, medium, low
       --skip-ai                 Skip AI-powered code analysis
@@ -266,6 +295,9 @@ Scan Flags:
       --provider string         AI provider: openai, ollama, or auto (default "auto")
       --ollama-url string       Ollama server URL (default: http://localhost:11434)
       --ollama-model string     Ollama model name (e.g. llama3, codellama, mistral)
+      --check-licenses          Enable license compliance checking
+      --no-cache                Disable vulnerability response caching
+      --cache-ttl string        Cache TTL duration (default "24h")
   -v, --verbose                 Enable verbose output
 
 Scan-Binary Flags:
@@ -311,25 +343,37 @@ Scan-Image Flags:
 
 ## Supported Vulnerability Patterns (Code Analysis)
 
-| ID | Pattern | Severity |
-|----|---------|----------|
-| SEC-001 | SQL Injection (format strings) | HIGH |
-| SEC-002 | SQL Injection (string concat) | HIGH |
-| SEC-003 | Command Injection | CRITICAL |
-| SEC-004 | Path Traversal | HIGH |
-| SEC-005 | Hardcoded Secrets | HIGH |
-| SEC-006 | AWS Access Keys | CRITICAL |
-| SEC-007 | Weak Crypto (MD5/SHA1) | MEDIUM |
-| SEC-008 | Cross-Site Scripting (XSS) | HIGH |
-| SEC-009 | Insecure HTTP | LOW |
-| SEC-010 | TLS Verification Disabled | CRITICAL |
-| SEC-011 | Insecure Deserialization | HIGH |
-| SEC-012 | Permissive CORS | MEDIUM |
-| SEC-013 | Unsafe Rust (`unsafe` blocks) | MEDIUM |
-| SEC-014 | C/C++ Buffer Overflow (`strcpy`, `gets`, `sprintf`) | HIGH |
-| SEC-015 | C/C++ Format String Vulnerability | HIGH |
-| SEC-016 | PHP File Inclusion (`include`/`require` with user input) | HIGH |
-| SEC-017 | Ruby Mass Assignment | MEDIUM |
+| ID | Pattern | Severity | CWE |
+|----|---------|----------|-----|
+| SEC-001 | SQL Injection (format strings) | HIGH | CWE-89 |
+| SEC-002 | SQL Injection (string concat) | HIGH | CWE-89 |
+| SEC-003 | Command Injection | CRITICAL | CWE-78 |
+| SEC-004 | Path Traversal | HIGH | CWE-22 |
+| SEC-005 | Hardcoded Secrets | HIGH | CWE-798 |
+| SEC-006 | Cloud Provider Credentials (AWS/GCP/Azure/GitHub/Slack/Stripe/OpenAI) | CRITICAL | CWE-798 |
+| SEC-007 | Weak Crypto (MD5/SHA1) | MEDIUM | CWE-328 |
+| SEC-008 | Cross-Site Scripting (XSS) | HIGH | CWE-79 |
+| SEC-009 | Insecure HTTP (excludes localhost/schemas) | LOW | CWE-319 |
+| SEC-010 | TLS Verification Disabled | CRITICAL | CWE-295 |
+| SEC-011 | Insecure Deserialization | HIGH | CWE-502 |
+| SEC-012 | Permissive CORS | MEDIUM | CWE-942 |
+| SEC-013 | Unsafe Rust (`unsafe` blocks) | MEDIUM | CWE-704 |
+| SEC-014 | C/C++ Buffer Overflow (`strcpy`, `gets`, `sprintf`) | HIGH | CWE-120 |
+| SEC-015 | C/C++ Format String Vulnerability | CRITICAL | CWE-134 |
+| SEC-016 | PHP File Inclusion (`include`/`require` with user input) | CRITICAL | CWE-98 |
+| SEC-017 | Ruby Mass Assignment | HIGH | CWE-915 |
+| SEC-018 | Insecure Random Number Generator | MEDIUM | CWE-330 |
+| SEC-019 | Weak Cipher Algorithm (DES/RC4/Blowfish/ECB) | HIGH | CWE-327 |
+| SEC-020 | XML External Entity (XXE) | HIGH | CWE-611 |
+| SEC-021 | JWT Verification Disabled / Algorithm None | CRITICAL | CWE-345 |
+| SEC-022 | Debug Mode Enabled in Production | MEDIUM | CWE-489 |
+| SEC-023 | Empty Error Handler (swallowed exceptions) | LOW | CWE-390 |
+| SEC-024 | Server-Side Request Forgery (SSRF) | HIGH | CWE-918 |
+| SEC-025 | Open Redirect | MEDIUM | CWE-601 |
+| SEC-026 | Private Key Detected (RSA/EC/PGP/SSH) | CRITICAL | CWE-321 |
+| SEC-027 | Database Connection String with Credentials | HIGH | CWE-798 |
+| SEC-028 | Hardcoded Bearer or Auth Token | HIGH | CWE-798 |
+| SEC-029 | Generic API Key or Secret | MEDIUM | CWE-798 |
 
 ## Semgrep CE Integration
 
@@ -349,8 +393,8 @@ calvigil scan --skip-semgrep /path/to/project
 ```
 
 **Bundled rule packs** (in `rules/semgrep/`):
-- `owasp-top10.yaml` — 20 rules: SQL injection, command injection, path traversal, hardcoded secrets, insecure TLS, weak crypto, XSS, insecure deserialization, SSRF
-- `language-specific.yaml` — 11 rules: Go (unsafe pointer, HTTP no timeout, defer in loop), Python (Flask debug, bind 0.0.0.0), JS (eval, CORS wildcard, JWT no verify), Java (XXE, ECB mode), plus Rust, C/C++, PHP, Ruby patterns
+- `owasp-top10.yaml` — 32 rules: SQL injection, command injection, path traversal, hardcoded secrets, insecure TLS, weak crypto, XSS, insecure deserialization, SSRF, insecure random, weak ciphers, XXE, JWT misconfiguration, open redirect
+- `language-specific.yaml` — 20 rules: Go (unsafe pointer, HTTP timeouts, defer in loop, SQL concat, error wrapping), Python (Flask debug, bind 0.0.0.0, Django raw SQL, insecure tempfile, assert for auth), JS (eval, CORS wildcard, JWT no verify, prototype pollution), Java (XXE, ECB mode, weak ciphers, RSA key size)
 
 ## Standards & Output Formats
 
@@ -361,6 +405,7 @@ calvigil scan --skip-semgrep /path/to/project
 | SARIF | `--format sarif` | v2.1.0 | GitHub Code Scanning, VS Code, IDE integrations |
 | CycloneDX | `--format cyclonedx` | v1.5 | SBOM/VDR with components, PURLs, and vulnerabilities |
 | OpenVEX | `--format openvex` | v0.2.0 | Vulnerability exploitability exchange with status/justification |
+| SPDX | `--format spdx` | v2.3 | SPDX SBOM with packages, licenses, PURLs, and vulnerability annotations |
 | HTML | `--format html` | — | Executive-friendly report with severity charts, badges, and AI enrichment |
 | PDF | `--format pdf` | — | Print-ready PDF report for MIS/management audiences (requires Chrome or Chromium) |
 
@@ -439,7 +484,7 @@ calvigil scan-iac . --severity high
 calvigil scan-iac . --format sarif --output iac.sarif
 ```
 
-**Built-in IaC Rules (20 rules):**
+**Built-in IaC Rules (25 rules):**
 
 | ID | Category | Rule | Severity |
 |----|----------|------|----------|
@@ -463,6 +508,11 @@ calvigil scan-iac . --format sarif --output iac.sarif
 | IAC-018 | CloudFormation | Public S3 Bucket | CRITICAL |
 | IAC-019 | CloudFormation | Open Security Group Ingress | HIGH |
 | IAC-020 | Docker Compose | Privileged Mode | CRITICAL |
+| IAC-021 | Helm | Tiller Enabled (Helm 2) | CRITICAL |
+| IAC-022 | Helm | Container Uses :latest Tag | MEDIUM |
+| IAC-023 | Helm | No Resource Limits | MEDIUM |
+| IAC-024 | Helm | Host Network Enabled | HIGH |
+| IAC-025 | Helm | Privileged Container | CRITICAL |
 
 ## Binary / SCA Scanning
 

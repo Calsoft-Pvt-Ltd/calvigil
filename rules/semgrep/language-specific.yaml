@@ -144,3 +144,145 @@ rules:
       cwe: ["CWE-327"]
       owasp: ["A02:2021 - Cryptographic Failures"]
       category: weak-crypto
+
+  # ─── SonarQube-aligned language-specific rules ──────────────────
+
+  # Go: HTTP server without timeouts (SonarQube equivalent / CWE-400)
+  - id: go-http-write-timeout
+    pattern: |
+      &http.Server{...}
+    pattern-not: |
+      &http.Server{..., WriteTimeout: ..., ...}
+    message: >
+      HTTP server created without WriteTimeout. This may lead to resource
+      exhaustion. Set ReadTimeout, WriteTimeout, and IdleTimeout.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-400"]
+      category: denial-of-service
+
+  # Go: SQL query with db.Query and string concat (S2077)
+  - id: go-sql-query-concat
+    pattern-either:
+      - pattern: $DB.Query("..." + $INPUT)
+      - pattern: $DB.QueryRow("..." + $INPUT)
+      - pattern: $DB.Exec("..." + $INPUT)
+      - pattern: $DB.QueryContext($CTX, "..." + $INPUT)
+    message: >
+      SQL query built with string concatenation. Use parameterized queries
+      with $DB.Query("... $1", input) instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: sql-injection
+
+  # Python: Django raw SQL (S2077)
+  - id: python-django-raw-sql
+    pattern-either:
+      - pattern: $MODEL.objects.raw("..." + $INPUT)
+      - pattern: $MODEL.objects.raw(f"...{$INPUT}...")
+      - pattern: connection.cursor().execute("..." + $INPUT)
+    message: >
+      Django raw SQL with string concatenation. Use parameterized queries
+      with %s placeholders and params tuple.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: sql-injection
+
+  # Python: Insecure temp file (S5443 / CWE-377)
+  - id: python-insecure-tempfile
+    pattern-either:
+      - pattern: tempfile.mktemp(...)
+    message: >
+      tempfile.mktemp() is insecure (race condition). Use
+      tempfile.mkstemp() or tempfile.NamedTemporaryFile() instead.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-377"]
+      category: insecure-temp-file
+
+  # Java: Weak cipher algorithms (S5547)
+  - id: java-weak-cipher
+    pattern-either:
+      - pattern: Cipher.getInstance("DES")
+      - pattern: Cipher.getInstance("DESede")
+      - pattern: Cipher.getInstance("RC4")
+      - pattern: Cipher.getInstance("Blowfish")
+      - pattern: Cipher.getInstance("RC2")
+    message: >
+      Weak cipher algorithm (DES/3DES/RC4/Blowfish/RC2). Use AES/GCM/NoPadding
+      with a 256-bit key.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: weak-cipher
+
+  # Java: Insufficient RSA key size (S4426 / CWE-326)
+  - id: java-short-rsa-key
+    pattern: |
+      KeyPairGenerator.getInstance("RSA")
+    message: >
+      RSA key generator instantiated. Ensure key size is at least 2048 bits.
+      Keys shorter than 2048 bits are considered insecure.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-326"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insufficient-key-size
+
+  # Node.js: Prototype pollution (CWE-1321)
+  - id: js-prototype-pollution
+    pattern-either:
+      - pattern: $OBJ["__proto__"]
+      - pattern: $OBJ.__proto__ = ...
+      - pattern: Object.assign({}, ..., $INPUT)
+    message: >
+      Potential prototype pollution. Validate object keys and avoid
+      merging untrusted input into objects without sanitization.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-1321"]
+      category: prototype-pollution
+
+  # Python: assert used for security (S5905 / CWE-617)
+  - id: python-assert-security
+    pattern-either:
+      - pattern: |
+          assert $USER.is_authenticated
+      - pattern: |
+          assert $USER.is_admin
+      - pattern: |
+          assert $PERM
+    message: >
+      assert used for access control. Assertions are stripped with -O flag.
+      Use if/raise for security checks.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-617"]
+      category: improper-validation
+
+  # Go: errors.New with string concat (logging/error context)
+  - id: go-error-wrap-concat
+    pattern-either:
+      - pattern: errors.New("..." + $VAR)
+      - pattern: fmt.Errorf("..." + $VAR)
+    message: >
+      Error message built with string concatenation. Use fmt.Errorf with
+      %w verb for proper error wrapping.
+    severity: INFO
+    languages: [go]
+    metadata:
+      cwe: ["CWE-209"]
+      category: error-handling

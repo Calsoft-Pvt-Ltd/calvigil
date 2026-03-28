@@ -56,7 +56,7 @@ Use --skip-deps to run AI analysis only.`,
 func init() {
 	rootCmd.AddCommand(scanCmd)
 
-	scanCmd.Flags().StringVarP(&scanOpts.Format, "format", "f", "table", "output format: table, json, sarif, cyclonedx, openvex, html, pdf")
+	scanCmd.Flags().StringVarP(&scanOpts.Format, "format", "f", "table", "output format: table, json, sarif, cyclonedx, openvex, spdx, html, pdf")
 	scanCmd.Flags().StringVarP(&scanOpts.OutputFile, "output", "o", "", "write output to file (default: stdout)")
 	scanCmd.Flags().StringVarP((*string)(&scanOpts.SeverityFilter), "severity", "s", "", "minimum severity to report: critical, high, medium, low")
 	scanCmd.Flags().BoolVar(&scanOpts.SkipAI, "skip-ai", false, "skip AI-powered code analysis")
@@ -66,6 +66,9 @@ func init() {
 	scanCmd.Flags().StringVar(&scanOpts.AIProvider, "provider", "auto", "AI provider: openai, ollama, or auto")
 	scanCmd.Flags().StringVar(&scanOpts.OllamaURL, "ollama-url", "", "Ollama server URL (default: http://localhost:11434)")
 	scanCmd.Flags().StringVar(&scanOpts.OllamaModel, "ollama-model", "", "Ollama model name (e.g. llama3, codellama, mistral)")
+	scanCmd.Flags().BoolVar(&scanOpts.CheckLicenses, "check-licenses", false, "enable license compliance checking")
+	scanCmd.Flags().BoolVar(&scanOpts.NoCache, "no-cache", false, "disable vulnerability response caching")
+	scanCmd.Flags().StringVar(&scanOpts.CacheTTL, "cache-ttl", "24h", "cache TTL duration (e.g. 24h, 1h, 30m)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {

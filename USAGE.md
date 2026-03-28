@@ -248,7 +248,7 @@ calvigil scan [path] [flags]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `html`, `pdf` |
+| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `spdx`, `html`, `pdf` |
 | `--output` | `-o` | stdout | Write output to a file |
 | `--severity` | `-s` | (all) | Minimum severity filter: `critical`, `high`, `medium`, `low` |
 | `--skip-ai` | — | `false` | Skip AI code analysis (dependency scan only) |
@@ -258,6 +258,9 @@ calvigil scan [path] [flags]
 | `--provider` | — | `auto` | AI provider: `openai`, `ollama`, or `auto` |
 | `--ollama-url` | — | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | — | — | Ollama model name (e.g. `llama3`, `codellama`, `mistral`) |
+| `--check-licenses` | — | `false` | Enable license compliance checking |
+| `--no-cache` | — | `false` | Disable vulnerability response caching |
+| `--cache-ttl` | — | `24h` | Cache TTL duration (e.g. `24h`, `1h`, `30m`) |
 | `--verbose` | `-v` | `false` | Show detailed progress output |
 
 ---
@@ -280,7 +283,7 @@ calvigil scan-image <image> [flags]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `html`, `pdf` |
+| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `spdx`, `html`, `pdf` |
 | `--output` | `-o` | stdout | Write output to a file |
 | `--severity` | `-s` | (all) | Minimum severity filter: `critical`, `high`, `medium`, `low` |
 | `--verbose` | `-v` | `false` | Show detailed progress output |
@@ -305,7 +308,7 @@ calvigil scan-binary <path> [flags]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `html`, `pdf` |
+| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `spdx`, `html`, `pdf` |
 | `--output` | `-o` | stdout | Write output to a file |
 | `--severity` | `-s` | (all) | Minimum severity filter: `critical`, `high`, `medium`, `low` |
 | `--verbose` | `-v` | `false` | Show detailed progress output |
@@ -330,7 +333,7 @@ calvigil scan-iac <path> [flags]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `html`, `pdf` |
+| `--format` | `-f` | `table` | Output format: `table`, `json`, `sarif`, `cyclonedx`, `openvex`, `spdx`, `html`, `pdf` |
 | `--output` | `-o` | stdout | Write output to a file |
 | `--severity` | `-s` | (all) | Minimum severity filter: `critical`, `high`, `medium`, `low` |
 | `--verbose` | `-v` | `false` | Show detailed progress output |
@@ -825,34 +828,35 @@ When Semgrep is not installed, the scanner gracefully skips SAST analysis and co
 
 ### Bundled Rule Packs
 
-The scanner ships with **31 security rules** in `rules/semgrep/`:
+The scanner ships with **52 security rules** in `rules/semgrep/`:
 
-**`owasp-top10.yaml`** — 20 rules covering OWASP Top 10:
+**`owasp-top10.yaml`** — 32 rules covering OWASP Top 10 + SonarQube-aligned:
 
-| Category | Languages | Rules |
-|----------|-----------|-------|
-| SQL Injection | Go, Python, Java, JS | Format string + concatenation patterns |
-| Command Injection | Go, Python, JS | `exec.Command`, `subprocess`, `child_process` |
-| Path Traversal | Go, Python | Unsanitized path joins |
-| Hardcoded Secrets | All | API keys, passwords, tokens in source |
-| Insecure TLS | Go, Python | `InsecureSkipVerify`, disabled cert checks |
-| Weak Crypto | Go, Python | MD5, SHA1, DES for security purposes |
-| XSS | Go, JS | Template injection, `innerHTML` |
-| Insecure Deserialization | Python, Java | `pickle.loads`, `ObjectInputStream` |
-| SSRF | Go, Python | Unvalidated URL from user input |
+| Category | Languages | Rules | SonarQube Ref |
+|----------|-----------|-------|---------------|
+| SQL Injection | Go, Python, Java, JS | Format string + concatenation patterns | S2077 |
+| Command Injection | Go, Python, JS | `exec.Command`, `subprocess`, `child_process` | S2076 |
+| Path Traversal | Go, Python | Unsanitized path joins | S2083 |
+| Hardcoded Secrets | All | API keys, passwords, tokens in source | S6418 |
+| Insecure TLS | Go, Python | `InsecureSkipVerify`, disabled cert checks | S4830 |
+| Weak Crypto (Hash) | Go, Python | MD5, SHA1 for security purposes | S4790 |
+| Weak Cipher | Go, Java | DES, 3DES, RC4, Blowfish, AES/ECB | S5547 |
+| XSS | Go, JS | Template injection, `innerHTML` | S5131 |
+| Insecure Deserialization | Python, Java | `pickle.loads`, `ObjectInputStream` | S5135 |
+| SSRF | Go, Python | Unvalidated URL from user input | S5144 |
+| Insecure Random | Go, Python, Java, JS | `math/rand`, `random`, `Math.random()` | S2245 |
+| XXE | Java, Python | Unprotected XML parsers | S2755 |
+| JWT Misconfiguration | Python | `verify=False`, `algorithm="none"` | S3649 |
+| Open Redirect | Go, Python, JS | Redirect with user-controlled URL | S5146 |
 
-**`language-specific.yaml`** — 11 language-specific rules:
+**`language-specific.yaml`** — 20 language-specific rules:
 
 | Language | Rules |
 |----------|-------|
-| Go | `unsafe.Pointer`, `http.Client` without timeout, `defer` in loop |
-| Python | Flask debug mode, bind to `0.0.0.0`, `assert` for auth checks |
-| JavaScript/TypeScript | `eval()`, CORS wildcard `*`, JWT without verification |
-| Java | XXE-vulnerable XML parser, ECB mode encryption |
-| Rust | `unsafe` block detection (SEC-013) |
-| C/C++ | Buffer overflow (`strcpy`, `gets`, `sprintf`) (SEC-014), format string vulnerabilities (SEC-015) |
-| PHP | File inclusion with user input (`include`/`require`) (SEC-016) |
-| Ruby | Mass assignment vulnerabilities (SEC-017) |
+| Go | `unsafe.Pointer`, `http.Server` without timeouts, `defer` in loop, SQL query concat, error wrapping |
+| Python | Flask debug mode, bind to `0.0.0.0`, `assert` for auth, Django raw SQL, insecure `tempfile.mktemp` |
+| JavaScript/TypeScript | `eval()`, CORS wildcard `*`, JWT without verification, prototype pollution |
+| Java | XXE-vulnerable XML parser, ECB mode encryption, weak ciphers (DES/RC4), insufficient RSA key size |
 
 ### Custom Rules
 
@@ -1112,16 +1116,16 @@ The scanner detects vulnerabilities mapped to the OWASP Top 10:
 
 | OWASP Category | Detection Rules |
 |----------------|----------------|
-| A01: Broken Access Control | AI analysis of auth/middleware patterns, SEC-017 (Ruby mass assignment) |
-| A02: Cryptographic Failures | SEC-007 (weak MD5/SHA1), SEC-005 (hardcoded secrets), SEC-006 (AWS keys) |
+| A01: Broken Access Control | AI analysis of auth/middleware patterns, SEC-017 (Ruby mass assignment), SEC-025 (open redirect) |
+| A02: Cryptographic Failures | SEC-007 (weak MD5/SHA1), SEC-005 (hardcoded secrets), SEC-006 (AWS keys), SEC-019 (weak ciphers), SEC-026 (private keys), SEC-027 (connection strings), SEC-028 (bearer tokens), SEC-029 (generic secrets) |
 | A03: Injection | SEC-001/SEC-002 (SQL injection), SEC-003 (command injection), SEC-008 (XSS), SEC-015 (C format string), SEC-016 (PHP file inclusion) |
-| A04: Insecure Design | AI analysis of architectural patterns, SEC-013 (unsafe Rust) |
-| A05: Security Misconfiguration | SEC-010 (TLS disabled), SEC-012 (CORS wildcard), SEC-009 (HTTP) |
-| A06: Vulnerable Components | Dependency scanning (OSV, NVD, GitHub Advisory) with direct/transitive classification |
-| A07: Auth Failures | AI analysis of authentication code |
-| A08: Data Integrity | SEC-011 (insecure deserialization) |
-| A09: Logging Failures | AI analysis of logging practices |
-| A10: SSRF | SEC-004 (path traversal), SEC-014 (C buffer overflow), AI analysis of URL handling |
+| A04: Insecure Design | AI analysis of architectural patterns, SEC-013 (unsafe Rust), SEC-018 (insecure random) |
+| A05: Security Misconfiguration | SEC-010 (TLS disabled), SEC-012 (CORS wildcard), SEC-009 (HTTP), SEC-021 (JWT misconfiguration), SEC-022 (debug mode) |
+| A06: Vulnerable Components | Dependency scanning (OSV, NVD, GitHub Advisory) with direct/transitive classification, license compliance |
+| A07: Auth Failures | AI analysis of authentication code, SEC-021 (JWT disabled) |
+| A08: Data Integrity | SEC-011 (insecure deserialization), SEC-020 (XXE) |
+| A09: Logging Failures | AI analysis of logging practices, SEC-023 (empty error handler) |
+| A10: SSRF | SEC-004 (path traversal), SEC-014 (C buffer overflow), SEC-024 (SSRF), AI analysis of URL handling |
 
 ---
 
@@ -1435,7 +1439,7 @@ calvigil scan-binary ./bin/myapp --format cyclonedx --output sbom.json
 
 ## IaC Scanning (Infrastructure-as-Code)
 
-Scan Terraform, Kubernetes, Dockerfiles, CloudFormation, and Docker Compose files for security misconfigurations — no external tools required. Uses 20 built-in regex-based rules.
+Scan Terraform, Kubernetes, Dockerfiles, CloudFormation, Docker Compose, and Helm chart files for security misconfigurations — no external tools required. Uses 25 built-in regex-based rules.
 
 ### Supported IaC Types
 
@@ -1471,6 +1475,11 @@ Scan Terraform, Kubernetes, Dockerfiles, CloudFormation, and Docker Compose file
 | IAC-018 | CloudFormation | Public S3 Bucket | CRITICAL |
 | IAC-019 | CloudFormation | Open Security Group Ingress | HIGH |
 | IAC-020 | Docker Compose | Privileged Mode | CRITICAL |
+| IAC-021 | Helm | Tiller Enabled (Helm 2) | CRITICAL |
+| IAC-022 | Helm | Container Uses :latest Tag | MEDIUM |
+| IAC-023 | Helm | No Resource Limits | MEDIUM |
+| IAC-024 | Helm | Host Network Enabled | HIGH |
+| IAC-025 | Helm | Privileged Container | CRITICAL |
 
 ### IaC Scanning Examples
 

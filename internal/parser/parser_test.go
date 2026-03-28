@@ -248,3 +248,82 @@ func TestComposerLockWithoutJsonAllDirect(t *testing.T) {
 		}
 	}
 }
+
+// ── npm License Extraction Tests ──────────────────────────────────
+
+func TestExtractNpmLicense_String(t *testing.T) {
+	got := extractNpmLicense("MIT")
+	if got != "MIT" {
+		t.Errorf("expected MIT, got %s", got)
+	}
+}
+
+func TestExtractNpmLicense_Object(t *testing.T) {
+	obj := map[string]interface{}{"type": "Apache-2.0"}
+	got := extractNpmLicense(obj)
+	if got != "Apache-2.0" {
+		t.Errorf("expected Apache-2.0, got %s", got)
+	}
+}
+
+func TestExtractNpmLicense_Nil(t *testing.T) {
+	got := extractNpmLicense(nil)
+	if got != "" {
+		t.Errorf("expected empty string, got %s", got)
+	}
+}
+
+func TestExtractNpmLicense_EmptyString(t *testing.T) {
+	got := extractNpmLicense("")
+	if got != "" {
+		t.Errorf("expected empty string, got %s", got)
+	}
+}
+
+func TestNpmLockV2WithLicenses(t *testing.T) {
+	input := `{
+  "name": "my-app",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {"name": "my-app", "version": "1.0.0"},
+    "node_modules/express": {
+      "version": "4.18.2",
+      "license": "MIT"
+    },
+    "node_modules/lodash": {
+      "version": "4.17.21",
+      "license": {"type": "MIT"}
+    },
+    "node_modules/no-lic-pkg": {
+      "version": "1.0.0"
+    }
+  }
+}`
+
+	p := &NpmLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "package-lock.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pkgs) != 3 {
+		t.Fatalf("expected 3 packages, got %d", len(pkgs))
+	}
+
+	for _, pkg := range pkgs {
+		switch pkg.Name {
+		case "express":
+			if pkg.License != "MIT" {
+				t.Errorf("express license: want MIT, got %s", pkg.License)
+			}
+		case "lodash":
+			if pkg.License != "MIT" {
+				t.Errorf("lodash license: want MIT (from object), got %s", pkg.License)
+			}
+		case "no-lic-pkg":
+			if pkg.License != "" {
+				t.Errorf("no-lic-pkg license: want empty, got %s", pkg.License)
+			}
+		}
+	}
+}

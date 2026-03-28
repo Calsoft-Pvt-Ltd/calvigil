@@ -249,3 +249,155 @@ func TestRuleApplies(t *testing.T) {
 		t.Error("yaml rule should apply to .yaml")
 	}
 }
+
+// ── Helm Chart Tests ────────────────────────────────────────────────
+
+func TestScanHelmTillerEnabled(t *testing.T) {
+	dir := t.TempDir()
+	writeTempFile(t, dir, "Chart.yaml", `apiVersion: v2
+name: my-chart
+version: 0.1.0
+`)
+	writeTempFile(t, dir, "values.yaml", `tiller:
+  enabled: true
+tillerNamespace: kube-system
+`)
+	result, err := Scan(dir, false)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+	found := false
+	for _, f := range result.Findings {
+		if f.Rule.ID == "IAC-021" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected IAC-021 (Tiller Enabled)")
+	}
+}
+
+func TestScanHelmPrivilegedContainer(t *testing.T) {
+	dir := t.TempDir()
+	writeTempFile(t, dir, "Chart.yaml", `apiVersion: v2
+name: my-chart
+`)
+	// Create templates directory for .tpl files
+	templatesDir := filepath.Join(dir, "templates")
+	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeTempFile(t, templatesDir, "deployment.tpl", `apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          securityContext:
+            privileged: true
+`)
+	result, err := Scan(dir, false)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+	foundIDs := make(map[string]bool)
+	for _, f := range result.Findings {
+		foundIDs[f.Rule.ID] = true
+	}
+	if !foundIDs["IAC-025"] {
+		t.Error("expected IAC-025 (Helm Privileged Container)")
+	}
+}
+
+func TestScanHelmHostNetwork(t *testing.T) {
+	dir := t.TempDir()
+	writeTempFile(t, dir, "Chart.yaml", `apiVersion: v2
+name: my-chart
+`)
+	templatesDir := filepath.Join(dir, "templates")
+	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeTempFile(t, templatesDir, "deploy.tpl", `spec:
+  hostNetwork: true
+`)
+	result, err := Scan(dir, false)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+	found := false
+	for _, f := range result.Findings {
+		if f.Rule.ID == "IAC-024" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected IAC-024 (Helm Host Network)")
+	}
+}
+
+func TestScanHelmLatestTag(t *testing.T) {
+	dir := t.TempDir()
+	writeTempFile(t, dir, "Chart.yaml", `apiVersion: v2
+name: my-chart
+`)
+	templatesDir := filepath.Join(dir, "templates")
+	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeTempFile(t, templatesDir, "deploy.tpl", `containers:
+  - name: app
+    image: nginx:latest
+`)
+	result, err := Scan(dir, false)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+	found := false
+	for _, f := range result.Findings {
+		if f.Rule.ID == "IAC-022" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected IAC-022 (Container Uses latest Tag)")
+	}
+}
+
+func TestIsIaCFile_HelmFiles(t *testing.T) {
+	tests := []struct {
+		path   string
+		expect bool
+	}{
+		{"Chart.yaml", true},
+		{"values.yaml", true},
+		{filepath.Join("templates", "deploy.tpl"), true},
+		{filepath.Join("charts", "subchart", "templates", "svc.tpl"), true},
+		{"random.tpl", false}, // .tpl not in templates/ dir
+		{"deploy.yaml", true},
+	}
+	for _, tt := range tests {
+		got := isIaCFile(tt.path)
+		if got != tt.expect {
+			t.Errorf("isIaCFile(%q) = %v, want %v", tt.path, got, tt.expect)
+		}
+	}
+}
+
+func TestFileCategory_Helm(t *testing.T) {
+	tests := []struct {
+		path     string
+		category string
+	}{
+		{"Chart.yaml", "Helm"},
+		{"values.yaml", "Helm"},
+		{filepath.Join("templates", "app.tpl"), "Helm"},
+	}
+	for _, tt := range tests {
+		got := fileCategory(tt.path)
+		if got != tt.category {
+			t.Errorf("fileCategory(%q) = %q, want %q", tt.path, got, tt.category)
+		}
+	}
+}

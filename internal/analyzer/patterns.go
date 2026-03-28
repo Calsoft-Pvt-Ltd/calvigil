@@ -19,7 +19,8 @@ type PatternRule struct {
 	Description string
 	Severity    models.Severity
 	Pattern     *regexp.Regexp
-	Languages   []string // file extensions this rule applies to (e.g., ".go", ".py")
+	Excludes    *regexp.Regexp // Optional: if the match also matches this, skip it (false-positive filter)
+	Languages   []string       // file extensions this rule applies to (e.g., ".go", ".py")
 }
 
 // sqlSyntax is a shared set of SQL keyword patterns requiring follow-on SQL syntax
@@ -111,22 +112,39 @@ var knownPatterns = []PatternRule{
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".c", ".cpp"},
 	},
 
-	// Hardcoded Secrets
+	// Hardcoded Secrets (SonarQube S6418 / CWE-798)
 	{
 		ID:          "SEC-005",
 		Name:        "Hardcoded Secret or API Key",
-		Description: "A secret, password, or API key appears to be hardcoded. Use environment variables or a secrets manager.",
+		Description: "A secret, password, or API key appears to be hardcoded. Use environment variables or a secrets manager. (CWE-798)",
 		Severity:    models.SeverityHigh,
-		Pattern:     regexp.MustCompile(`(?i)(?:password|passwd|secret|api[_-]?key|auth[_-]?token|private[_-]?key|access[_-]?key)\s*(?:=|:)\s*["\'][^"\']{8,}["\']`),
+		Pattern:     regexp.MustCompile(`(?i)(?:password|passwd|secret|api[_-]?key|auth[_-]?token|private[_-]?key|access[_-]?key|client[_-]?secret|signing[_-]?key|encryption[_-]?key|database[_-]?password|db[_-]?password)\s*(?:=|:)\s*["\'][^"\']{8,}["\']`),
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs", ".yaml", ".yml", ".json", ".env", ".properties"},
 	},
 	{
 		ID:          "SEC-006",
-		Name:        "AWS Access Key",
-		Description: "Potential AWS access key ID found in source code. Use IAM roles or environment variables.",
+		Name:        "Cloud Provider Credential",
+		Description: "Cloud provider credential or platform token found in source code. Use IAM roles, environment variables, or a secrets manager. (CWE-798)",
 		Severity:    models.SeverityCritical,
-		Pattern:     regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
-		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs", ".yaml", ".yml", ".json", ".env", ".properties"},
+		Pattern: regexp.MustCompile(`(?:` +
+			// AWS access key
+			`AKIA[0-9A-Z]{16}` +
+			// GCP service account key
+			`|"type"\s*:\s*"service_account"` +
+			// Azure storage account key (base64, 88 chars)
+			`|AccountKey\s*=\s*[A-Za-z0-9+/=]{44,}` +
+			// GitHub personal access token
+			`|ghp_[0-9a-zA-Z]{36}` +
+			// GitLab personal/project access token
+			`|glpat-[0-9a-zA-Z_-]{20,}` +
+			// Slack bot/user token
+			`|xox[bporas]-[0-9a-zA-Z-]+` +
+			// Stripe secret key
+			`|sk_live_[0-9a-zA-Z]{24,}` +
+			// OpenAI API key
+			`|sk-[0-9a-zA-Z]{20,}` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs", ".yaml", ".yml", ".json", ".env", ".properties"},
 	},
 
 	// Insecure Cryptography
@@ -151,13 +169,15 @@ var knownPatterns = []PatternRule{
 		Languages:   []string{".go", ".js", ".ts", ".jsx", ".tsx", ".html", ".vue", ".rb", ".erb", ".php"},
 	},
 
-	// Insecure HTTP
+	// Insecure HTTP (SonarQube S5332 / CWE-319)
+	// Excludes localhost, 127.0.0.1, and well-known schema URIs to reduce false positives.
 	{
 		ID:          "SEC-009",
 		Name:        "Insecure HTTP URL",
-		Description: "HTTP (not HTTPS) URL found. Use HTTPS for all external communications.",
+		Description: "HTTP (not HTTPS) URL found for external communication. Use HTTPS to prevent data interception. (CWE-319)",
 		Severity:    models.SeverityLow,
 		Pattern:     regexp.MustCompile(`http://[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.`),
+		Excludes:    regexp.MustCompile(`(?i)http://(?:localhost[:/]|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|example\.com|example\.org|schemas\.|www\.w3\.org|xml\.org|xmlns\.)`),
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs"},
 	},
 
@@ -171,14 +191,35 @@ var knownPatterns = []PatternRule{
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
 	},
 
-	// Deserialization
+	// Deserialization (SonarQube S5135 / CWE-502)
 	{
 		ID:          "SEC-011",
 		Name:        "Potential Insecure Deserialization",
-		Description: "Deserializing untrusted data can lead to remote code execution. Validate input before deserialization.",
+		Description: "Deserializing untrusted data can lead to remote code execution. Use safe alternatives (e.g., yaml.safe_load, JSON). (CWE-502)",
 		Severity:    models.SeverityHigh,
-		Pattern:     regexp.MustCompile(`(?i)(?:pickle\.loads?|yaml\.(?:load|unsafe_load)\s*\(|ObjectInputStream|eval\s*\(|unserialize\s*\(|Marshal\.load)`),
-		Languages:   []string{".py", ".java", ".js", ".ts", ".php", ".rb"},
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Python
+			`pickle\.loads?\s*\(` +
+			`|yaml\.(?:load|unsafe_load)\s*\(` +
+			`|shelve\.open\s*\(` +
+			// Java
+			`|ObjectInputStream` +
+			`|XMLDecoder\s*\(` +
+			`|readObject\s*\(` +
+			// JavaScript/Node.js
+			`|eval\s*\(` +
+			`|node-serialize` +
+			`|serialize\.unserialize\s*\(` +
+			// PHP
+			`|unserialize\s*\(` +
+			// Ruby
+			`|Marshal\.load` +
+			`|YAML\.load\s*\(` +
+			// .NET
+			`|BinaryFormatter\.Deserialize` +
+			`|JsonConvert\.DeserializeObject\s*\(` +
+			`)`),
+		Languages: []string{".py", ".java", ".js", ".ts", ".php", ".rb", ".cs"},
 	},
 
 	// CORS Misconfiguration
@@ -240,6 +281,251 @@ var knownPatterns = []PatternRule{
 		Pattern:     regexp.MustCompile(`(?:\.create|\.update|\.new)\s*\(\s*params(?:\b|[^_])`),
 		Languages:   []string{".rb"},
 	},
+
+	// ── SonarQube-aligned rules ─────────────────────────────────────────────
+
+	// Insecure Random (SonarQube S2245 / CWE-330)
+	{
+		ID:          "SEC-018",
+		Name:        "Insecure Random Number Generator",
+		Description: "Non-cryptographic random generator used in a security context. Use crypto/rand (Go), secrets (Python), SecureRandom (Java), or crypto.getRandomValues (JS). (CWE-330)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Go: math/rand functions (crypto/rand uses different names)
+			`rand\.(?:Intn|Int31|Int63|Float32|Float64|Perm|Shuffle)\s*\(` +
+			`|rand\.New\s*\(` +
+			// Python: random module (not secrets)
+			`|random\.(?:random|randint|choice|sample|uniform|randrange|shuffle)\s*\(` +
+			// Java: java.util.Random (not SecureRandom)
+			`|new\s+Random\s*\(` +
+			`|Math\.random\s*\(` +
+			// JavaScript: Math.random
+			`|Math\.random\(\)` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
+	},
+
+	// Weak Cipher Algorithm (SonarQube S5547 / CWE-327)
+	{
+		ID:          "SEC-019",
+		Name:        "Weak Cipher Algorithm",
+		Description: "DES, 3DES, RC4, or Blowfish are broken or insufficient. Use AES-256-GCM or ChaCha20-Poly1305. (CWE-327)",
+		Severity:    models.SeverityHigh,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Go
+			`des\.NewCipher\s*\(` +
+			`|des\.NewTripleDESCipher\s*\(` +
+			`|rc4\.NewCipher\s*\(` +
+			// Python (PyCryptodome)
+			`|DES\.new\s*\(` +
+			`|DES3\.new\s*\(` +
+			`|ARC4\.new\s*\(` +
+			`|Blowfish\.new\s*\(` +
+			// Java
+			`|Cipher\.getInstance\s*\(\s*["'](?:DES|DESede|RC4|RC2|Blowfish|AES/ECB)` +
+			// JavaScript/Node.js
+			`|crypto\.create(?:Cipher|Decipher)(?:iv)?\s*\(\s*["'](?:des|des-ede3|rc4|bf|aes-\d+-ecb)` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".c", ".cpp", ".rs"},
+	},
+
+	// XML External Entity (XXE) (SonarQube S2755 / CWE-611)
+	{
+		ID:          "SEC-020",
+		Name:        "XML External Entity (XXE) Processing",
+		Description: "XML parser may process external entities, enabling XXE attacks. Disable external entity resolution. (CWE-611)",
+		Severity:    models.SeverityHigh,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Java: vulnerable XML parsers without feature flags
+			`DocumentBuilderFactory\.newInstance\s*\(` +
+			`|SAXParserFactory\.newInstance\s*\(` +
+			`|XMLInputFactory\.newInstance\s*\(` +
+			`|TransformerFactory\.newInstance\s*\(` +
+			`|SchemaFactory\.newInstance\s*\(` +
+			// Python: vulnerable parsers
+			`|xml\.etree\.ElementTree\.parse\s*\(` +
+			`|xml\.sax\.parse\s*\(` +
+			`|lxml\.etree\.parse\s*\(` +
+			`|pulldom\.parse\s*\(` +
+			// Go: xml.NewDecoder without entity disabling
+			`|xml\.NewDecoder\s*\(` +
+			// PHP
+			`|simplexml_load_string\s*\(` +
+			`|simplexml_load_file\s*\(` +
+			`|DOMDocument\s*\(` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".php", ".xml"},
+	},
+
+	// JWT Misconfiguration (SonarQube S3649 / CWE-345)
+	{
+		ID:          "SEC-021",
+		Name:        "JWT Verification Disabled or Algorithm None",
+		Description: "JWT decoded without signature verification or with algorithm 'none'. Always verify JWT signatures with a strong algorithm. (CWE-345)",
+		Severity:    models.SeverityCritical,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Python: jwt.decode without verification
+			`jwt\.decode\s*\([^)]*verify\s*=\s*False` +
+			`|jwt\.decode\s*\([^)]*options\s*=\s*\{[^}]*"verify_signature"\s*:\s*False` +
+			// Algorithm none
+			`|algorithms?\s*[:=]\s*\[?\s*["']none["']` +
+			// JavaScript: jwt.decode (not jwt.verify)
+			`|jwt\.decode\s*\(` +
+			// Go: jwt.Parse without key function returning error
+			`|jwt\.Parse\s*\([^,]+,\s*nil` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
+	},
+
+	// Debug Mode in Production (SonarQube S4507 / CWE-489)
+	{
+		ID:          "SEC-022",
+		Name:        "Debug Mode Enabled",
+		Description: "Debug or development mode is enabled. This may expose stack traces, internal paths, or enable unsafe features in production. (CWE-489)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Python Flask/Django
+			`app\.run\s*\([^)]*debug\s*=\s*True` +
+			`|DEBUG\s*=\s*True` +
+			// Java Spring
+			`|server\.error\.include-stacktrace\s*=\s*always` +
+			// Node.js Express
+			`|app\.use\s*\(\s*errorHandler\s*\(` +
+			// PHP
+			`|display_errors\s*=\s*(?:On|1|true)` +
+			`|error_reporting\s*\(\s*E_ALL` +
+			// Go Gin
+			`|gin\.SetMode\s*\(\s*gin\.DebugMode` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".ini", ".properties"},
+	},
+
+	// Empty Catch Block (SonarQube S1166 / CWE-390)
+	{
+		ID:          "SEC-023",
+		Name:        "Empty Error Handler",
+		Description: "Catch/except block is empty, silently swallowing errors. Handle or log errors to avoid hidden failures. (CWE-390)",
+		Severity:    models.SeverityLow,
+		Pattern: regexp.MustCompile(`(?:` +
+			// Java/JS/TS: catch (Exception e) {}
+			`catch\s*\([^)]*\)\s*\{\s*\}` +
+			// Python: except:\n    pass
+			`|except[^:]*:\s*$` +
+			// Go: if err != nil { return nil }
+			`|if\s+err\s*!=\s*nil\s*\{\s*\}` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
+	},
+
+	// Server-Side Request Forgery (SonarQube S5144 / CWE-918)
+	{
+		ID:          "SEC-024",
+		Name:        "Potential Server-Side Request Forgery (SSRF)",
+		Description: "HTTP request URL constructed from user input or variable. Validate and restrict allowed URLs/hosts. (CWE-918)",
+		Severity:    models.SeverityHigh,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Go: http.Get/Post with variable (not string literal)
+			`http\.(?:Get|Post|Head)\s*\(\s*[a-zA-Z_]` +
+			`|http\.NewRequest\s*\([^,]+,\s*[a-zA-Z_]` +
+			// Python: requests with variable
+			`|requests\.(?:get|post|put|delete|patch|head)\s*\(\s*[a-zA-Z_]` +
+			`|urllib\.request\.urlopen\s*\(\s*[a-zA-Z_]` +
+			// Java: URL from variable
+			`|new\s+URL\s*\(\s*[a-zA-Z_]` +
+			// JavaScript: fetch/axios with variable
+			`|fetch\s*\(\s*[a-zA-Z_]` +
+			`|axios\.(?:get|post|put|delete)\s*\(\s*[a-zA-Z_]` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
+	},
+
+	// Open Redirect (SonarQube S5146 / CWE-601)
+	{
+		ID:          "SEC-025",
+		Name:        "Potential Open Redirect",
+		Description: "Redirect URL taken from user input without validation. Validate redirect targets against an allowlist. (CWE-601)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Go: http.Redirect with request param
+			`http\.Redirect\s*\([^,]+,[^,]+,\s*r\.` +
+			`|http\.Redirect\s*\([^,]+,[^,]+,\s*req\.` +
+			// Python: redirect with request param
+			`|redirect\s*\(\s*request\.(?:GET|POST|args|form|params)` +
+			// Java Spring
+			`|redirect:\s*"\s*\+\s*` +
+			// JavaScript/Express
+			`|res(?:ponse)?\.redirect\s*\(\s*req\.` +
+			// PHP
+			`|header\s*\(\s*["']Location:\s*["']\s*\.\s*\$_` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
+	},
+
+	// ── Enhanced Secret Scanning ────────────────────────────────────────────
+
+	// Private Key in Source (CWE-321)
+	{
+		ID:          "SEC-026",
+		Name:        "Private Key Detected",
+		Description: "Private key (RSA, EC, PGP, or SSH) found in source. Store private keys in a secrets manager or encrypted vault, never in code. (CWE-321)",
+		Severity:    models.SeverityCritical,
+		Pattern: regexp.MustCompile(`(?:` +
+			`-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----` +
+			`|-----BEGIN\s+EC\s+PRIVATE\s+KEY-----` +
+			`|-----BEGIN\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----` +
+			`|-----BEGIN\s+DSA\s+PRIVATE\s+KEY-----` +
+			`|-----BEGIN\s+OPENSSH\s+PRIVATE\s+KEY-----` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs", ".yaml", ".yml", ".json", ".env", ".properties", ".pem", ".key"},
+	},
+
+	// Database Connection String with Credentials (CWE-798)
+	{
+		ID:          "SEC-027",
+		Name:        "Database Connection String with Credentials",
+		Description: "Connection string with embedded credentials found. Use environment variables or a secrets manager for database credentials. (CWE-798)",
+		Severity:    models.SeverityHigh,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// MongoDB
+			`mongodb(?:\+srv)?://[^/\s]+:[^@\s]+@` +
+			// PostgreSQL
+			`|postgres(?:ql)?://[^/\s]+:[^@\s]+@` +
+			// MySQL
+			`|mysql://[^/\s]+:[^@\s]+@` +
+			// Redis
+			`|redis://:[^@\s]+@` +
+			// MSSQL / SQL Server
+			`|Server\s*=\s*[^;]+;\s*.*Password\s*=\s*[^;]+` +
+			// AMQP (RabbitMQ)
+			`|amqps?://[^/\s]+:[^@\s]+@` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs", ".yaml", ".yml", ".json", ".env", ".properties", ".xml", ".cs"},
+	},
+
+	// Bearer/Auth Token in Source (CWE-798)
+	{
+		ID:          "SEC-028",
+		Name:        "Hardcoded Bearer or Auth Token",
+		Description: "A bearer or authorization token appears to be hardcoded. Use environment variables or a secrets manager. (CWE-798)",
+		Severity:    models.SeverityHigh,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Authorization header with Bearer token
+			`["']Authorization["']\s*[:=]\s*["']Bearer\s+[a-zA-Z0-9._~+/=-]{20,}` +
+			// Generic token variable assignments
+			`|(?:bearer_token|auth_token|access_token|refresh_token)\s*(?:=|:)\s*["'][a-zA-Z0-9._~+/=-]{20,}["']` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs"},
+	},
+
+	// Generic High-Entropy Secret (CWE-798)
+	{
+		ID:          "SEC-029",
+		Name:        "Generic API Key or Secret",
+		Description: "Variable named 'key', 'secret', or 'token' assigned a long string that may be a credential. Review and move to a secrets manager. (CWE-798)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`(?i)(?:api_key|api_secret|secret_key|token_secret|service_key|master_key)\s*(?:=|:)\s*["'][a-zA-Z0-9+/=_-]{20,}["']`),
+		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs", ".yaml", ".yml", ".json", ".env", ".properties"},
+	},
 }
 
 // sourceExtensions defines which file extensions to scan for source code analysis.
@@ -257,6 +543,14 @@ var sourceExtensions = map[string]bool{
 	".c": true, ".h": true, ".cpp": true, ".cc": true, ".cxx": true, ".hpp": true,
 	// PHP
 	".php": true,
+	// XML (for XXE scanning)
+	".xml": true,
+	// .NET
+	".cs": true,
+	// Config files
+	".ini": true,
+	// Key files (for private key detection)
+	".pem": true, ".key": true,
 }
 
 // skipDirs are directories to skip during source code scanning.
@@ -376,6 +670,10 @@ func scanFile(filePath string, ext string) ([]PatternMatch, error) {
 			}
 
 			if rule.Pattern.MatchString(line) {
+				// Apply exclusion filter if defined (false-positive reduction)
+				if rule.Excludes != nil && rule.Excludes.MatchString(line) {
+					continue
+				}
 				matches = append(matches, PatternMatch{
 					Rule:     rule,
 					FilePath: filePath,

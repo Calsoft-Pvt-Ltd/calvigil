@@ -306,3 +306,185 @@ rules:
       cwe: ["CWE-918"]
       owasp: ["A10:2021 - SSRF"]
       category: ssrf
+
+  # ─── Insecure Random (SonarQube S2245 / CWE-330) ───────────────
+  - id: sec-weak-random-go
+    pattern-either:
+      - pattern: rand.Intn(...)
+      - pattern: rand.Int31(...)
+      - pattern: rand.Int63(...)
+      - pattern: rand.Float64(...)
+      - pattern: rand.New(...)
+    message: >
+      Non-cryptographic random used. For security-sensitive operations (tokens,
+      keys, nonces), use crypto/rand instead of math/rand.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-random
+
+  - id: sec-weak-random-python
+    pattern-either:
+      - pattern: random.random()
+      - pattern: random.randint(...)
+      - pattern: random.choice(...)
+      - pattern: random.sample(...)
+    message: >
+      Non-cryptographic random used. For security-sensitive operations,
+      use the secrets module instead of random.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-random
+
+  - id: sec-weak-random-java
+    pattern-either:
+      - pattern: new Random(...)
+      - pattern: Math.random()
+    message: >
+      Non-cryptographic random used. For security-sensitive operations,
+      use java.security.SecureRandom instead.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-random
+
+  - id: sec-weak-random-js
+    pattern: Math.random()
+    message: >
+      Math.random() is not cryptographically secure. Use
+      crypto.getRandomValues() or crypto.randomUUID() for security-sensitive operations.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-random
+
+  # ─── Weak Cipher (SonarQube S5547 / CWE-327) ───────────────────
+  - id: sec-weak-cipher-go
+    pattern-either:
+      - pattern: des.NewCipher(...)
+      - pattern: des.NewTripleDESCipher(...)
+      - pattern: rc4.NewCipher(...)
+    message: >
+      Use of weak cipher algorithm (DES/3DES/RC4). Use AES-256-GCM or
+      ChaCha20-Poly1305 instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: weak-cipher
+
+  - id: sec-weak-cipher-java
+    pattern-either:
+      - pattern: Cipher.getInstance("DES", ...)
+      - pattern: Cipher.getInstance("DESede", ...)
+      - pattern: Cipher.getInstance("RC4", ...)
+      - pattern: Cipher.getInstance("Blowfish", ...)
+      - pattern: Cipher.getInstance("AES/ECB/...", ...)
+    message: >
+      Use of weak or insecure cipher mode (DES/3DES/RC4/Blowfish/ECB).
+      Use AES/GCM/NoPadding instead.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: weak-cipher
+
+  # ─── XXE (SonarQube S2755 / CWE-611) ───────────────────────────
+  - id: sec-xxe-java
+    pattern-either:
+      - pattern: DocumentBuilderFactory.newInstance()
+      - pattern: SAXParserFactory.newInstance()
+      - pattern: XMLInputFactory.newInstance()
+    message: >
+      XML parser created without disabling external entities. Set
+      XMLConstants.FEATURE_SECURE_PROCESSING and disable external entities
+      to prevent XXE attacks.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: xxe
+
+  - id: sec-xxe-python
+    pattern-either:
+      - pattern: xml.etree.ElementTree.parse($INPUT)
+      - pattern: lxml.etree.parse($INPUT)
+      - pattern: xml.sax.parse($INPUT, ...)
+    message: >
+      XML parsing without disabling external entities. Use defusedxml
+      library to prevent XXE attacks.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: xxe
+
+  # ─── JWT Misconfiguration (SonarQube S3649 / CWE-345) ──────────
+  - id: sec-jwt-no-verify-python
+    pattern-either:
+      - pattern: jwt.decode($TOKEN, ..., options={..., "verify_signature": False, ...})
+      - pattern: jwt.decode($TOKEN, ..., verify=False)
+      - pattern: jwt.decode($TOKEN, ..., algorithms=["none"])
+    message: >
+      JWT decoded without signature verification. Always verify JWT
+      signatures using jwt.decode with verify=True and a strong algorithm.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-345"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: jwt-misconfiguration
+
+  # ─── Open Redirect (SonarQube S5146 / CWE-601) ─────────────────
+  - id: sec-open-redirect-go
+    pattern-either:
+      - pattern: http.Redirect($W, $R, $R.URL.Query().Get(...), ...)
+      - pattern: http.Redirect($W, $R, $R.FormValue(...), ...)
+    message: >
+      Redirect URL taken from user request parameter. Validate the redirect
+      target against an allowlist to prevent open redirect attacks.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-601"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: open-redirect
+
+  - id: sec-open-redirect-python
+    pattern-either:
+      - pattern: redirect(request.GET.get(...))
+      - pattern: redirect(request.args.get(...))
+    message: >
+      Redirect URL from user request parameter. Validate against an allowlist.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-601"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: open-redirect
+
+  - id: sec-open-redirect-js
+    pattern-either:
+      - pattern: res.redirect(req.query.$PARAM)
+      - pattern: res.redirect(req.body.$PARAM)
+    message: >
+      Express redirect with user-controlled URL. Validate against an allowlist.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-601"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: open-redirect

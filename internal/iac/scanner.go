@@ -226,6 +226,54 @@ var iacRules = []IaCRule{
 		FileTypes:   []string{".yaml", ".yml"},
 		Category:    "Docker Compose",
 	},
+
+	// ── Helm Chart Rules ────────────────────────────────────────────────────
+
+	{
+		ID:          "IAC-021",
+		Name:        "Helm -- Tiller Enabled (Helm 2)",
+		Description: "Tiller is enabled in Helm chart. Helm 2 Tiller has cluster-admin and is a known attack surface. Migrate to Helm 3.",
+		Severity:    models.SeverityCritical,
+		Pattern:     regexp.MustCompile(`(?i)(?:tiller|tillerNamespace|TILLER_NAMESPACE)`),
+		FileTypes:   []string{".yaml", ".yml", ".tpl"},
+		Category:    "Helm",
+	},
+	{
+		ID:          "IAC-022",
+		Name:        "Helm -- Container Uses latest Tag",
+		Description: "Container image uses :latest or no tag in Helm template. Pin images to a specific version for reproducibility.",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`(?i)image\s*:\s*["']?[a-zA-Z0-9._/-]+(?::latest)?["']?\s*$`),
+		FileTypes:   []string{".yaml", ".yml", ".tpl"},
+		Category:    "Helm",
+	},
+	{
+		ID:          "IAC-023",
+		Name:        "Helm -- No Resource Limits",
+		Description: "Helm template container has no resource limits. Set resources.limits to prevent resource exhaustion.",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`(?i)containers\s*:\s*$`),
+		FileTypes:   []string{".yaml", ".yml", ".tpl"},
+		Category:    "Helm",
+	},
+	{
+		ID:          "IAC-024",
+		Name:        "Helm -- Host Network Enabled",
+		Description: "Helm chart enables host networking. This bypasses network policies and exposes host network stack.",
+		Severity:    models.SeverityHigh,
+		Pattern:     regexp.MustCompile(`(?i)hostNetwork\s*:\s*true`),
+		FileTypes:   []string{".yaml", ".yml", ".tpl"},
+		Category:    "Helm",
+	},
+	{
+		ID:          "IAC-025",
+		Name:        "Helm -- Privileged Container",
+		Description: "Helm chart runs container in privileged mode. This grants full host access. Remove privileged: true.",
+		Severity:    models.SeverityCritical,
+		Pattern:     regexp.MustCompile(`(?i)privileged\s*:\s*true`),
+		FileTypes:   []string{".yaml", ".yml", ".tpl"},
+		Category:    "Helm",
+	},
 }
 
 // skipDirs contains directories to skip during IaC scanning.
@@ -241,6 +289,7 @@ var iacExtensions = map[string]string{
 	".tfvars": "Terraform",
 	".yaml":   "Kubernetes/CloudFormation",
 	".yml":    "Kubernetes/CloudFormation",
+	// Note: .tpl is handled separately in isIaCFile/fileCategory (only matches in templates/ dirs).
 }
 
 // maxFileSize is the maximum size of a file to scan (2 MB).
@@ -325,6 +374,14 @@ func isIaCFile(path string) bool {
 		return true
 	}
 
+	// Helm chart files
+	if base == "Chart.yaml" || base == "Chart.yml" || base == "values.yaml" || base == "values.yml" {
+		return true
+	}
+	if ext == ".tpl" && strings.Contains(path, "templates") {
+		return true
+	}
+
 	_, ok := iacExtensions[ext]
 	return ok
 }
@@ -338,7 +395,14 @@ func fileCategory(path string) string {
 	if base == "docker-compose.yml" || base == "docker-compose.yaml" {
 		return "Docker Compose"
 	}
+	// Helm charts: Chart.yaml, values.yaml, or .tpl files in templates/
+	if base == "Chart.yaml" || base == "Chart.yml" || base == "values.yaml" || base == "values.yml" {
+		return "Helm"
+	}
 	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".tpl" && strings.Contains(path, "templates") {
+		return "Helm"
+	}
 	if cat, ok := iacExtensions[ext]; ok {
 		return cat
 	}

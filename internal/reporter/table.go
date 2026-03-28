@@ -91,6 +91,12 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 		printCodeTable(w, iacVulns, result.ProjectPath)
 	}
 
+	// License compliance issues
+	if len(result.LicenseIssues) > 0 {
+		fmt.Fprintf(w, "\n📜 License Compliance Issues (%d found)\n\n", len(result.LicenseIssues))
+		printLicenseTable(w, result.LicenseIssues)
+	}
+
 	// Summary
 	fmt.Fprintln(w)
 	printSummary(w, vulns)
@@ -316,4 +322,41 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func printLicenseTable(w io.Writer, issues []models.LicenseIssue) {
+	t := table.NewWriter()
+	t.SetOutputMirror(w)
+	t.SetStyle(table.StyleRounded)
+
+	t.AppendHeader(table.Row{"Risk", "Package", "Version", "License", "Reason"})
+
+	for _, issue := range issues {
+		risk := string(issue.Risk)
+		switch issue.Risk {
+		case models.LicenseCopyleft:
+			risk = text.FgRed.Sprint("copyleft")
+		case models.LicenseUnknown:
+			risk = text.FgYellow.Sprint("unknown")
+		default:
+			risk = text.FgGreen.Sprint("permissive")
+		}
+		lic := issue.License
+		if lic == "" {
+			lic = "-"
+		}
+		t.AppendRow(table.Row{
+			risk,
+			issue.Package.Name,
+			issue.Package.Version,
+			lic,
+			truncate(issue.Reason, 50),
+		})
+	}
+
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 5, WidthMax: 50},
+	})
+
+	t.Render()
 }

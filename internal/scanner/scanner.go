@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/analyzer"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/cache"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/config"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/detector"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/license"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/parser"
@@ -24,6 +26,7 @@ type Scanner struct {
 	opts     models.ScanOptions
 	cfg      *config.Config
 	reporter reporter.Reporter
+	cache    *cache.Cache
 }
 
 // New creates a new Scanner from the given options.
@@ -33,11 +36,24 @@ func New(opts models.ScanOptions) (*Scanner, error) {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	return &Scanner{
+	s := &Scanner{
 		opts:     opts,
 		cfg:      cfg,
 		reporter: reporter.ForFormat(opts.Format),
-	}, nil
+	}
+
+	// Initialize vulnerability cache unless disabled
+	if !opts.NoCache {
+		ttl := cache.DefaultTTL
+		if opts.CacheTTL != "" {
+			if parsed, err := time.ParseDuration(opts.CacheTTL); err == nil {
+				ttl = parsed
+			}
+		}
+		s.cache = cache.New("", ttl)
+	}
+
+	return s, nil
 }
 
 // Run executes the full scan pipeline: detect -> parse -> match -> analyze -> report.
@@ -76,10 +92,27 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 	// Step 2: Parse dependencies and match against CVE databases
 	if !s.opts.SkipDeps {
-		depVulns, totalPkgs, errs := s.scanDependencies(ctx, files)
-		result.TotalPackages = totalPkgs
+		depVulns, allPackages, errs := s.scanDependencies(ctx, files)
+		result.TotalPackages = len(allPackages)
+		result.Packages = allPackages
 		allVulns = append(allVulns, depVulns...)
 		result.Errors = append(result.Errors, errs...)
+
+		// License compliance checking
+		if s.opts.CheckLicenses && len(allPackages) > 0 {
+			if s.opts.Verbose {
+				fmt.Fprintf(os.Stderr, "Checking license compliance...\n")
+			}
+			// Resolve licenses from package registries for packages missing license info
+			license.ResolvePackages(ctx, allPackages, s.opts.Verbose)
+			result.Packages = allPackages // update with resolved licenses
+
+			issues := license.CheckPackages(allPackages)
+			result.LicenseIssues = issues
+			if s.opts.Verbose {
+				fmt.Fprintf(os.Stderr, "   Found %d license issues\n\n", len(issues))
+			}
+		}
 	}
 
 	// Step 3: AI-powered source code analysis
@@ -135,7 +168,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 }
 
 // scanDependencies parses manifest files and queries vulnerability databases.
-func (s *Scanner) scanDependencies(ctx context.Context, files []detector.DetectedFile) ([]models.Vulnerability, int, []string) {
+func (s *Scanner) scanDependencies(ctx context.Context, files []detector.DetectedFile) ([]models.Vulnerability, []models.Package, []string) {
 	if s.opts.Verbose {
 		fmt.Fprintf(os.Stderr, "Parsing dependencies...\n")
 	}
@@ -179,7 +212,7 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 		if s.opts.Verbose {
 			fmt.Fprintf(os.Stderr, "   No packages found to scan\n\n")
 		}
-		return nil, 0, errs
+		return nil, nil, errs
 	}
 
 	if s.opts.Verbose {
@@ -214,16 +247,34 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 
 	aggregated := matcher.NewAggregatedMatcher(matchers...)
 	aggregated.SetVerbose(s.opts.Verbose)
+
+	// Check cache before querying
+	if s.cache != nil {
+		if cached, ok := s.cache.Get("aggregated", allPackages); ok {
+			if s.opts.Verbose {
+				fmt.Fprintf(os.Stderr, "   Using cached results (%d vulnerabilities)\n\n", len(cached))
+			}
+			return cached, allPackages, errs
+		}
+	}
+
 	vulns, err := aggregated.Match(ctx, allPackages)
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("vulnerability matching error: %v", err))
+	}
+
+	// Store in cache
+	if s.cache != nil && len(vulns) > 0 {
+		if cacheErr := s.cache.Put("aggregated", allPackages, vulns); cacheErr != nil && s.opts.Verbose {
+			fmt.Fprintf(os.Stderr, "   Cache write warning: %v\n", cacheErr)
+		}
 	}
 
 	if s.opts.Verbose {
 		fmt.Fprintf(os.Stderr, "   Found %d dependency vulnerabilities\n\n", len(vulns))
 	}
 
-	return vulns, len(allPackages), errs
+	return vulns, allPackages, errs
 }
 
 // scanSourceCode runs pattern matching and AI analysis on source files.

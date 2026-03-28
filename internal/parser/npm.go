@@ -26,8 +26,9 @@ type npmLockfile struct {
 }
 
 type npmPackage struct {
-	Version string `json:"version"`
-	Dev     bool   `json:"dev"`
+	Version string      `json:"version"`
+	Dev     bool        `json:"dev"`
+	License interface{} `json:"license"` // Can be string or {"type":"MIT"}
 }
 
 type npmDep struct {
@@ -81,6 +82,7 @@ func (p *NpmLockParser) Parse(r io.Reader, filePath string) ([]models.Package, e
 				Ecosystem: models.EcosystemNpm,
 				FilePath:  filePath,
 				Indirect:  indirect,
+				License:   extractNpmLicense(pkg.License),
 			})
 		}
 		return packages, nil
@@ -109,6 +111,20 @@ func (p *NpmLockParser) Parse(r io.Reader, filePath string) ([]models.Package, e
 	walkDeps(lock.Dependencies, false)
 
 	return packages, nil
+}
+
+// extractNpmLicense extracts a license string from the npm "license" field,
+// which can be a string or an object like {"type": "MIT"}.
+func extractNpmLicense(v interface{}) string {
+	switch lic := v.(type) {
+	case string:
+		return lic
+	case map[string]interface{}:
+		if t, ok := lic["type"].(string); ok {
+			return t
+		}
+	}
+	return ""
 }
 
 // YarnLockParser parses yarn.lock files (v1 format).
