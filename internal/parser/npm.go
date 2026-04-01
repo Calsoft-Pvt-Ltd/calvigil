@@ -26,13 +26,17 @@ type npmLockfile struct {
 }
 
 type npmPackage struct {
-	Version string      `json:"version"`
-	Dev     bool        `json:"dev"`
-	License interface{} `json:"license"` // Can be string or {"type":"MIT"}
+	Version   string      `json:"version"`
+	Dev       bool        `json:"dev"`
+	License   interface{} `json:"license"` // Can be string or {"type":"MIT"}
+	Integrity string      `json:"integrity"` // Subresource integrity hash
+	Resolved  string      `json:"resolved"`  // Registry URL
 }
 
 type npmDep struct {
 	Version      string            `json:"version"`
+	Integrity    string            `json:"integrity"`
+	Resolved     string            `json:"resolved"`
 	Requires     map[string]string `json:"requires"`
 	Dependencies map[string]npmDep `json:"dependencies"` // nested = transitive
 }
@@ -83,6 +87,7 @@ func (p *NpmLockParser) Parse(r io.Reader, filePath string) ([]models.Package, e
 				FilePath:  filePath,
 				Indirect:  indirect,
 				License:   extractNpmLicense(pkg.License),
+				Integrity: pkg.Integrity,
 			})
 		}
 		return packages, nil
@@ -102,6 +107,7 @@ func (p *NpmLockParser) Parse(r io.Reader, filePath string) ([]models.Package, e
 				Ecosystem: models.EcosystemNpm,
 				FilePath:  filePath,
 				Indirect:  indirect,
+				Integrity: dep.Integrity,
 			})
 			if dep.Dependencies != nil {
 				walkDeps(dep.Dependencies, true)

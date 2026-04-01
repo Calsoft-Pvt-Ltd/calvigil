@@ -113,6 +113,34 @@ func (s *Scanner) Run(ctx context.Context) error {
 				fmt.Fprintf(os.Stderr, "   Found %d license issues\n\n", len(issues))
 			}
 		}
+	} else if s.opts.VerifyIntegrity {
+		// Even with --skip-deps, parse manifests for integrity verification
+		allPackages, errs := s.parsePackages(files)
+		result.TotalPackages = len(allPackages)
+		result.Packages = allPackages
+		result.Errors = append(result.Errors, errs...)
+	}
+
+	// Step 2a: Supply chain checks (run regardless of --skip-deps)
+	if len(result.Packages) > 0 {
+		// Lockfile integrity verification
+		if s.opts.VerifyIntegrity {
+			if s.opts.Verbose {
+				fmt.Fprintf(os.Stderr, "Verifying lockfile integrity hashes...\n")
+			}
+			integrityIssues := parser.VerifyIntegrity(ctx, result.Packages, s.opts.Verbose)
+			result.IntegrityIssues = integrityIssues
+			if s.opts.Verbose {
+				fmt.Fprintf(os.Stderr, "   Found %d integrity issues\n\n", len(integrityIssues))
+			}
+		}
+
+		// Phantom dependency detection (lockfile vs manifest consistency)
+		consistencyIssues := parser.CheckConsistency(s.opts.Path, result.Packages)
+		result.ConsistencyIssues = consistencyIssues
+		if s.opts.Verbose && len(consistencyIssues) > 0 {
+			fmt.Fprintf(os.Stderr, "   Found %d phantom/undeclared dependencies\n\n", len(consistencyIssues))
+		}
 	}
 
 	// Step 3: AI-powered source code analysis
@@ -167,13 +195,12 @@ func (s *Scanner) Run(ctx context.Context) error {
 	return s.writeReport(result)
 }
 
-// scanDependencies parses manifest files and queries vulnerability databases.
-func (s *Scanner) scanDependencies(ctx context.Context, files []detector.DetectedFile) ([]models.Vulnerability, []models.Package, []string) {
+// parsePackages parses all manifest files and returns the discovered packages.
+func (s *Scanner) parsePackages(files []detector.DetectedFile) ([]models.Package, []string) {
 	if s.opts.Verbose {
 		fmt.Fprintf(os.Stderr, "Parsing dependencies...\n")
 	}
 
-	// Parse all dependency files
 	var allPackages []models.Package
 	var errs []string
 
@@ -212,7 +239,7 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 		if s.opts.Verbose {
 			fmt.Fprintf(os.Stderr, "   No packages found to scan\n\n")
 		}
-		return nil, nil, errs
+		return nil, errs
 	}
 
 	if s.opts.Verbose {
@@ -225,6 +252,20 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 			}
 		}
 		fmt.Fprintf(os.Stderr, "   Total: %d packages (%d direct, %d transitive)\n\n", len(allPackages), direct, transitive)
+	}
+
+	return allPackages, errs
+}
+
+// scanDependencies parses manifest files and queries vulnerability databases.
+func (s *Scanner) scanDependencies(ctx context.Context, files []detector.DetectedFile) ([]models.Vulnerability, []models.Package, []string) {
+	allPackages, errs := s.parsePackages(files)
+
+	if len(allPackages) == 0 {
+		return nil, nil, errs
+	}
+
+	if s.opts.Verbose {
 		fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
 	}
 

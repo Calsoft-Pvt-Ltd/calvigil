@@ -40,7 +40,7 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   └── version.go                   # `version` command
 ├── internal/
 │   ├── models/
-│   │   ├── vulnerability.go         # Vulnerability, Package, ScanResult, ScanOptions, Severity, LicenseIssue, LicenseRisk
+│   │   ├── vulnerability.go         # Vulnerability, Package, ScanResult, ScanOptions, Severity, LicenseIssue, LicenseRisk, IntegrityIssue, ConsistencyIssue
 │   │   └── purl.go                  # PURL generation (pkg:type/ns/name@version)
 │   ├── config/
 │   │   └── config.go                # Config load/save, env var override, secret masking
@@ -51,7 +51,9 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   ├── golang.go                # GoModParser
 │   │   ├── maven.go                 # PomXMLParser, GradleParser
 │   │   ├── npm.go                   # NpmLockParser, YarnLockParser, PnpmLockParser
-│   │   └── python.go                # RequirementsTxtParser, PipfileLockParser, PoetryLockParser
+│   │   ├── python.go                # RequirementsTxtParser, PipfileLockParser, PoetryLockParser
+│   │   ├── integrity.go             # Lockfile integrity verification (npm registry, Cargo checksum)
+│   │   └── consistency.go           # Phantom dependency detection (lockfile vs manifest)
 │   ├── matcher/
 │   │   ├── matcher.go               # Matcher interface + AggregatedMatcher (dedup)
 │   │   ├── osv.go                   # OSVMatcher (batch API)
@@ -133,6 +135,9 @@ type Package struct {
     Ecosystem Ecosystem `json:"ecosystem"`
     FilePath  string    `json:"file_path"`
     PURL      string    `json:"purl"`
+    Indirect  bool      `json:"indirect"`
+    License   string    `json:"license,omitempty"`
+    Integrity string    `json:"integrity,omitempty"` // SRI hash (npm) or sha256 (Cargo)
 }
 ```
 
@@ -202,6 +207,26 @@ type ScanResult struct {
 }
 ```
 
+#### IntegrityIssue Struct
+```go
+type IntegrityIssue struct {
+    Package  Package `json:"package"`
+    Expected string  `json:"expected"` // Hash from registry
+    Actual   string  `json:"actual"`   // Hash from lockfile
+    Reason   string  `json:"reason"`
+}
+```
+
+#### ConsistencyIssue Struct
+```go
+type ConsistencyIssue struct {
+    Package  Package `json:"package"`
+    LockFile string  `json:"lock_file"` // Lockfile where package appears
+    Manifest string  `json:"manifest"`  // Manifest that should declare it
+    Reason   string  `json:"reason"`
+}
+```
+
 #### LicenseRisk Enum
 ```go
 type LicenseRisk string
@@ -239,6 +264,10 @@ type ScanOptions struct {
     OllamaURL      string       // Default: http://localhost:11434
     OllamaModel    string
     ImageRef       string
+    CheckLicenses  bool
+    VerifyIntegrity bool        // Verify lockfile hashes against registries
+    NoCache        bool
+    CacheTTL       string
 }
 ```
 
@@ -304,6 +333,7 @@ calvigil
 | `--ollama-url` | | string | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | | string | `""` | Ollama model name |
 | `--check-licenses` | | bool | `false` | Enable license compliance checking |
+| `--verify-integrity` | | bool | `false` | Verify lockfile integrity hashes against registries |
 | `--no-cache` | | bool | `false` | Disable vulnerability response caching |
 | `--cache-ttl` | | string | `"24h"` | Cache TTL duration |
 | `--verbose` | `-v` | bool | `false` | Verbose output |
@@ -590,6 +620,47 @@ type PomXMLParser struct{}
 1. Regex: `(?:implementation|api|compile)\s+['"]([^:]+):([^:]+):([^'"]+)['"]`
 2. Extract groupId, artifactId, version from matches
 3. Package name: `groupId:artifactId`
+
+### 6.10 Lockfile Integrity Verification (`integrity.go`)
+
+**Purpose:** Verify lockfile integrity hashes against upstream registries to detect tampering.
+
+```go
+func VerifyIntegrity(ctx context.Context, packages []models.Package, verbose bool) []models.IntegrityIssue
+func verifyNpmIntegrity(ctx context.Context, client *http.Client, pkg models.Package) *models.IntegrityIssue
+func normalizeIntegrity(s string) string
+```
+
+**Algorithm:**
+1. For each package with `Integrity` populated:
+   - **npm packages:** Query `registry.npmjs.org/{name}/{version}`, extract `dist.integrity` from response
+     - Compare `normalizeIntegrity(lockfile hash)` vs `normalizeIntegrity(registry hash)`
+     - If mismatch → `IntegrityIssue{Reason: "integrity hash mismatch"}`
+     - If 404 → `IntegrityIssue{Reason: "package not found on npm registry — possible supply chain injection"}`
+   - **Cargo packages:** Flag if `Integrity` field is empty → `IntegrityIssue{Reason: "missing checksum in Cargo.lock"}`
+2. Process npm packages concurrently (up to 10 goroutines) with `errgroup`
+3. `normalizeIntegrity()` strips algorithm prefix (e.g., `sha512-`) for comparison
+
+### 6.11 Phantom Dependency Detection (`consistency.go`)
+
+**Purpose:** Detect dependencies present in the lockfile but not declared in the project manifest.
+
+```go
+func CheckConsistency(projectPath string, packages []models.Package) []models.ConsistencyIssue
+func manifestForLockfile(lockFile string) string
+func readManifestDeps(manifestPath string) (map[string]bool, error)
+func readPackageJSONDeps(path string) (map[string]bool, error)
+```
+
+**Algorithm:**
+1. Group packages by lockfile source
+2. `manifestForLockfile()` maps lockfile → manifest:
+   - `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` → `package.json`
+3. `readManifestDeps()` reads the manifest and collects all declared dependency names:
+   - `readPackageJSONDeps()` reads `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`
+4. For each **direct** (non-transitive) lockfile package:
+   - If not found in manifest dependencies → `ConsistencyIssue{Reason: "found in lockfile but not declared in manifest"}`
+5. Transitive dependencies are excluded from checks (they are expected to exist only in the lockfile)
 
 ---
 
@@ -1041,13 +1112,24 @@ Run(ctx)
 │
 ├── Step 2: SCAN DEPENDENCIES (unless --skip-deps)
 │   scanDependencies(ctx, detectedFiles)
-│   ├── For each file: parser.ForFile(filename) → Parse(reader, path)
-│   ├── EnsurePURL() for all packages
+│   ├── parsePackages(files) → parse + EnsurePURL()
 │   ├── Build AggregatedMatcher:
 │   │   ├── Always: NewOSVMatcher()
 │   │   ├── If NVD key: NewNVDMatcher(key)
 │   │   └── If GitHub token: NewGitHubAdvisoryMatcher(token)
 │   └── matcher.Match(ctx, allPackages) → []Vulnerability
+│   (If --skip-deps but --verify-integrity: parsePackages only, no matching)
+│
+├── Step 2a: SUPPLY CHAIN CHECKS (on parsed packages)
+│   ├── If --verify-integrity:
+│   │   parser.VerifyIntegrity(ctx, packages) → []IntegrityIssue
+│   │   └── npm: compare SRI hash vs registry.npmjs.org
+│   │   └── Cargo: flag missing checksums
+│   │   └── 404 from registry → "possible supply chain injection"
+│   └── Always:
+│       parser.CheckConsistency(path, packages) → []ConsistencyIssue
+│       └── Compare lockfile direct deps vs manifest (package.json)
+│       └── Flag undeclared packages as phantom dependencies
 │
 ├── Step 3: AI CODE ANALYSIS (unless --skip-ai)
 │   scanSourceCode(ctx)
@@ -1081,7 +1163,8 @@ Run(ctx)
 │   └── Keep vulns where vuln.Severity.Rank() >= filter.Rank()
 │
 └── Step 7: REPORT
-    ├── Build ScanResult{Path, Ecosystems, TotalPkgs, Vulns, Timestamp, Duration, Errors}
+    ├── Build ScanResult{Path, Ecosystems, TotalPkgs, Vulns,
+    │   IntegrityIssues, ConsistencyIssues, Timestamp, Duration, Errors}
     ├── Open output (file or stdout)
     └── s.reporter.Report(result, writer)
 ```
@@ -1138,15 +1221,21 @@ func ForFormat(format string) Reporter
 
 **Output Sections:**
 1. **Header** — Project path, scan duration, total packages
-2. **Dependency Vulns Table** — Grouped by ecosystem with emoji badges:
+2. **☠️ Malicious Packages Table** — MAL- prefixed advisories separated from normal CVEs via `splitMalicious()` and rendered by `printMaliciousTable()`. Uses `hasMalAlias()` to detect MAL- IDs in primary ID or aliases.
+   - Columns: `ID | Package | Version | Summary`
+3. **Dependency Vulns Table** — Grouped by ecosystem with emoji badges:
    - Go 🐹, npm 📗, PyPI 🐍, Maven ☕, Rust 🦀, Ruby 💎, PHP 🐘, C/C++ ⚙️
    - Columns: `Severity | ID | Package | Version | Fixed In | Summary`
-3. **Code Analysis Table** — `Severity | ID | File | Line | Finding`
-4. **Semgrep SAST Table** — Same format as code analysis
-5. **License Issues Table** (if `--check-licenses` used) — `Risk | Package | Version | License | Reason`
-6. **AI Enrichment Details** (if present) — Summary, impact, confidence, remediation, suppression
-7. **Summary** — Severity distribution counts
-8. **Warnings/Errors** — Non-fatal errors from scan
+4. **Code Analysis Table** — `Severity | ID | File | Line | Finding`
+5. **Semgrep SAST Table** — Same format as code analysis
+6. **License Issues Table** (if `--check-licenses` used) — `Risk | Package | Version | License | Reason`
+7. **AI Enrichment Details** (if present) — Summary, impact, confidence, remediation, suppression
+8. **🔐 Lockfile Integrity Issues Table** — Rendered by `printIntegrityTable()` when `--verify-integrity` is used. Shows hash mismatches, missing checksums, and packages not found on registries.
+   - Columns: `Package | Version | Expected | Actual | Reason`
+9. **👻 Phantom Dependencies Table** — Rendered by `printConsistencyTable()`. Shows dependencies present in the lockfile but not declared in the manifest.
+   - Columns: `Package | Lock File | Manifest | Reason`
+10. **Summary** — Severity distribution counts + malicious package count
+11. **Warnings/Errors** — Non-fatal errors from scan
 
 **License-Only Mode:**
 When `result.LicenseOnly` is true (from `scan-license` command), the `reportLicenseOnly()` method is called, which outputs only the License Issues table and a license compliance summary.

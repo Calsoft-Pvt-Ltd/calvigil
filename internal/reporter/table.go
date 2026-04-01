@@ -24,7 +24,7 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 		return r.reportLicenseOnly(result, w)
 	}
 
-	if len(result.Vulnerabilities) == 0 {
+	if len(result.Vulnerabilities) == 0 && len(result.IntegrityIssues) == 0 && len(result.ConsistencyIssues) == 0 {
 		fmt.Fprintf(w, "\n✅ No vulnerabilities found in %s\n", result.ProjectPath)
 		fmt.Fprintf(w, "   Scanned %d packages across %d ecosystems in %s\n\n",
 			result.TotalPackages, len(result.Ecosystems), result.Duration.Round(1e8))
@@ -43,8 +43,17 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 	fmt.Fprintf(w, "   Scanned %d packages across %d ecosystems in %s\n\n",
 		result.TotalPackages, len(result.Ecosystems), result.Duration.Round(1e8))
 
-	// Dependency vulnerabilities table
+	// Malicious package alerts (MAL- prefixed IDs from OSV)
 	depVulns := filterBySource(vulns, models.SourceOSV, models.SourceNVD, models.SourceGitHubAdv)
+	malVulns, cleanDepVulns := splitMalicious(depVulns)
+	if len(malVulns) > 0 {
+		fmt.Fprintf(w, "☠️  Malicious Packages Detected (%d found)\n\n", len(malVulns))
+		printMaliciousTable(w, malVulns)
+		fmt.Fprintln(w)
+	}
+
+	// Dependency vulnerabilities table
+	depVulns = cleanDepVulns
 	if len(depVulns) > 0 {
 		fmt.Fprintf(w, "📦 Dependency Vulnerabilities (%d found)\n", len(depVulns))
 
@@ -99,6 +108,18 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 	if len(result.LicenseIssues) > 0 {
 		fmt.Fprintf(w, "\n📜 License Compliance Issues (%d found)\n\n", len(result.LicenseIssues))
 		printLicenseTable(w, result.LicenseIssues)
+	}
+
+	// Integrity verification issues
+	if len(result.IntegrityIssues) > 0 {
+		fmt.Fprintf(w, "\n🔐 Lockfile Integrity Issues (%d found)\n\n", len(result.IntegrityIssues))
+		printIntegrityTable(w, result.IntegrityIssues)
+	}
+
+	// Phantom dependency issues
+	if len(result.ConsistencyIssues) > 0 {
+		fmt.Fprintf(w, "\n👻 Phantom Dependencies (%d found)\n\n", len(result.ConsistencyIssues))
+		printConsistencyTable(w, result.ConsistencyIssues)
 	}
 
 	// Summary
@@ -186,6 +207,17 @@ func printSummary(w io.Writer, vulns []models.Vulnerability) {
 		if v.Package.Ecosystem != "" {
 			ecoCounts[v.Package.Ecosystem]++
 		}
+	}
+
+	// Count malicious packages separately
+	malCount := 0
+	for _, v := range vulns {
+		if strings.HasPrefix(v.ID, "MAL-") || hasMalAlias(v.Aliases) {
+			malCount++
+		}
+	}
+	if malCount > 0 {
+		fmt.Fprintf(w, "  ☠️  Malicious: %d\n", malCount)
 	}
 
 	fmt.Fprintf(w, "Summary: %d total vulnerabilities\n", len(vulns))
@@ -326,6 +358,99 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// splitMalicious separates MAL- prefixed vulnerabilities from regular CVEs.
+func splitMalicious(vulns []models.Vulnerability) (malicious, clean []models.Vulnerability) {
+	for _, v := range vulns {
+		if strings.HasPrefix(v.ID, "MAL-") || hasMalAlias(v.Aliases) {
+			malicious = append(malicious, v)
+		} else {
+			clean = append(clean, v)
+		}
+	}
+	return
+}
+
+// hasMalAlias returns true if any alias starts with "MAL-".
+func hasMalAlias(aliases []string) bool {
+	for _, a := range aliases {
+		if strings.HasPrefix(a, "MAL-") {
+			return true
+		}
+	}
+	return false
+}
+
+func printMaliciousTable(w io.Writer, vulns []models.Vulnerability) {
+	t := table.NewWriter()
+	t.SetOutputMirror(w)
+	t.SetStyle(table.StyleRounded)
+
+	t.AppendHeader(table.Row{"ID", "Package", "Version", "Ecosystem", "Summary"})
+
+	for _, v := range vulns {
+		t.AppendRow(table.Row{
+			text.FgHiRed.Sprint(v.ID),
+			text.FgHiRed.Sprint(v.Package.Name),
+			v.Package.Version,
+			v.Package.Ecosystem,
+			truncate(v.Summary, 60),
+		})
+	}
+
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 5, WidthMax: 60},
+	})
+
+	t.Render()
+}
+
+func printIntegrityTable(w io.Writer, issues []models.IntegrityIssue) {
+	t := table.NewWriter()
+	t.SetOutputMirror(w)
+	t.SetStyle(table.StyleRounded)
+
+	t.AppendHeader(table.Row{"Package", "Version", "Ecosystem", "Reason"})
+
+	for _, issue := range issues {
+		t.AppendRow(table.Row{
+			text.FgHiRed.Sprint(issue.Package.Name),
+			issue.Package.Version,
+			issue.Package.Ecosystem,
+			truncate(issue.Reason, 60),
+		})
+	}
+
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 4, WidthMax: 60},
+	})
+
+	t.Render()
+}
+
+func printConsistencyTable(w io.Writer, issues []models.ConsistencyIssue) {
+	t := table.NewWriter()
+	t.SetOutputMirror(w)
+	t.SetStyle(table.StyleRounded)
+
+	t.AppendHeader(table.Row{"Package", "Version", "Lock File", "Manifest", "Reason"})
+
+	for _, issue := range issues {
+		t.AppendRow(table.Row{
+			text.FgYellow.Sprint(issue.Package.Name),
+			issue.Package.Version,
+			filepath.Base(issue.LockFile),
+			filepath.Base(issue.Manifest),
+			truncate(issue.Reason, 50),
+		})
+	}
+
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 5, WidthMax: 50},
+	})
+
+	t.Render()
 }
 
 func printLicenseTable(w io.Writer, issues []models.LicenseIssue) {

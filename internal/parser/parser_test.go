@@ -1,8 +1,12 @@
 package parser
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 func TestGoModTransitiveDeps(t *testing.T) {
@@ -325,5 +329,177 @@ func TestNpmLockV2WithLicenses(t *testing.T) {
 				t.Errorf("no-lic-pkg license: want empty, got %s", pkg.License)
 			}
 		}
+	}
+}
+
+// ── Integrity Parsing Tests ──────────────────────────────────
+
+func TestNpmLockV2IntegrityParsed(t *testing.T) {
+	input := `{
+  "name": "my-app",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {"name": "my-app", "version": "1.0.0"},
+    "node_modules/express": {
+      "version": "4.18.2",
+      "integrity": "sha512-abc123==",
+      "resolved": "https://registry.npmjs.org/express/-/express-4.18.2.tgz"
+    },
+    "node_modules/lodash": {
+      "version": "4.17.21"
+    }
+  }
+}`
+
+	p := &NpmLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "package-lock.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, pkg := range pkgs {
+		switch pkg.Name {
+		case "express":
+			if pkg.Integrity != "sha512-abc123==" {
+				t.Errorf("express integrity: want sha512-abc123==, got %s", pkg.Integrity)
+			}
+		case "lodash":
+			if pkg.Integrity != "" {
+				t.Errorf("lodash integrity: want empty, got %s", pkg.Integrity)
+			}
+		}
+	}
+}
+
+func TestNpmLockV1IntegrityParsed(t *testing.T) {
+	input := `{"name":"my-app","lockfileVersion":1,"dependencies":{
+		"express":{"version":"4.18.2","integrity":"sha512-xyz789=="},
+		"lodash":{"version":"4.17.21"}
+	}}`
+
+	p := &NpmLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "package-lock.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, pkg := range pkgs {
+		switch pkg.Name {
+		case "express":
+			if pkg.Integrity != "sha512-xyz789==" {
+				t.Errorf("express integrity: want sha512-xyz789==, got %s", pkg.Integrity)
+			}
+		case "lodash":
+			if pkg.Integrity != "" {
+				t.Errorf("lodash integrity: want empty, got %s", pkg.Integrity)
+			}
+		}
+	}
+}
+
+func TestCargoLockChecksumParsed(t *testing.T) {
+	input := `[[package]]
+name = "my-project"
+version = "0.1.0"
+dependencies = [
+ "serde 1.0.180",
+]
+
+[[package]]
+name = "serde"
+version = "1.0.180"
+checksum = "deadbeef1234567890abcdef"
+
+[[package]]
+name = "tokio"
+version = "1.32.0"
+`
+
+	p := &CargoLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "Cargo.lock")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, pkg := range pkgs {
+		switch pkg.Name {
+		case "serde":
+			want := "sha256-deadbeef1234567890abcdef"
+			if pkg.Integrity != want {
+				t.Errorf("serde integrity: want %s, got %s", want, pkg.Integrity)
+			}
+		case "tokio":
+			if pkg.Integrity != "" {
+				t.Errorf("tokio integrity: want empty, got %s", pkg.Integrity)
+			}
+		}
+	}
+}
+
+// ── Consistency (Phantom Dependency) Tests ──────────────────
+
+func TestCheckConsistency_NoPhantoms(t *testing.T) {
+	// Create a temp dir with package.json and simulate lockfile packages
+	dir := t.TempDir()
+	manifestContent := `{"dependencies":{"express":"^4.18.0"},"devDependencies":{"jest":"^29.0.0"}}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifestContent), 0644); err != nil {
+		t.Fatalf("failed to write package.json: %v", err)
+	}
+
+	lockFile := filepath.Join(dir, "package-lock.json")
+	packages := []models.Package{
+		{Name: "express", Version: "4.18.2", Ecosystem: models.EcosystemNpm, FilePath: lockFile, Indirect: false},
+		{Name: "jest", Version: "29.7.0", Ecosystem: models.EcosystemNpm, FilePath: lockFile, Indirect: false},
+		{Name: "cookie", Version: "0.5.0", Ecosystem: models.EcosystemNpm, FilePath: lockFile, Indirect: true},
+	}
+
+	issues := CheckConsistency(dir, packages)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 consistency issues, got %d", len(issues))
+		for _, i := range issues {
+			t.Logf("  phantom: %s in %s", i.Package.Name, i.LockFile)
+		}
+	}
+}
+
+func TestCheckConsistency_PhantomDetected(t *testing.T) {
+	dir := t.TempDir()
+	manifestContent := `{"dependencies":{"express":"^4.18.0"}}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifestContent), 0644); err != nil {
+		t.Fatalf("failed to write package.json: %v", err)
+	}
+
+	lockFile := filepath.Join(dir, "package-lock.json")
+	packages := []models.Package{
+		{Name: "express", Version: "4.18.2", Ecosystem: models.EcosystemNpm, FilePath: lockFile, Indirect: false},
+		{Name: "evil-pkg", Version: "1.0.0", Ecosystem: models.EcosystemNpm, FilePath: lockFile, Indirect: false},
+	}
+
+	issues := CheckConsistency(dir, packages)
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 consistency issue, got %d", len(issues))
+	}
+	if issues[0].Package.Name != "evil-pkg" {
+		t.Errorf("expected phantom package evil-pkg, got %s", issues[0].Package.Name)
+	}
+}
+
+func TestCheckConsistency_TransitiveNotFlagged(t *testing.T) {
+	dir := t.TempDir()
+	manifestContent := `{"dependencies":{"express":"^4.18.0"}}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifestContent), 0644); err != nil {
+		t.Fatalf("failed to write package.json: %v", err)
+	}
+
+	lockFile := filepath.Join(dir, "package-lock.json")
+	packages := []models.Package{
+		{Name: "express", Version: "4.18.2", Ecosystem: models.EcosystemNpm, FilePath: lockFile, Indirect: false},
+		// cookie is transitive — should NOT be flagged
+		{Name: "cookie", Version: "0.5.0", Ecosystem: models.EcosystemNpm, FilePath: lockFile, Indirect: true},
+	}
+
+	issues := CheckConsistency(dir, packages)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues (transitive deps should be ignored), got %d", len(issues))
 	}
 }

@@ -45,6 +45,14 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Dramatically speeds up repeated scans of the same project
   - Disable with `--no-cache` flag
 
+- **Supply Chain Protection**:
+  - **Malicious package detection**: MAL- prefixed advisories from OSV.dev surfaced with dedicated ☠️ section
+  - **Lockfile integrity verification**: compares integrity hashes in `package-lock.json` against the npm registry; flags packages not found on registry as possible supply chain injection
+  - **Cargo.lock checksum parsing**: extracts and tracks `checksum` fields from Rust lockfiles
+  - **Phantom dependency detection**: compares lockfile direct dependencies against `package.json` manifest to detect undeclared packages injected into the lockfile
+  - Enable integrity verification with `--verify-integrity` flag
+  - Phantom detection runs automatically on every scan
+
 - **IaC Scanning** (Infrastructure-as-Code):
   - 25 built-in rules for Terraform, Kubernetes, Dockerfile, CloudFormation, Docker Compose, Helm
   - No external tools required — pure regex-based misconfiguration detection
@@ -226,6 +234,10 @@ calvigil scan --check-licenses
 calvigil scan-license
 calvigil scan-license /path/to/project --format html --output licenses.html
 calvigil scan-license --risk copyleft
+
+# Supply chain protection
+calvigil scan --verify-integrity          # Verify lockfile hashes against registries
+calvigil scan --skip-deps --verify-integrity  # Integrity-only (no CVE matching)
 
 # Disable vulnerability cache
 calvigil scan --no-cache

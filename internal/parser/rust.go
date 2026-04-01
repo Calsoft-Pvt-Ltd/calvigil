@@ -16,21 +16,23 @@ func init() {
 }
 
 var (
-	cargoNameRe    = regexp.MustCompile(`^name\s*=\s*"([^"]+)"`)
-	cargoVersionRe = regexp.MustCompile(`^version\s*=\s*"([^"]+)"`)
-	cargoDepsRe    = regexp.MustCompile(`^dependencies\s*=`)
+	cargoNameRe     = regexp.MustCompile(`^name\s*=\s*"([^"]+)"`)
+	cargoVersionRe  = regexp.MustCompile(`^version\s*=\s*"([^"]+)"`)
+	cargoDepsRe     = regexp.MustCompile(`^dependencies\s*=`)
+	cargoChecksumRe = regexp.MustCompile(`^checksum\s*=\s*"([^"]+)"`)
 )
 
 func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
 	// Two-pass approach:
 	// Pass 1 — collect all packages and their dependency lists.
 	type cargoPkg struct {
-		name    string
-		version string
-		deps    []string // dependency names
+		name     string
+		version  string
+		checksum string
+		deps     []string // dependency names
 	}
 	var pkgs []cargoPkg
-	var name, version string
+	var name, version, checksum string
 	var deps []string
 	inPackage := false
 	inDeps := false
@@ -46,9 +48,9 @@ func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package,
 
 		if line == "[[package]]" {
 			if inPackage && name != "" && version != "" {
-				pkgs = append(pkgs, cargoPkg{name: name, version: version, deps: deps})
+				pkgs = append(pkgs, cargoPkg{name: name, version: version, checksum: checksum, deps: deps})
 			}
-			name, version = "", ""
+			name, version, checksum = "", "", ""
 			deps = nil
 			inPackage = true
 			inDeps = false
@@ -64,6 +66,9 @@ func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package,
 			inDeps = false
 		} else if m := cargoVersionRe.FindStringSubmatch(line); len(m) == 2 {
 			version = m[1]
+			inDeps = false
+		} else if m := cargoChecksumRe.FindStringSubmatch(line); len(m) == 2 {
+			checksum = m[1]
 			inDeps = false
 		} else if cargoDepsRe.MatchString(line) {
 			inDeps = true
@@ -82,7 +87,7 @@ func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package,
 		}
 	}
 	if inPackage && name != "" && version != "" {
-		pkgs = append(pkgs, cargoPkg{name: name, version: version, deps: deps})
+		pkgs = append(pkgs, cargoPkg{name: name, version: version, checksum: checksum, deps: deps})
 	}
 
 	// Pass 2 — figure out which packages are direct (depended on by the first/root package)
@@ -100,12 +105,17 @@ func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package,
 		if i == 0 {
 			continue // skip the root package itself
 		}
+		integ := ""
+		if p.checksum != "" {
+			integ = "sha256-" + p.checksum
+		}
 		packages = append(packages, models.Package{
 			Name:      p.name,
 			Version:   p.version,
 			Ecosystem: models.EcosystemCrates,
 			FilePath:  filePath,
 			Indirect:  !directNames[p.name],
+			Integrity: integ,
 		})
 	}
 

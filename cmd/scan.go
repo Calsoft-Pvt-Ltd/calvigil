@@ -67,6 +67,7 @@ func init() {
 	scanCmd.Flags().StringVar(&scanOpts.OllamaURL, "ollama-url", "", "Ollama server URL (default: http://localhost:11434)")
 	scanCmd.Flags().StringVar(&scanOpts.OllamaModel, "ollama-model", "", "Ollama model name (e.g. llama3, codellama, mistral)")
 	scanCmd.Flags().BoolVar(&scanOpts.CheckLicenses, "check-licenses", false, "enable license compliance checking")
+	scanCmd.Flags().BoolVar(&scanOpts.VerifyIntegrity, "verify-integrity", false, "verify lockfile integrity hashes against registries")
 	scanCmd.Flags().BoolVar(&scanOpts.NoCache, "no-cache", false, "disable vulnerability response caching")
 	scanCmd.Flags().StringVar(&scanOpts.CacheTTL, "cache-ttl", "24h", "cache TTL duration (e.g. 24h, 1h, 30m)")
 }

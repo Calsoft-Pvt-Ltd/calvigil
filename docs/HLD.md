@@ -92,6 +92,8 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 │       Unified Vulnerability List   │
 │  + Dep Paths + Reachability        │
 │  + AI Enrichment                   │
+│  + Supply Chain Checks             │
+│    (Integrity, Phantom Deps, MAL)  │
 └──────────────┬─────────────────────┘
                │
          ┌─────▼─────┐
@@ -106,7 +108,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **CLI Layer** | `cmd/` | Command parsing, flag handling, user interaction |
 | **Scanner** | `internal/scanner/` | Pipeline orchestration — ties all engines together |
 | **Detector** | `internal/detector/` | Filesystem walk to identify project ecosystems |
-| **Parser** | `internal/parser/` | Extract dependencies from manifest/lock files |
+| **Parser** | `internal/parser/` | Extract dependencies from manifest/lock files; integrity verification; phantom dep detection |
 | **Matcher** | `internal/matcher/` | Query CVE databases (OSV, NVD, GHSA) |
 | **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama), pattern matching, Semgrep |
 | **Reporter** | `internal/reporter/` | Format and emit scan results |
@@ -114,7 +116,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **License** | `internal/license/` | License classification, SPDX expression parser, registry resolver |
 | **Cache** | `internal/cache/` | File-based vulnerability response caching (~/.calvigil/cache/) |
 | **Config** | `internal/config/` | Credential and preference management |
-| **Models** | `internal/models/` | Shared data structures (Vulnerability, Package, ScanResult, LicenseIssue) |
+| **Models** | `internal/models/` | Shared data structures (Vulnerability, Package, ScanResult, IntegrityIssue, ConsistencyIssue) |
 
 ---
 
@@ -267,7 +269,51 @@ User runs: calvigil scan-license ./myproject --format html
 
 ---
 
-## 8. Data Flow — Container Image Scan
+## 8. Data Flow — Supply Chain Checks
+
+Supply chain checks integrate into the main scan pipeline (Step 2a) after dependency parsing. They run regardless of `--skip-deps` when `--verify-integrity` is set.
+
+```
+                         │
+            ┌────────────▼───────────────┐
+            │ 2. PARSE DEPENDENCIES      │
+            │    Extract (name, version,  │
+            │    integrity, checksum)     │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 2a. SUPPLY CHAIN CHECKS    │
+            │                            │
+            │ ┌────────────────────────┐  │
+            │ │ INTEGRITY VERIFICATION │  │
+            │ │ (if --verify-integrity)│  │
+            │ │ npm: compare SRI hash  │  │
+            │ │   vs registry.npmjs.org│  │
+            │ │ Cargo: flag missing    │  │
+            │ │   checksums            │  │
+            │ └────────────────────────┘  │
+            │                            │
+            │ ┌────────────────────────┐  │
+            │ │ PHANTOM DETECTION      │  │
+            │ │ (always-on)            │  │
+            │ │ Compare lockfile direct│  │
+            │ │ deps vs manifest       │  │
+            │ │ (package.json)         │  │
+            │ └────────────────────────┘  │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 3. MATCH + REPORT          │
+            │    MAL- entries split into  │
+            │    dedicated ☠️ section     │
+            │    IntegrityIssues → 🔐     │
+            │    ConsistencyIssues → 👻   │
+            └────────────────────────────┘
+```
+
+---
+
+## 9. Data Flow — Container Image Scan
 
 ```
 User runs: calvigil scan-image nginx:latest

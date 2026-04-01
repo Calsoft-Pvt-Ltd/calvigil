@@ -74,6 +74,10 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
   - [Supported IaC Types](#supported-iac-types)
   - [Built-in Rules](#built-in-iac-rules)
   - [Examples](#iac-scanning-examples)
+- [Supply Chain Protection](#supply-chain-protection)
+  - [Malicious Package Detection](#malicious-package-detection)
+  - [Lockfile Integrity Verification](#lockfile-integrity-verification)
+  - [Phantom Dependency Detection](#phantom-dependency-detection)
 - [Supported Ecosystems & Files](#supported-ecosystems--files)
 - [Vulnerability Databases](#vulnerability-databases)
 - [Exit Codes](#exit-codes)
@@ -260,6 +264,7 @@ calvigil scan [path] [flags]
 | `--ollama-url` | — | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | — | — | Ollama model name (e.g. `llama3`, `codellama`, `mistral`) |
 | `--check-licenses` | — | `false` | Enable license compliance checking |
+| `--verify-integrity` | — | `false` | Verify lockfile integrity hashes against package registries |
 | `--no-cache` | — | `false` | Disable vulnerability response caching |
 | `--cache-ttl` | — | `24h` | Cache TTL duration (e.g. `24h`, `1h`, `30m`) |
 | `--verbose` | `-v` | `false` | Show detailed progress output |
@@ -1620,6 +1625,74 @@ Summary: 8 total vulnerabilities
   🟠 High:     2
   🟡 Medium:   1
   🔵 Low:      2
+```
+
+---
+
+## Supply Chain Protection
+
+Calvigil includes built-in defenses against supply chain attacks — the injection of malicious code through dependency lockfile tampering, typosquatting, or phantom dependency injection.
+
+### Malicious Package Detection
+
+The OSV.dev database includes `MAL-` prefixed advisories for known malicious packages. Calvigil automatically detects these and displays them in a dedicated **☠️ Malicious Packages Detected** section — separate from regular CVEs — with red highlighting for immediate visibility.
+
+This works out of the box with no additional flags. Any dependency that matches a MAL- advisory (by ID or alias) is surfaced prominently.
+
+### Lockfile Integrity Verification
+
+Lockfiles record cryptographic hashes (`integrity` in npm, `checksum` in Cargo) of the exact tarball fetched from the registry. An attacker who tampers with a lockfile may inject a dependency with a hash that doesn't match the registry.
+
+Use `--verify-integrity` to validate lockfile hashes against the upstream registry:
+
+```bash
+# Verify integrity during a full scan
+calvigil scan --verify-integrity
+
+# Integrity-only check (skip CVE matching)
+calvigil scan --skip-deps --verify-integrity --skip-ai --skip-semgrep
+```
+
+**What gets checked:**
+
+| Ecosystem | Lockfile | Hash Field | Registry Verified Against |
+|-----------|----------|------------|---------------------------|
+| npm | `package-lock.json` | `integrity` (SRI hash) | `registry.npmjs.org` |
+| Rust | `Cargo.lock` | `checksum` (sha256) | Flagged if missing (Cargo verifies locally) |
+
+**Detected issues:**
+- Hash mismatch between lockfile and registry
+- Package not found on registry (possible supply chain injection)
+- Missing integrity hash in lockfile
+- Missing checksum in `Cargo.lock`
+
+Results appear in the **🔐 Lockfile Integrity Issues** table section.
+
+### Phantom Dependency Detection
+
+A phantom dependency is a package that appears in a lockfile as a direct dependency but is **not declared** in the corresponding manifest file (`package.json`). This can indicate lockfile tampering — an attacker may inject a malicious package directly into the lockfile.
+
+Phantom detection runs **automatically on every scan** (no flag needed). It currently supports:
+
+| Lockfile | Manifest | Checked Sections |
+|----------|----------|------------------|
+| `package-lock.json` | `package.json` | `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies` |
+| `yarn.lock` | `package.json` | Same as above |
+| `pnpm-lock.yaml` | `package.json` | Same as above |
+
+Only **direct** (non-transitive) dependencies are checked — transitive dependencies are expected to not appear in the manifest.
+
+Results appear in the **👻 Phantom Dependencies** table section.
+
+**Example output:**
+```
+👻 Phantom Dependencies (1 found)
+
+╭───────────────┬─────────┬───────────────────┬──────────────┬──────────────────────────────────────────╮
+│ PACKAGE       │ VERSION │ LOCK FILE         │ MANIFEST     │ REASON                                   │
+├───────────────┼─────────┼───────────────────┼──────────────┼──────────────────────────────────────────┤
+│ sneaky-inject │ 1.0.0   │ package-lock.json │ package.json │ package in lockfile but not declared ...  │
+╰───────────────┴─────────┴───────────────────┴──────────────┴──────────────────────────────────────────╯
 ```
 
 ---
