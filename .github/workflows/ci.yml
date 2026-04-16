@@ -50,7 +50,7 @@ jobs:
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
-          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          gistID: 324db294e044d1f67f4780812e1bbf17
           filename: calvigil-coverage.json
           label: coverage
           message: ${{ steps.coverage.outputs.coverage }}%
