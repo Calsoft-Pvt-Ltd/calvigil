@@ -135,3 +135,93 @@ func TestTableReport_ConsistencySection(t *testing.T) {
 		t.Error("expected phantom-pkg in output")
 	}
 }
+
+func TestTableReport_NoVulns(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath:   "/test/project",
+		TotalPackages: 5,
+		Ecosystems:    []models.Ecosystem{models.EcosystemGo},
+		ScannedAt:     time.Now(),
+		Duration:      time.Second,
+	}
+	var buf bytes.Buffer
+	r := &TableReporter{}
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("Report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "No vulnerabilities found") {
+		t.Error("expected no vulnerabilities message")
+	}
+}
+
+func TestTableReport_CodeAnalysisVulns(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath:   "/test/project",
+		TotalPackages: 0,
+		Ecosystems:    []models.Ecosystem{models.EcosystemPyPI},
+		ScannedAt:     time.Now(),
+		Duration:      time.Second,
+		Vulnerabilities: []models.Vulnerability{
+			{
+				ID:       "AI-001",
+				Summary:  "Hardcoded password",
+				Severity: models.SeverityHigh,
+				Source:   models.SourcePatternMatch,
+				FilePath: "/test/project/app.py",
+			},
+			{
+				ID:       "SG-001",
+				Summary:  "SQL injection",
+				Severity: models.SeverityCritical,
+				Source:   models.SourceSemgrep,
+				FilePath: "/test/project/db.py",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	r := &TableReporter{}
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("Report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Code Analysis") || !strings.Contains(out, "Semgrep") {
+		t.Error("expected code analysis and semgrep sections")
+	}
+}
+
+func TestTableReport_LicenseSection(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath:   "/test/project",
+		TotalPackages: 3,
+		Ecosystems:    []models.Ecosystem{models.EcosystemNpm},
+		ScannedAt:     time.Now(),
+		Duration:      time.Second,
+		Vulnerabilities: []models.Vulnerability{
+			{
+				ID:       "CVE-2024-1234",
+				Summary:  "Test vuln",
+				Severity: models.SeverityHigh,
+				Source:   models.SourceOSV,
+				Package:  models.Package{Name: "pkg", Version: "1.0", Ecosystem: models.EcosystemNpm},
+			},
+		},
+		LicenseIssues: []models.LicenseIssue{
+			{
+				Package: models.Package{Name: "gpl-pkg", Version: "1.0", Ecosystem: models.EcosystemNpm},
+				License: "GPL-3.0",
+				Risk:    models.LicenseCopyleft,
+				Reason:  "Copyleft detected",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	r := &TableReporter{}
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("Report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "License Compliance Issues") {
+		t.Error("expected License Compliance Issues section in output")
+	}
+}

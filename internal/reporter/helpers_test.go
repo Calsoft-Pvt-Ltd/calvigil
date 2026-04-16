@@ -537,3 +537,285 @@ func TestHTML_AllSeverityLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestToHTMLVuln_Basic(t *testing.T) {
+	v := models.Vulnerability{
+		ID:       "CVE-2024-1234",
+		Summary:  "XSS in template",
+		Severity: models.SeverityHigh,
+		Score:    7.5,
+		Package:  models.Package{Name: "lodash", Version: "4.17.20", Ecosystem: models.EcosystemNpm, Indirect: true},
+		FixedIn:  "4.17.21",
+		FilePath: "/project/src/app.js",
+		DepPath:  "project → package.json → lodash@4.17.20",
+		Source:   models.SourceOSV,
+	}
+	hv := toHTMLVuln(v, "/project")
+	if hv.ID != "CVE-2024-1234" {
+		t.Errorf("ID = %q", hv.ID)
+	}
+	if hv.SeverityClass != "high" {
+		t.Errorf("SeverityClass = %q, want high", hv.SeverityClass)
+	}
+	if hv.Score != "7.5" {
+		t.Errorf("Score = %q, want 7.5", hv.Score)
+	}
+	if !hv.IsTransitive {
+		t.Error("IsTransitive should be true")
+	}
+	if hv.FilePath != "src/app.js" {
+		t.Errorf("FilePath = %q, want src/app.js", hv.FilePath)
+	}
+	if hv.Enrichment != nil {
+		t.Error("Enrichment should be nil")
+	}
+}
+
+func TestToHTMLVuln_WithAIEnrichment(t *testing.T) {
+	v := models.Vulnerability{
+		ID:       "CVE-2024-5678",
+		Severity: models.SeverityCritical,
+		Package:  models.Package{Name: "express", Version: "4.18.0"},
+		AIEnrichment: &models.AIEnrichment{
+			Summary:              "Critical SQL injection",
+			LikelyImpact:         "Database compromise",
+			Confidence:           "HIGH",
+			MinimalRemediation:   "Use parameterized queries",
+			SuppressionRationale: "",
+		},
+	}
+	hv := toHTMLVuln(v, "/project")
+	if hv.Enrichment == nil {
+		t.Fatal("Enrichment should not be nil")
+	}
+	if hv.Enrichment.Summary != "Critical SQL injection" {
+		t.Errorf("Enrichment.Summary = %q", hv.Enrichment.Summary)
+	}
+	if hv.Enrichment.Confidence != "HIGH" {
+		t.Errorf("Enrichment.Confidence = %q", hv.Enrichment.Confidence)
+	}
+	if hv.Enrichment.ConfidenceClass != "high" {
+		t.Errorf("Enrichment.ConfidenceClass = %q, want high", hv.Enrichment.ConfidenceClass)
+	}
+}
+
+func TestToHTMLVuln_PackageFilePath(t *testing.T) {
+	v := models.Vulnerability{
+		ID:       "CVE-1",
+		Severity: models.SeverityMedium,
+		Package:  models.Package{Name: "pkg", FilePath: "/project/go.mod"},
+	}
+	hv := toHTMLVuln(v, "/project")
+	if hv.FilePath != "go.mod" {
+		t.Errorf("FilePath from package = %q, want go.mod", hv.FilePath)
+	}
+}
+
+func TestReportLicenseOnly_WithIssues(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath:   "/test/project",
+		TotalPackages: 5,
+		Ecosystems:    []models.Ecosystem{models.EcosystemNpm},
+		LicenseOnly:   true,
+		LicenseIssues: []models.LicenseIssue{
+			{
+				Package: models.Package{Name: "gpl-pkg", Version: "1.0", Ecosystem: models.EcosystemNpm},
+				License: "GPL-3.0",
+				Risk:    models.LicenseCopyleft,
+				Reason:  "Copyleft license",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	r := &TableReporter{}
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("Report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "License Compliance Report") {
+		t.Error("expected License Compliance Report header")
+	}
+	if !strings.Contains(out, "gpl-pkg") {
+		t.Error("expected gpl-pkg in output")
+	}
+}
+
+func TestReportLicenseOnly_NoIssues(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath:   "/test/project",
+		TotalPackages: 3,
+		Ecosystems:    []models.Ecosystem{models.EcosystemGo},
+		LicenseOnly:   true,
+	}
+	var buf bytes.Buffer
+	r := &TableReporter{}
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("Report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "permissive") {
+		t.Error("expected permissive message")
+	}
+}
+
+func TestReportLicenseOnly_WithErrors(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath:   "/test",
+		TotalPackages: 1,
+		Ecosystems:    []models.Ecosystem{models.EcosystemNpm},
+		LicenseOnly:   true,
+		Errors:        []string{"failed to resolve npm license"},
+	}
+	var buf bytes.Buffer
+	r := &TableReporter{}
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("Report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "warnings") {
+		t.Error("expected warnings section")
+	}
+}
+
+func TestCycloneDX_WithAIEnrichment(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath: "/test",
+		Vulnerabilities: []models.Vulnerability{
+			{
+				ID:       "CVE-1",
+				Severity: models.SeverityHigh,
+				Score:    8.5,
+				Source:   models.SourceOSV,
+				Package:  models.Package{Name: "pkg", Version: "1.0", PURL: "pkg:npm/pkg@1.0"},
+				AIEnrichment: &models.AIEnrichment{
+					Confidence:           "HIGH",
+					SuppressionRationale: "",
+				},
+			},
+			{
+				ID:       "CVE-2",
+				Severity: models.SeverityLow,
+				Source:   models.SourceNVD,
+				Package:  models.Package{Name: "pkg2", Version: "2.0", PURL: "pkg:npm/pkg2@2.0", Indirect: true},
+				AIEnrichment: &models.AIEnrichment{
+					Confidence:           "LOW",
+					SuppressionRationale: "Dev only",
+				},
+			},
+			{
+				ID:       "CVE-3",
+				Severity: models.SeverityMedium,
+				Source:   models.SourceGitHubAdv,
+				Package:  models.Package{Name: "pkg3", Version: "3.0"},
+				AIEnrichment: &models.AIEnrichment{
+					Confidence: "MEDIUM",
+				},
+			},
+			{
+				ID:         "CVE-4",
+				Severity:   models.SeverityHigh,
+				Source:     models.SourceOSV,
+				Package:    models.Package{Name: "pkg4", Version: "4.0"},
+				References: []string{"https://example.com/cve-4"},
+				FixedIn:    "5.0",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	r := ForFormat("cyclonedx")
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("CycloneDX report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "exploitable") {
+		t.Error("expected exploitable state for HIGH confidence")
+	}
+	if !strings.Contains(out, "false_positive") {
+		t.Error("expected false_positive state for LOW confidence")
+	}
+	if !strings.Contains(out, "in_triage") {
+		t.Error("expected in_triage state for MEDIUM confidence")
+	}
+}
+
+func TestHTML_WithAIEnrichment(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath: "/test",
+		Vulnerabilities: []models.Vulnerability{
+			{
+				ID:       "CVE-1",
+				Severity: models.SeverityHigh,
+				Source:   models.SourceOSV,
+				Package:  models.Package{Name: "pkg", Ecosystem: models.EcosystemNpm},
+				AIEnrichment: &models.AIEnrichment{
+					Summary:    "Critical issue",
+					Confidence: "HIGH",
+				},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	r := ForFormat("html")
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("HTML report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Critical issue") {
+		t.Error("expected AI enrichment summary in HTML output")
+	}
+}
+
+func TestHTML_WithLicenseIssues(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath:   "/test",
+		TotalPackages: 5,
+		Packages: []models.Package{
+			{Name: "mit-pkg", License: "MIT"},
+			{Name: "gpl-pkg", License: "GPL-3.0"},
+			{Name: "unknown-pkg", License: "CUSTOM-1.0"},
+			{Name: "nolicense-pkg"},
+		},
+		LicenseIssues: []models.LicenseIssue{
+			{
+				Package: models.Package{Name: "gpl-pkg", Version: "1.0", Ecosystem: models.EcosystemNpm},
+				License: "GPL-3.0",
+				Risk:    models.LicenseCopyleft,
+				Reason:  "Copyleft license detected",
+			},
+			{
+				Package: models.Package{Name: "unknown-pkg", Version: "2.0"},
+				Risk:    models.LicenseUnknown,
+				Reason:  "Unknown license",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	r := ForFormat("html")
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("HTML report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "gpl-pkg") {
+		t.Error("expected gpl-pkg in HTML output")
+	}
+}
+
+func TestHTML_SemgrepAndCodeVulns(t *testing.T) {
+	result := &models.ScanResult{
+		ProjectPath: "/test",
+		Vulnerabilities: []models.Vulnerability{
+			{ID: "SG-1", Severity: models.SeverityMedium, Source: models.SourceSemgrep, FilePath: "/test/app.py"},
+			{ID: "AI-1", Severity: models.SeverityHigh, Source: models.SourceAIAnalysis, FilePath: "/test/main.go"},
+			{ID: "PM-1", Severity: models.SeverityLow, Source: models.SourcePatternMatch, FilePath: "/test/config.js"},
+		},
+	}
+	var buf bytes.Buffer
+	r := ForFormat("html")
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatalf("HTML report error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "SG-1") {
+		t.Error("expected semgrep vuln in HTML output")
+	}
+}

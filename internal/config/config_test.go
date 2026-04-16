@@ -181,3 +181,127 @@ func TestGetInvalidKey(t *testing.T) {
 		t.Error("Get with invalid key should return error")
 	}
 }
+
+func TestGet_AllSecretKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
+		t.Setenv(key, "")
+	}
+
+	// Set all keys first
+	_ = Set("openai-key", "sk-testkey12345678")
+	_ = Set("nvd-key", "nvd-testkey12345678")
+	_ = Set("github-token", "ghp_testtoken12345678")
+	_ = Set("ollama-url", "http://localhost:11434")
+	_ = Set("ollama-model", "llama3")
+	_ = Set("openai-model", "gpt-4-turbo")
+
+	// Test masked keys
+	val, err := Get("openai-key")
+	if err != nil {
+		t.Fatalf("Get(openai-key) error: %v", err)
+	}
+	if val != "****5678" {
+		t.Errorf("Get(openai-key) = %q, want ****5678", val)
+	}
+
+	val, err = Get("nvd-key")
+	if err != nil {
+		t.Fatalf("Get(nvd-key) error: %v", err)
+	}
+	if val != "****5678" {
+		t.Errorf("Get(nvd-key) = %q, want ****5678", val)
+	}
+
+	val, err = Get("github-token")
+	if err != nil {
+		t.Fatalf("Get(github-token) error: %v", err)
+	}
+	if val != "****5678" {
+		t.Errorf("Get(github-token) = %q, want ****5678", val)
+	}
+
+	// Non-secret keys
+	val, err = Get("ollama-url")
+	if err != nil {
+		t.Fatalf("Get(ollama-url) error: %v", err)
+	}
+	if val != "http://localhost:11434" {
+		t.Errorf("Get(ollama-url) = %q", val)
+	}
+
+	val, err = Get("ollama-model")
+	if err != nil {
+		t.Fatalf("Get(ollama-model) error: %v", err)
+	}
+	if val != "llama3" {
+		t.Errorf("Get(ollama-model) = %q", val)
+	}
+
+	val, err = Get("openai-model")
+	if err != nil {
+		t.Fatalf("Get(openai-model) error: %v", err)
+	}
+	if val != "gpt-4-turbo" {
+		t.Errorf("Get(openai-model) = %q", val)
+	}
+}
+
+func TestGet_EmptySecrets(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
+		t.Setenv(key, "")
+	}
+
+	val, err := Get("openai-key")
+	if err != nil {
+		t.Fatalf("Get(openai-key) error: %v", err)
+	}
+	if val != "****" {
+		t.Errorf("Get(openai-key) with empty = %q, want ****", val)
+	}
+
+	val, err = Get("nvd-key")
+	if err != nil {
+		t.Fatalf("Get(nvd-key) error: %v", err)
+	}
+	if val != "****" {
+		t.Errorf("Get(nvd-key) with empty = %q, want ****", val)
+	}
+
+	val, err = Get("github-token")
+	if err != nil {
+		t.Fatalf("Get(github-token) error: %v", err)
+	}
+	if val != "****" {
+		t.Errorf("Get(github-token) with empty = %q, want ****", val)
+	}
+}
+
+func TestLoadFromFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
+		t.Setenv(key, "")
+	}
+
+	// Write config file directly
+	cfgJSON := `{"openai_api_key":"file-key","openai_model":"gpt-3.5","nvd_api_key":"nvd-file","github_token":"ghp-file","ollama_url":"http://remote:11434","ollama_model":"codellama"}`
+	os.WriteFile(filepath.Join(tmpDir, configFileName), []byte(cfgJSON), 0600)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.OpenAIKey != "file-key" {
+		t.Errorf("OpenAIKey = %q, want file-key", cfg.OpenAIKey)
+	}
+	if cfg.OllamaURL != "http://remote:11434" {
+		t.Errorf("OllamaURL = %q", cfg.OllamaURL)
+	}
+	if cfg.OllamaModel != "codellama" {
+		t.Errorf("OllamaModel = %q", cfg.OllamaModel)
+	}
+}

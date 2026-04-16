@@ -782,3 +782,275 @@ require golang.org/x/text v0.14.0
 		t.Error("expected JSON report")
 	}
 }
+
+func TestRun_Verbose(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:        dir,
+		Format:      "json",
+		OutputFile:  outFile,
+		SkipAI:      true,
+		SkipSemgrep: true,
+		NoCache:     true,
+		Verbose:     true,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
+
+func TestRun_WithSeverityFilter(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:           dir,
+		Format:         "json",
+		OutputFile:     outFile,
+		SkipAI:         true,
+		SkipSemgrep:    true,
+		NoCache:        true,
+		SeverityFilter: models.SeverityCritical,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
+
+func TestRun_WithLicenseChecking(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:          dir,
+		Format:        "json",
+		OutputFile:    outFile,
+		SkipAI:        true,
+		SkipSemgrep:   true,
+		NoCache:       true,
+		CheckLicenses: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
+
+func TestRun_WithIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:            dir,
+		Format:          "json",
+		OutputFile:      outFile,
+		SkipAI:          true,
+		SkipSemgrep:     true,
+		NoCache:         true,
+		VerifyIntegrity: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
+
+func TestRun_SkipDepsWithIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:            dir,
+		Format:          "json",
+		OutputFile:      outFile,
+		SkipAI:          true,
+		SkipSemgrep:     true,
+		SkipDeps:        true,
+		NoCache:         true,
+		VerifyIntegrity: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
+
+func TestRun_WithPatternScanning(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	// Create a file with a hardcoded secret to trigger pattern scanning
+	os.WriteFile(filepath.Join(dir, "app.py"), []byte("password = \"secret123\"\napi_key = \"AKIA1234567890ABCDEF\"\n"), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:        dir,
+		Format:      "json",
+		OutputFile:  outFile,
+		SkipAI:      false,
+		AIProvider:  "openai",
+		SkipSemgrep: true,
+		SkipDeps:    true,
+		NoCache:     true,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	// No OpenAI key → falls back to pattern-only code scanning
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
+
+func TestScanDependencies_WithVerbose(t *testing.T) {
+	dir := t.TempDir()
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	goModPath := filepath.Join(dir, "go.mod")
+	os.WriteFile(goModPath, []byte(gomod), 0644)
+
+	s := &Scanner{
+		opts: models.ScanOptions{Path: dir, Verbose: true, NoCache: true},
+		cfg:  &config.Config{},
+	}
+
+	files := []detector.DetectedFile{
+		{Path: goModPath, Filename: "go.mod", Ecosystem: models.EcosystemGo},
+	}
+
+	vulns, pkgs, _ := s.scanDependencies(context.Background(), files)
+	_ = vulns
+	if len(pkgs) == 0 {
+		t.Error("expected packages")
+	}
+}
+
+func TestScanDependencies_WithNVDKey(t *testing.T) {
+	dir := t.TempDir()
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	goModPath := filepath.Join(dir, "go.mod")
+	os.WriteFile(goModPath, []byte(gomod), 0644)
+
+	s := &Scanner{
+		opts: models.ScanOptions{Path: dir, NoCache: true},
+		cfg:  &config.Config{NVDKey: "test-nvd-key"},
+	}
+
+	files := []detector.DetectedFile{
+		{Path: goModPath, Filename: "go.mod", Ecosystem: models.EcosystemGo},
+	}
+
+	_, pkgs, _ := s.scanDependencies(context.Background(), files)
+	if len(pkgs) == 0 {
+		t.Error("expected packages")
+	}
+}
+
+func TestScanDependencies_WithGitHubToken(t *testing.T) {
+	dir := t.TempDir()
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	goModPath := filepath.Join(dir, "go.mod")
+	os.WriteFile(goModPath, []byte(gomod), 0644)
+
+	s := &Scanner{
+		opts: models.ScanOptions{Path: dir, NoCache: true},
+		cfg:  &config.Config{GitHubToken: "ghp_test"},
+	}
+
+	files := []detector.DetectedFile{
+		{Path: goModPath, Filename: "go.mod", Ecosystem: models.EcosystemGo},
+	}
+
+	_, pkgs, _ := s.scanDependencies(context.Background(), files)
+	if len(pkgs) == 0 {
+		t.Error("expected packages")
+	}
+}
+
+func TestScanSourceCode_VerboseNoProvider(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.py"), []byte("password = \"hardcoded\"\n"), 0644)
+
+	s := &Scanner{
+		opts: models.ScanOptions{Path: dir, Verbose: true, AIProvider: "openai"},
+		cfg:  &config.Config{},
+	}
+
+	vulns, _ := s.scanSourceCode(context.Background())
+	if len(vulns) == 0 {
+		t.Error("expected pattern-match findings")
+	}
+}
+
+func TestScanSemgrep_Verbose(t *testing.T) {
+	s := &Scanner{
+		opts: models.ScanOptions{Path: t.TempDir(), Verbose: true},
+		cfg:  &config.Config{},
+	}
+	_, errs := s.scanSemgrep(context.Background())
+	if len(errs) != 0 {
+		t.Errorf("expected 0 errors when semgrep not installed, got %d", len(errs))
+	}
+}
+
+func TestRun_VerboseWithLicensesAndPatterns(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	os.WriteFile(filepath.Join(dir, "config.js"), []byte("const key = \"AKIA1234567890ABCDEF\";\n"), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:          dir,
+		Format:        "json",
+		OutputFile:    outFile,
+		SkipAI:        false,
+		AIProvider:    "openai",
+		SkipSemgrep:   true,
+		NoCache:       true,
+		Verbose:       true,
+		CheckLicenses: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
