@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  # Needed only if you use GITHUB_TOKEN for gist updates (not applicable here;
+  # we use a separate GIST_SECRET PAT). Keeping minimal permissions.
 
 jobs:
   # ── Lint ──────────────────────────────────────────────────────────────────
@@ -36,12 +38,34 @@ jobs:
       - name: Display coverage summary
         run: go tool cover -func=coverage.out | tail -1
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Extract coverage percentage
+        id: coverage
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $NF}' | tr -d '%')
+          echo "coverage=${COVERAGE}" >> "$GITHUB_OUTPUT"
+          echo "## 📊 Code Coverage: ${COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update coverage badge (gist)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: schneegans/dynamic-badges-action@v1.7.0
         with:
-          files: coverage.out
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          filename: calvigil-coverage.json
+          label: coverage
+          message: ${{ steps.coverage.outputs.coverage }}%
+          valColorRange: ${{ steps.coverage.outputs.coverage }}
+          minColorRange: 50
+          maxColorRange: 90
+
+      - name: Fail if coverage below 80%
+        run: |
+          COVERAGE=${{ steps.coverage.outputs.coverage }}
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "::error::Coverage ${COVERAGE}% is below 80% threshold"
+            exit 1
+          fi
+          echo "Coverage ${COVERAGE}% meets the 80% threshold ✓"
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

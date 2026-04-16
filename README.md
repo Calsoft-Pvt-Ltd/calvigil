@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/Calsoft-Pvt-Ltd/calvigil/actions/workflows/ci.yml"><img src="https://github.com/Calsoft-Pvt-Ltd/calvigil/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <a href="https://codecov.io/gh/Calsoft-Pvt-Ltd/calvigil"><img src="https://codecov.io/gh/Calsoft-Pvt-Ltd/calvigil/branch/main/graph/badge.svg" alt="Code Coverage"></a>
+  <a href="https://github.com/Calsoft-Pvt-Ltd/calvigil/actions/workflows/ci.yml"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Calsoft-Pvt-Ltd/324db294e044d1f67f4780812e1bbf17/raw/calvigil-coverage.json" alt="Code Coverage"></a>
   <a href="https://github.com/Calsoft-Pvt-Ltd/calvigil/actions/workflows/security-scan.yml"><img src="https://github.com/Calsoft-Pvt-Ltd/calvigil/actions/workflows/security-scan.yml/badge.svg" alt="Security Scan"></a>
   <a href="https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest"><img src="https://img.shields.io/github/v/release/Calsoft-Pvt-Ltd/calvigil" alt="Latest Release"></a>
   <a href="https://github.com/Calsoft-Pvt-Ltd/calvigil/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Calsoft-Pvt-Ltd/calvigil" alt="License"></a>
