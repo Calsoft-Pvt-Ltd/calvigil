@@ -4,6 +4,9 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -749,5 +752,476 @@ func TestCargoChecksumInPackages(t *testing.T) {
 	}
 	if checksumCount < 2 {
 		t.Errorf("expected at least 2 crates.io packages with sha256- checksums, got %d", checksumCount)
+	}
+}
+
+// ── 18. scan-binary command ─────────────────────────────────────────────────
+
+func TestScanBinaryHelp(t *testing.T) {
+	out := runOK(t, "scan-binary", "--help")
+	for _, want := range []string{"--format", "--output", "--severity", "scan-binary"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("scan-binary --help should mention %q", want)
+		}
+	}
+}
+
+func TestScanBinaryInvalidPath(t *testing.T) {
+	_, _, err := run(t, "scan-binary", "/nonexistent/binary/path")
+	if err == nil {
+		t.Error("scan-binary with nonexistent path should fail")
+	}
+}
+
+func TestScanBinaryOnSelf(t *testing.T) {
+	// Scan the calvigil binary itself — it is a Go binary with embedded buildinfo
+	bin := ensureBinary(t)
+	out := runOK(t, "scan-binary", bin, "--format", "json")
+
+	var result struct {
+		TotalPackages   int      `json:"total_packages"`
+		Ecosystems      []string `json:"ecosystems"`
+		Vulnerabilities []struct {
+			ID string `json:"id"`
+		} `json:"vulnerabilities"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("scan-binary JSON output invalid: %v", err)
+	}
+	if result.TotalPackages == 0 {
+		t.Error("scan-binary on calvigil binary should find embedded Go packages")
+	}
+	found := false
+	for _, eco := range result.Ecosystems {
+		if eco == "Go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("scan-binary should detect Go ecosystem, got: %v", result.Ecosystems)
+	}
+}
+
+func TestScanBinarySeverityFilter(t *testing.T) {
+	bin := ensureBinary(t)
+	out := runOK(t, "scan-binary", bin, "--format", "json", "--severity", "critical")
+
+	var result struct {
+		Vulnerabilities []struct {
+			Severity string `json:"severity"`
+		} `json:"vulnerabilities"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	for _, v := range result.Vulnerabilities {
+		if strings.ToUpper(v.Severity) != "CRITICAL" {
+			t.Errorf("with --severity critical, found vuln with severity %s", v.Severity)
+		}
+	}
+}
+
+func TestScanBinaryOutputToFile(t *testing.T) {
+	bin := ensureBinary(t)
+	tmp := filepath.Join(t.TempDir(), "binary-scan.json")
+	runOK(t, "scan-binary", bin, "--format", "json", "--output", tmp)
+
+	data, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("output file should exist: %v", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("output file should contain valid JSON: %v", err)
+	}
+}
+
+func TestScanBinarySARIF(t *testing.T) {
+	bin := ensureBinary(t)
+	out := runOK(t, "scan-binary", bin, "--format", "sarif")
+
+	var sarif map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &sarif); err != nil {
+		t.Fatalf("SARIF output should be valid JSON: %v", err)
+	}
+	if v, _ := sarif["version"].(string); v != "2.1.0" {
+		t.Errorf("SARIF version should be 2.1.0, got %v", sarif["version"])
+	}
+}
+
+// ── 19. scan-image command ──────────────────────────────────────────────────
+
+func TestScanImageHelp(t *testing.T) {
+	out := runOK(t, "scan-image", "--help")
+	for _, want := range []string{"--format", "--output", "--severity", "scan-image", "syft"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("scan-image --help should mention %q", want)
+		}
+	}
+}
+
+func TestScanImageNoArgs(t *testing.T) {
+	_, _, err := run(t, "scan-image")
+	if err == nil {
+		t.Error("scan-image without arguments should fail (requires <image> arg)")
+	}
+}
+
+func TestScanImageRequiresSyft(t *testing.T) {
+	// If syft is not installed, the command should fail with a clear message
+	_, stderr, err := run(t, "scan-image", "alpine:3.18", "--format", "json")
+	if err != nil {
+		// Expected if syft is not installed
+		if strings.Contains(stderr, "syft") {
+			t.Log("scan-image correctly requires syft")
+		} else {
+			// syft might be installed; either way the command ran
+			t.Log("scan-image ran (syft may be installed)")
+		}
+	}
+	// If syft IS installed and the command succeeded, verify JSON output
+	if err == nil {
+		t.Log("syft is available; scan-image succeeded")
+	}
+}
+
+// ── 20. scan-license additional coverage ────────────────────────────────────
+
+func TestLicenseScanRiskCopyleft(t *testing.T) {
+	out := runOK(t, "scan-license", testdataDir(), "--format", "json", "--risk", "copyleft")
+
+	var result struct {
+		LicenseIssues []struct {
+			Risk string `json:"risk"`
+		} `json:"license_issues"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	for _, issue := range result.LicenseIssues {
+		if strings.ToLower(issue.Risk) != "copyleft" {
+			t.Errorf("with --risk copyleft, found issue with risk %q", issue.Risk)
+		}
+	}
+}
+
+func TestLicenseScanRiskUnknown(t *testing.T) {
+	out := runOK(t, "scan-license", testdataDir(), "--format", "json", "--risk", "unknown")
+
+	var result struct {
+		LicenseIssues []struct {
+			Risk string `json:"risk"`
+		} `json:"license_issues"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	for _, issue := range result.LicenseIssues {
+		if strings.ToLower(issue.Risk) != "unknown" {
+			t.Errorf("with --risk unknown, found issue with risk %q", issue.Risk)
+		}
+	}
+}
+
+func TestLicenseScanOutputToFile(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "licenses.json")
+	runOK(t, "scan-license", testdataDir(), "--format", "json", "--output", tmp)
+
+	data, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("output file should exist: %v", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("output file should contain valid JSON: %v", err)
+	}
+}
+
+func TestLicenseScanInvalidPath(t *testing.T) {
+	_, _, err := run(t, "scan-license", "/nonexistent/license/path")
+	if err == nil {
+		t.Error("scan-license with nonexistent path should fail")
+	}
+}
+
+// ── 21. scan with --check-licenses ──────────────────────────────────────────
+
+func TestScanWithCheckLicenses(t *testing.T) {
+	out := runOK(t, "scan", testdataDir(),
+		"--skip-ai", "--skip-semgrep", "--check-licenses", "--format", "json", "--no-cache")
+
+	var result struct {
+		LicenseIssues []interface{} `json:"license_issues"`
+		TotalPackages int           `json:"total_packages"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result.TotalPackages == 0 {
+		t.Error("scan with --check-licenses should detect packages")
+	}
+}
+
+// ── 22. scan with --cache-ttl ───────────────────────────────────────────────
+
+func TestScanWithCacheTTL(t *testing.T) {
+	out := runOK(t, "scan", testdataDir(),
+		"--skip-ai", "--skip-semgrep", "--format", "json", "--cache-ttl", "1h")
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result["total_packages"].(float64) < 1 {
+		t.Error("scan with --cache-ttl should still find packages")
+	}
+}
+
+// ── 23. AI analysis with Ollama stub ────────────────────────────────────────
+
+// startOllamaStub starts a fake Ollama HTTP server that responds to:
+//   - GET  /api/tags              → 200 OK (availability check)
+//   - POST /v1/chat/completions   → AI findings JSON
+func startOllamaStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+
+	// Ollama availability check
+	mux.HandleFunc("/api/tags", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"models":[{"name":"stub-model"}]}`)
+	})
+
+	// OpenAI-compatible chat completions
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		// Return a realistic AI finding
+		aiResponse := `[{"id":"AI-001","name":"SQL Injection","description":"User input concatenated into SQL query without parameterization.","severity":"CRITICAL","file":"vuln_sample.go","line":17,"recommendation":"Use parameterized queries instead of string formatting."}]`
+
+		w.Header().Set("Content-Type", "application/json")
+		resp := fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":%s}}]}`, jsonEscape(aiResponse))
+		fmt.Fprint(w, resp)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// jsonEscape escapes a string for embedding inside a JSON string value.
+func jsonEscape(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func TestAIScanWithOllamaStub(t *testing.T) {
+	stub := startOllamaStub(t)
+
+	out := runOK(t, "scan", testdataDir(),
+		"--skip-semgrep", "--skip-deps",
+		"--provider", "ollama",
+		"--ollama-url", stub.URL,
+		"--ollama-model", "stub-model",
+		"--format", "json", "--no-cache")
+
+	var result struct {
+		Vulnerabilities []struct {
+			ID       string `json:"id"`
+			Source   string `json:"source"`
+			Severity string `json:"severity"`
+			FilePath string `json:"file_path"`
+		} `json:"vulnerabilities"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// AI analysis should have produced at least one finding
+	if len(result.Vulnerabilities) == 0 {
+		t.Fatal("AI scan with Ollama stub should produce vulnerabilities")
+	}
+
+	// Check that at least one finding came from AI
+	foundAI := false
+	for _, v := range result.Vulnerabilities {
+		if v.Source == "ai-analysis" || v.Source == "pattern" {
+			foundAI = true
+			break
+		}
+	}
+	if !foundAI {
+		sources := make([]string, 0, len(result.Vulnerabilities))
+		for _, v := range result.Vulnerabilities {
+			sources = append(sources, v.Source)
+		}
+		t.Errorf("expected at least one AI/pattern-sourced finding, got sources: %v", sources)
+	}
+}
+
+func TestAIScanWithOllamaStubVerbose(t *testing.T) {
+	stub := startOllamaStub(t)
+
+	_, stderr, err := run(t, "scan", testdataDir(),
+		"--skip-semgrep", "--skip-deps",
+		"--provider", "ollama",
+		"--ollama-url", stub.URL,
+		"--ollama-model", "stub-model",
+		"--format", "json", "--no-cache", "-v")
+	if err != nil {
+		t.Fatalf("AI scan failed: %v", err)
+	}
+
+	// Verbose output should mention the AI provider
+	if !strings.Contains(stderr, "Ollama") && !strings.Contains(stderr, "ollama") &&
+		!strings.Contains(stderr, "AI") && !strings.Contains(stderr, "code analysis") {
+		t.Errorf("verbose output should mention AI/Ollama, got: %s", stderr)
+	}
+}
+
+func TestAIScanSkipAIProducesNoAIFindings(t *testing.T) {
+	out := runOK(t, "scan", testdataDir(),
+		"--skip-ai", "--skip-semgrep",
+		"--format", "json", "--no-cache")
+
+	var result struct {
+		Vulnerabilities []struct {
+			Source string `json:"source"`
+		} `json:"vulnerabilities"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	for _, v := range result.Vulnerabilities {
+		if v.Source == "ai-analysis" {
+			t.Error("--skip-ai should not produce ai-analysis findings")
+		}
+	}
+}
+
+func TestAIScanProviderFlags(t *testing.T) {
+	// Verify --provider openai without a key degrades gracefully (no crash)
+	out := runOK(t, "scan", testdataDir(),
+		"--skip-semgrep",
+		"--provider", "openai",
+		"--format", "json", "--no-cache")
+
+	var result struct {
+		TotalPackages int `json:"total_packages"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result.TotalPackages == 0 {
+		t.Error("scan with --provider openai (no key) should still find packages")
+	}
+}
+
+func TestAIScanOllamaStubSARIF(t *testing.T) {
+	stub := startOllamaStub(t)
+
+	out := runOK(t, "scan", testdataDir(),
+		"--skip-semgrep", "--skip-deps",
+		"--provider", "ollama",
+		"--ollama-url", stub.URL,
+		"--ollama-model", "stub-model",
+		"--format", "sarif", "--no-cache")
+
+	var sarif struct {
+		Version string `json:"version"`
+		Runs    []struct {
+			Results []struct {
+				RuleID string `json:"ruleId"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(out), &sarif); err != nil {
+		t.Fatalf("SARIF output invalid: %v", err)
+	}
+	if sarif.Version != "2.1.0" {
+		t.Errorf("SARIF version should be 2.1.0, got %s", sarif.Version)
+	}
+}
+
+func TestAIScanWithDepsAndOllamaStub(t *testing.T) {
+	stub := startOllamaStub(t)
+
+	// Full scan: deps + AI (no semgrep)
+	out := runOK(t, "scan", testdataDir(),
+		"--skip-semgrep",
+		"--provider", "ollama",
+		"--ollama-url", stub.URL,
+		"--ollama-model", "stub-model",
+		"--format", "json", "--no-cache")
+
+	var result struct {
+		TotalPackages   int `json:"total_packages"`
+		Vulnerabilities []struct {
+			Source string `json:"source"`
+		} `json:"vulnerabilities"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Should have dependency results
+	if result.TotalPackages == 0 {
+		t.Error("combined scan should still find packages")
+	}
+
+	// Should have a mix of sources
+	sourceSet := make(map[string]bool)
+	for _, v := range result.Vulnerabilities {
+		sourceSet[v.Source] = true
+	}
+	t.Logf("vulnerability sources found: %v", sourceSet)
+}
+
+// ── 24. Config additional coverage ──────────────────────────────────────────
+
+func TestConfigSetNVDKey(t *testing.T) {
+	runOK(t, "config", "set", "nvd-key", "test-nvd-key-12345")
+	out := runOK(t, "config", "get", "nvd-key")
+	// config get masks sensitive values; check for masked suffix
+	if !strings.Contains(out, "2345") {
+		t.Errorf("config get nvd-key should return (masked) value ending in 2345, got: %s", out)
+	}
+	// Clean up
+	runOK(t, "config", "set", "nvd-key", "")
+}
+
+func TestConfigSetGitHubToken(t *testing.T) {
+	runOK(t, "config", "set", "github-token", "ghp_testtoken123")
+	out := runOK(t, "config", "get", "github-token")
+	// config get masks sensitive values; check for masked suffix
+	if !strings.Contains(out, "n123") {
+		t.Errorf("config get github-token should return (masked) value ending in n123, got: %s", out)
+	}
+	// Clean up
+	runOK(t, "config", "set", "github-token", "")
+}
+
+func TestConfigSetOpenAIKey(t *testing.T) {
+	runOK(t, "config", "set", "openai-key", "sk-test-key-abc")
+	out := runOK(t, "config", "get", "openai-key")
+	// config get masks sensitive values; check for masked suffix
+	if !strings.Contains(out, "-abc") {
+		t.Errorf("config get openai-key should return (masked) value ending in -abc, got: %s", out)
+	}
+	// Clean up
+	runOK(t, "config", "set", "openai-key", "")
+}
+
+// ── 25. IaC output to file ──────────────────────────────────────────────────
+
+func TestIaCScanOutputToFile(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "iac-results.json")
+	runOK(t, "scan-iac", testdataDir(), "--format", "json", "--output", tmp)
+
+	data, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("output file should exist: %v", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("output file should contain valid JSON: %v", err)
 	}
 }

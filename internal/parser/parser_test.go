@@ -1,6 +1,10 @@
 package parser
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +12,17 @@ import (
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
+
+// redirectTransport intercepts all outgoing requests and redirects them to a local test server.
+type redirectTransport struct {
+	server *httptest.Server
+}
+
+func (rt *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.URL.Scheme = "http"
+	req.URL.Host = rt.server.Listener.Addr().String()
+	return http.DefaultTransport.RoundTrip(req)
+}
 
 func TestGoModTransitiveDeps(t *testing.T) {
 	input := "module example.com/myproject\n\ngo 1.21\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.9.1\n\tgithub.com/stretchr/testify v1.8.4\n\tgolang.org/x/net v0.15.0 // indirect\n\tgolang.org/x/text v0.13.0 // indirect\n)\n"
@@ -501,5 +516,493 @@ func TestCheckConsistency_TransitiveNotFlagged(t *testing.T) {
 	issues := CheckConsistency(dir, packages)
 	if len(issues) != 0 {
 		t.Errorf("expected 0 issues (transitive deps should be ignored), got %d", len(issues))
+	}
+}
+
+// ── Parser Registry Tests ───────────────────────────────────────
+
+func TestSupportedFiles(t *testing.T) {
+	files := SupportedFiles()
+	if len(files) == 0 {
+		t.Error("SupportedFiles() returned empty")
+	}
+	// Should contain at least go.mod and package-lock.json
+	found := make(map[string]bool)
+	for _, f := range files {
+		found[f] = true
+	}
+	for _, want := range []string{"go.mod", "package-lock.json", "requirements.txt", "pom.xml"} {
+		if !found[want] {
+			t.Errorf("SupportedFiles() missing %q", want)
+		}
+	}
+}
+
+func TestForFile_Known(t *testing.T) {
+	p := ForFile("go.mod")
+	if p == nil {
+		t.Error("ForFile(go.mod) returned nil")
+	}
+}
+
+func TestForFile_Unknown(t *testing.T) {
+	p := ForFile("unknown.xyz")
+	if p != nil {
+		t.Error("ForFile(unknown.xyz) should return nil")
+	}
+}
+
+// ── Maven/Gradle Tests ──────────────────────────────────────────
+
+func TestPomXMLParser(t *testing.T) {
+	input := `<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-core</artifactId>
+      <version>5.3.20</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>unresolved</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+</project>`
+
+	p := &PomXMLParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "pom.xml")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 package (test/unresolved skipped), got %d", len(pkgs))
+	}
+	if pkgs[0].Name != "org.springframework:spring-core" {
+		t.Errorf("name = %q, want org.springframework:spring-core", pkgs[0].Name)
+	}
+}
+
+func TestGradleParser(t *testing.T) {
+	input := `plugins {
+    id 'java'
+}
+dependencies {
+    implementation 'org.springframework:spring-core:5.3.20'
+    api "com.google.guava:guava:31.1-jre"
+    testImplementation 'junit:junit:4.13.2'
+}`
+	p := &GradleParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "build.gradle")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(pkgs))
+	}
+}
+
+// ── Conan Tests ─────────────────────────────────────────────────
+
+func TestConanLockV2(t *testing.T) {
+	input := `{"requires":["zlib/1.2.13","openssl/3.1.0#abc123"]}`
+	p := &ConanLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "conan.lock")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2, got %d", len(pkgs))
+	}
+	for _, pkg := range pkgs {
+		if pkg.Ecosystem != models.EcosystemConan {
+			t.Errorf("ecosystem = %v, want ConanCenter", pkg.Ecosystem)
+		}
+	}
+}
+
+func TestConanLockV1(t *testing.T) {
+	input := `{"graph_lock":{"nodes":{"0":{"ref":"zlib/1.2.13"},"1":{"ref":"openssl/3.1.0#rev"}}}}`
+	p := &ConanLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "conan.lock")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2, got %d", len(pkgs))
+	}
+}
+
+func TestParseConanRef(t *testing.T) {
+	name, ver := parseConanRef("zlib/1.2.13#abc")
+	if name != "zlib" || ver != "1.2.13" {
+		t.Errorf("parseConanRef = %q,%q", name, ver)
+	}
+	name, ver = parseConanRef("invalid")
+	if name != "" || ver != "" {
+		t.Error("invalid ref should return empty")
+	}
+}
+
+// ── Yarn Lock Tests ─────────────────────────────────────────────
+
+func TestYarnLockParser(t *testing.T) {
+	input := `# yarn lockfile v1
+
+"express@^4.18.0":
+  version "4.18.2"
+
+"@babel/core@^7.0.0":
+  version "7.23.0"
+`
+	p := &YarnLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "yarn.lock")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2, got %d", len(pkgs))
+	}
+}
+
+// ── Pnpm Lock Tests ────────────────────────────────────────────
+
+func TestPnpmLockParser(t *testing.T) {
+	input := `lockfileVersion: 5.4
+packages:
+  /express@4.18.2:
+    resolution: {integrity: sha512-abc}
+  /lodash@4.17.21:
+    resolution: {integrity: sha512-xyz}
+`
+	p := &PnpmLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "pnpm-lock.yaml")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2, got %d", len(pkgs))
+	}
+}
+
+// ── PHP Composer Tests ──────────────────────────────────────────
+
+func TestComposerLockWithJson(t *testing.T) {
+	dir := t.TempDir()
+	cjson := `{"require":{"monolog/monolog":"^3.0"}}`
+	os.WriteFile(filepath.Join(dir, "composer.json"), []byte(cjson), 0644)
+
+	input := `{"packages":[{"name":"monolog/monolog","version":"v3.5.0"},{"name":"psr/log","version":"v3.0.0"}],"packages-dev":[]}`
+	lockPath := filepath.Join(dir, "composer.lock")
+	p := &ComposerLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), lockPath)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2, got %d", len(pkgs))
+	}
+	for _, pkg := range pkgs {
+		if pkg.Name == "monolog/monolog" && pkg.Indirect {
+			t.Error("monolog should be direct")
+		}
+		if pkg.Name == "psr/log" && !pkg.Indirect {
+			t.Error("psr/log should be indirect")
+		}
+	}
+}
+
+// ── Python helper tests ─────────────────────────────────────────
+
+func TestExtractTOMLString(t *testing.T) {
+	got := extractTOMLString(`name = "requests"`)
+	if got != "requests" {
+		t.Errorf("extractTOMLString = %q, want requests", got)
+	}
+}
+
+func TestExtractBracketItems(t *testing.T) {
+	items := extractBracketItems(`dependencies = ["requests>=2.28", "flask"]`)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+}
+
+func TestNormalizePyName(t *testing.T) {
+	tests := map[string]string{
+		"Flask":           "flask",
+		"Flask>=2.0":      "flask",
+		"requests[socks]": "requests",
+		"My_Package":      "my_package",
+	}
+	for input, want := range tests {
+		got := normalizePyName(input)
+		if got != want {
+			t.Errorf("normalizePyName(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+// ── Manifests helper tests ──────────────────────────────────────
+
+func TestManifestForLockfile(t *testing.T) {
+	tests := map[string]string{
+		"/path/package-lock.json": "/path/package.json",
+		"/path/yarn.lock":         "/path/package.json",
+		"/path/pnpm-lock.yaml":    "/path/package.json",
+		"/path/go.mod":            "",
+		"/path/Cargo.lock":        "",
+	}
+	for input, want := range tests {
+		got := manifestForLockfile(input)
+		if got != want {
+			t.Errorf("manifestForLockfile(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeIntegrity(t *testing.T) {
+	got := normalizeIntegrity("  sha512-abc123==  ")
+	if got != "sha512-abc123==" {
+		t.Errorf("normalizeIntegrity = %q", got)
+	}
+}
+
+func TestReadPyprojectDirectDeps_Poetry(t *testing.T) {
+	dir := t.TempDir()
+	content := `[tool.poetry]
+name = "myproject"
+version = "1.0.0"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+requests = "^2.28"
+flask = "^2.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+`
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(content), 0644)
+	deps := readPyprojectDirectDeps(dir)
+	if !deps["requests"] {
+		t.Error("expected 'requests' in deps")
+	}
+	if !deps["flask"] {
+		t.Error("expected 'flask' in deps")
+	}
+	if !deps["pytest"] {
+		t.Error("expected 'pytest' in deps")
+	}
+	if deps["python"] {
+		t.Error("'python' should be excluded")
+	}
+}
+
+func TestReadPyprojectDirectDeps_PEP621(t *testing.T) {
+	dir := t.TempDir()
+	// Use inline list syntax to avoid the multiline "]" edge case bug
+	content := `[project]
+name = "myproject"
+version = "1.0.0"
+dependencies = ["requests>=2.28", "flask>=2.0"]
+`
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(content), 0644)
+	deps := readPyprojectDirectDeps(dir)
+	if !deps["requests"] {
+		t.Error("expected 'requests' in deps")
+	}
+	if !deps["flask"] {
+		t.Error("expected 'flask' in deps")
+	}
+}
+
+func TestReadPyprojectDirectDeps_InlineDeps(t *testing.T) {
+	dir := t.TempDir()
+	content := `[project]
+name = "myproject"
+dependencies = ["requests>=2.28", "flask"]
+`
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(content), 0644)
+	deps := readPyprojectDirectDeps(dir)
+	if !deps["requests"] {
+		t.Error("expected 'requests' in deps")
+	}
+	if !deps["flask"] {
+		t.Error("expected 'flask' in deps")
+	}
+}
+
+func TestReadPyprojectDirectDeps_MissingFile(t *testing.T) {
+	dir := t.TempDir()
+	deps := readPyprojectDirectDeps(dir)
+	if len(deps) != 0 {
+		t.Errorf("expected empty deps for missing file, got %d", len(deps))
+	}
+}
+
+func TestVerifyIntegrity_CratesNoChecksum(t *testing.T) {
+	pkgs := []models.Package{
+		{Name: "serde", Version: "1.0", Ecosystem: models.EcosystemCrates, Integrity: ""},
+	}
+	issues := VerifyIntegrity(context.Background(), pkgs, false)
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+	if !strings.Contains(issues[0].Reason, "no checksum") {
+		t.Errorf("reason = %q", issues[0].Reason)
+	}
+}
+
+func TestVerifyIntegrity_NpmNoIntegrity(t *testing.T) {
+	// npm packages without integrity should be silently skipped
+	pkgs := []models.Package{
+		{Name: "express", Version: "4.18.2", Ecosystem: models.EcosystemNpm, Integrity: ""},
+	}
+	issues := VerifyIntegrity(context.Background(), pkgs, false)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues for npm without integrity, got %d", len(issues))
+	}
+}
+
+func TestVerifyIntegrity_EmptyPackages(t *testing.T) {
+	issues := VerifyIntegrity(context.Background(), nil, false)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues for nil packages, got %d", len(issues))
+	}
+}
+
+func TestVerifyIntegrity_OtherEcosystems(t *testing.T) {
+	// Non-npm/crates packages should be ignored
+	pkgs := []models.Package{
+		{Name: "gin", Version: "1.9", Ecosystem: models.EcosystemGo},
+		{Name: "flask", Version: "2.0", Ecosystem: models.EcosystemPyPI},
+	}
+	issues := VerifyIntegrity(context.Background(), pkgs, false)
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues for Go/PyPI, got %d", len(issues))
+	}
+}
+
+func TestVerifyNpmIntegrity_Match(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"dist": map[string]interface{}{
+				"integrity": "sha512-abc123==",
+				"shasum":    "deadbeef",
+			},
+		})
+	}))
+	defer ts.Close()
+
+	pkg := models.Package{
+		Name:      "express",
+		Version:   "4.18.2",
+		Ecosystem: models.EcosystemNpm,
+		Integrity: "sha512-abc123==",
+	}
+	client := &http.Client{Transport: &redirectTransport{server: ts}}
+	issue := verifyNpmIntegrity(context.Background(), client, pkg)
+	if issue != nil {
+		t.Errorf("expected no issue for matching integrity, got: %s", issue.Reason)
+	}
+}
+
+func TestVerifyNpmIntegrity_Mismatch(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"dist": map[string]interface{}{
+				"integrity": "sha512-registry-hash==",
+			},
+		})
+	}))
+	defer ts.Close()
+
+	pkg := models.Package{
+		Name:      "express",
+		Version:   "4.18.2",
+		Ecosystem: models.EcosystemNpm,
+		Integrity: "sha512-local-hash==",
+	}
+	client := &http.Client{Transport: &redirectTransport{server: ts}}
+	issue := verifyNpmIntegrity(context.Background(), client, pkg)
+	if issue == nil {
+		t.Fatal("expected integrity mismatch issue")
+	}
+	if !strings.Contains(issue.Reason, "does not match") {
+		t.Errorf("reason = %q", issue.Reason)
+	}
+}
+
+func TestVerifyNpmIntegrity_NotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	pkg := models.Package{
+		Name:      "malicious-pkg",
+		Version:   "1.0.0",
+		Ecosystem: models.EcosystemNpm,
+		Integrity: "sha512-abc==",
+	}
+	client := &http.Client{Transport: &redirectTransport{server: ts}}
+	issue := verifyNpmIntegrity(context.Background(), client, pkg)
+	if issue == nil {
+		t.Fatal("expected issue for 404")
+	}
+	if !strings.Contains(issue.Reason, "not found") {
+		t.Errorf("reason = %q", issue.Reason)
+	}
+}
+
+func TestVerifyNpmIntegrity_NoRegistryIntegrity(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"dist": map[string]interface{}{
+				"shasum": "abc123",
+			},
+		})
+	}))
+	defer ts.Close()
+
+	pkg := models.Package{
+		Name:      "old-pkg",
+		Version:   "0.1.0",
+		Ecosystem: models.EcosystemNpm,
+		Integrity: "sha512-local==",
+	}
+	client := &http.Client{Transport: &redirectTransport{server: ts}}
+	issue := verifyNpmIntegrity(context.Background(), client, pkg)
+	if issue != nil {
+		t.Error("should skip when registry has no integrity (old package)")
+	}
+}
+
+func TestVerifyNpmIntegrity_ServerError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	pkg := models.Package{
+		Name:      "pkg",
+		Version:   "1.0",
+		Ecosystem: models.EcosystemNpm,
+		Integrity: "sha512-abc==",
+	}
+	client := &http.Client{Transport: &redirectTransport{server: ts}}
+	issue := verifyNpmIntegrity(context.Background(), client, pkg)
+	if issue != nil {
+		t.Error("should skip on server error")
 	}
 }

@@ -3,7 +3,7 @@ BUILD_DIR=./bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X github.com/Calsoft-Pvt-Ltd/calvigil/cmd.version=$(VERSION)"
 
-.PHONY: build test test-unit test-integration lint clean install run
+.PHONY: build test test-unit test-coverage test-integration lint clean install run
 
 ## build: Build the binary
 build:
@@ -17,6 +17,13 @@ test: test-unit test-integration
 ## test-unit: Run unit tests only
 test-unit:
 	go test -v -race ./internal/... ./cmd/...
+
+## test-coverage: Run unit tests with coverage report
+test-coverage:
+	@echo "Running tests with coverage..."
+	go test -race -coverprofile=coverage.out -covermode=atomic ./internal/... ./cmd/...
+	@go tool cover -func=coverage.out | tail -1
+	@echo "HTML report: go tool cover -html=coverage.out -o coverage.html"
 
 ## test-integration: Run integration tests (builds binary, hits network)
 test-integration: build
