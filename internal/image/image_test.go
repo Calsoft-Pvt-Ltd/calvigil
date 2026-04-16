@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
@@ -67,5 +68,33 @@ func TestNewScanner(t *testing.T) {
 	}
 	if !s.verbose {
 		t.Error("verbose should be true")
+	}
+}
+
+func TestSyftAvailable(t *testing.T) {
+	// Just call it — test that it doesn't panic
+	_ = SyftAvailable()
+}
+
+func TestScan_NoSyft(t *testing.T) {
+	// If syft is not on PATH, Scan should fail with extractPackages error
+	if SyftAvailable() {
+		t.Skip("syft is installed, skipping no-syft test")
+	}
+	s := NewScanner("nonexistent:latest", false, nil)
+	_, err := s.Scan(context.Background())
+	if err == nil {
+		t.Error("expected error when syft is not available")
+	}
+}
+
+func TestScan_VerboseNoSyft(t *testing.T) {
+	if SyftAvailable() {
+		t.Skip("syft is installed, skipping no-syft test")
+	}
+	s := NewScanner("nonexistent:latest", true, nil)
+	_, err := s.Scan(context.Background())
+	if err == nil {
+		t.Error("expected error when syft is not available")
 	}
 }

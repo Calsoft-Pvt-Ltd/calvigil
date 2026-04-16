@@ -1054,3 +1054,99 @@ func TestRun_VerboseWithLicensesAndPatterns(t *testing.T) {
 		t.Fatalf("Run() error: %v", err)
 	}
 }
+
+func TestScanSourceCode_OllamaProvider(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.py"), []byte("password = \"secret\"\n"), 0644)
+
+	s := &Scanner{
+		opts: models.ScanOptions{
+			Path:        dir,
+			AIProvider:  "ollama",
+			OllamaURL:   "http://localhost:1",
+			OllamaModel: "llama3",
+			Verbose:     true,
+		},
+		cfg: &config.Config{},
+	}
+
+	vulns, errs := s.scanSourceCode(context.Background())
+	_ = vulns
+	_ = errs
+}
+
+func TestScanSourceCode_OpenAIProvider(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.py"), []byte("password = \"test\"\n"), 0644)
+
+	s := &Scanner{
+		opts: models.ScanOptions{
+			Path:       dir,
+			AIProvider: "openai",
+			Verbose:    true,
+		},
+		cfg: &config.Config{OpenAIKey: "sk-invalid", OpenAIModel: "gpt-4"},
+	}
+
+	vulns, errs := s.scanSourceCode(context.Background())
+	_ = vulns
+	_ = errs
+}
+
+func TestScanDependencies_WithCache(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	goModPath := filepath.Join(dir, "go.mod")
+	os.WriteFile(goModPath, []byte(gomod), 0644)
+
+	s, err := New(models.ScanOptions{
+		Path:    dir,
+		Format:  "json",
+		NoCache: false,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	files := []detector.DetectedFile{
+		{Path: goModPath, Filename: "go.mod", Ecosystem: models.EcosystemGo},
+	}
+
+	_, pkgs, _ := s.scanDependencies(context.Background(), files)
+	if len(pkgs) == 0 {
+		t.Skip("no packages found")
+	}
+
+	_, pkgs2, _ := s.scanDependencies(context.Background(), files)
+	if len(pkgs2) == 0 {
+		t.Error("expected packages from cache")
+	}
+}
+
+func TestRun_WithSeverityFilterAndDeps(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+
+	outFile := filepath.Join(dir, "report.json")
+	s, err := New(models.ScanOptions{
+		Path:           dir,
+		Format:         "json",
+		OutputFile:     outFile,
+		SkipAI:         true,
+		SkipSemgrep:    true,
+		NoCache:        true,
+		SeverityFilter: models.SeverityHigh,
+		Verbose:        true,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}

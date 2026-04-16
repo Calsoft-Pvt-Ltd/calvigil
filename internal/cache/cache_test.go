@@ -3,11 +3,22 @@ package cache
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
+
+func TestDefaultDir(t *testing.T) {
+	dir := DefaultDir()
+	if dir == "" {
+		t.Skip("UserHomeDir not available")
+	}
+	if !strings.HasSuffix(dir, filepath.Join(".calvigil", "cache")) {
+		t.Errorf("DefaultDir = %q, want suffix .calvigil/cache", dir)
+	}
+}
 
 func testPackages() []models.Package {
 	return []models.Package{

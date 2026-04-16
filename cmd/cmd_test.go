@@ -379,17 +379,23 @@ func TestExecute_Help(t *testing.T) {
 
 func TestRunScanBinary_WithGoBinary(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	// Build a small Go binary to scan
-	gomod := "module example.com/mini\n\ngo 1.21\n"
-	mainGo := "package main\nfunc main() {}\n"
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte(mainGo), 0644)
+	// Use a separate dir for HOME that won't get go module cache
+	homeDir, err := os.MkdirTemp("", "calvigil-test-home-*")
+	if err != nil {
+		t.Fatalf("cannot create temp home: %v", err)
+	}
+	defer os.RemoveAll(homeDir)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("GOMODCACHE", filepath.Join(os.TempDir(), "go-mod-cache-test"))
 
-	// Compile a binary
-	binPath := filepath.Join(dir, "mini")
+	// Build the calvigil binary itself — it has real dependencies
+	binPath := filepath.Join(dir, "calvigil")
+	projRoot, _ := os.Getwd()
+	if filepath.Base(projRoot) == "cmd" {
+		projRoot = filepath.Dir(projRoot)
+	}
 	cmd := exec.Command("go", "build", "-o", binPath, ".")
-	cmd.Dir = dir
+	cmd.Dir = projRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Skipf("cannot build Go binary: %v\n%s", err, out)
 	}
@@ -397,7 +403,7 @@ func TestRunScanBinary_WithGoBinary(t *testing.T) {
 	outFile := filepath.Join(dir, "report.json")
 	rootCmd.SetOut(new(bytes.Buffer))
 	rootCmd.SetErr(new(bytes.Buffer))
-	rootCmd.SetArgs([]string{"scan-binary", binPath, "--format", "json", "--output", outFile})
+	rootCmd.SetArgs([]string{"scan-binary", binPath, "--format", "json", "--output", outFile, "--verbose"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("scan-binary error: %v", err)
 	}
@@ -471,5 +477,49 @@ func TestRunScan_WithDepsAndLicense(t *testing.T) {
 		"--skip-ai", "--skip-semgrep", "--no-cache", "--check-licenses"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("scan error: %v", err)
+	}
+}
+
+func TestRunScan_WithSeverity(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	outFile := filepath.Join(dir, "report.json")
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"scan", dir, "--format", "json", "--output", outFile,
+		"--skip-ai", "--skip-semgrep", "--no-cache", "--severity", "critical"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+}
+
+func TestRunScan_WithIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	outFile := filepath.Join(dir, "report.json")
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"scan", dir, "--format", "json", "--output", outFile,
+		"--skip-ai", "--skip-semgrep", "--no-cache", "--verify-integrity"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+}
+
+func TestRunScanLicense_WithRiskAndVerbose(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	outFile := filepath.Join(dir, "license.json")
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"scan-license", dir, "--format", "json", "--output", outFile, "--risk", "unknown", "--verbose"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan-license error: %v", err)
 	}
 }
