@@ -370,23 +370,7 @@ func cvssVectorToSeverity(vector string) models.Severity {
 	if score == 0 {
 		return models.SeverityUnknown
 	}
-	return scoreToSeverity(score)
-}
-
-// scoreToSeverity maps a numeric CVSS score to a severity level.
-func scoreToSeverity(score float64) models.Severity {
-	switch {
-	case score >= 9.0:
-		return models.SeverityCritical
-	case score >= 7.0:
-		return models.SeverityHigh
-	case score >= 4.0:
-		return models.SeverityMedium
-	case score > 0:
-		return models.SeverityLow
-	default:
-		return models.SeverityUnknown
-	}
+	return models.ScoreToSeverity(score)
 }
 
 // computeCVSS3BaseScore calculates the CVSS v3 base score from a vector string.

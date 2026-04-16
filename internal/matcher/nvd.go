@@ -93,13 +93,7 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 	}
 
 	// NVD rate limits: 5 req/30s without key (~6s gap), 50 req/30s with key (~600ms gap).
-	// Use bounded concurrency that respects these limits.
-	concurrency := 1
-	if m.apiKey != "" {
-		concurrency = 5
-	}
-	sem := make(chan struct{}, concurrency)
-
+	// Dispatch sequentially with delay between sends to respect rate limits.
 	delay := 6 * time.Second
 	if m.apiKey != "" {
 		delay = 600 * time.Millisecond
@@ -112,20 +106,19 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 	var wg sync.WaitGroup
 
 	for i, name := range uniqueNames {
-		// Stagger requests using rate-limit delay.
+		// Rate-limit: wait before dispatching each request (except the first).
 		if i > 0 {
 			select {
 			case <-ctx.Done():
-				break
+				wg.Wait()
+				goto collect
 			case <-time.After(delay):
 			}
 		}
 
 		wg.Add(1)
-		sem <- struct{}{}
 		go func(idx int, n string) {
 			defer wg.Done()
-			defer func() { <-sem }()
 			vulns, err := m.queryPackage(ctx, n, pkgMap[n])
 			if err == nil {
 				results[idx] = nvdResult{vulns: vulns}
@@ -134,6 +127,7 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 	}
 	wg.Wait()
 
+collect:
 	var allVulns []models.Vulnerability
 	for _, r := range results {
 		allVulns = append(allVulns, r.vulns...)

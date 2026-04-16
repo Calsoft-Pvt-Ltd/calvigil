@@ -97,15 +97,25 @@ func (a *AggregatedMatcher) Match(ctx context.Context, packages []models.Package
 		newCount := 0
 		dupCount := 0
 		for _, v := range r.vulns {
-			if !seen[v.ID] {
+			// Check primary ID and all aliases for duplicates.
+			duplicate := seen[v.ID]
+			if !duplicate {
+				for _, alias := range v.Aliases {
+					if seen[alias] {
+						duplicate = true
+						break
+					}
+				}
+			}
+			if !duplicate {
 				seen[v.ID] = true
+				for _, alias := range v.Aliases {
+					seen[alias] = true
+				}
 				all = append(all, v)
 				newCount++
 			} else {
 				dupCount++
-			}
-			for _, alias := range v.Aliases {
-				seen[alias] = true
 			}
 		}
 

@@ -92,6 +92,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	scanOpts.Path = absPath
 	scanOpts.Verbose = verbose
 
+	// Normalise severity filter to uppercase so Rank() works correctly.
+	if scanOpts.SeverityFilter != "" {
+		scanOpts.SeverityFilter = models.ParseSeverity(string(scanOpts.SeverityFilter))
+	}
+
 	// Validate path exists
 	info, err := os.Stat(absPath)
 	if err != nil {

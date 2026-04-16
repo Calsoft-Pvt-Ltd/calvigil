@@ -424,22 +424,10 @@ func (s *Scanner) writeReport(result *models.ScanResult) error {
 func filterBySeverity(vulns []models.Vulnerability, minSeverity models.Severity) []models.Vulnerability {
 	minRank := minSeverity.Rank()
 	if minRank == 0 {
-		// For string matching, try case-insensitive
-		switch strings.ToUpper(string(minSeverity)) {
-		case "CRITICAL":
-			minRank = models.SeverityCritical.Rank()
-		case "HIGH":
-			minRank = models.SeverityHigh.Rank()
-		case "MEDIUM":
-			minRank = models.SeverityMedium.Rank()
-		case "LOW":
-			minRank = models.SeverityLow.Rank()
-		default:
-			return vulns
-		}
+		return vulns // UNKNOWN or empty — no filtering
 	}
 
-	var filtered []models.Vulnerability
+	filtered := make([]models.Vulnerability, 0, len(vulns))
 	for _, v := range vulns {
 		if v.Severity.Rank() >= minRank {
 			filtered = append(filtered, v)
@@ -548,6 +536,17 @@ func buildImportPatterns(needCheck map[string]bool) map[string]bool {
 // scanFileForImports reads a source file line by line and marks packages as found
 // if they appear in import/require/from statements.
 func scanFileForImports(filePath string, patterns map[string]bool) {
+	// Count how many packages still need finding; skip file if all found.
+	remaining := 0
+	for _, found := range patterns {
+		if !found {
+			remaining++
+		}
+	}
+	if remaining == 0 {
+		return
+	}
+
 	f, err := os.Open(filePath)
 	if err != nil {
 		return
@@ -563,6 +562,10 @@ func scanFileForImports(filePath string, patterns map[string]bool) {
 			}
 			if strings.Contains(line, pkg) {
 				patterns[pkg] = true
+				remaining--
+				if remaining == 0 {
+					return // all packages found — stop early
+				}
 			}
 		}
 	}

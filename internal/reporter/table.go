@@ -15,6 +15,18 @@ import (
 // TableReporter outputs scan results as a formatted terminal table.
 type TableReporter struct{}
 
+// allEcosystems defines the canonical display order for all supported ecosystems.
+var allEcosystems = []models.Ecosystem{
+	models.EcosystemGo,
+	models.EcosystemNpm,
+	models.EcosystemPyPI,
+	models.EcosystemMaven,
+	models.EcosystemCrates,
+	models.EcosystemRubyGem,
+	models.EcosystemPHP,
+	models.EcosystemConan,
+}
+
 func init() {
 	Register("table", func() Reporter { return &TableReporter{} })
 }
@@ -59,24 +71,13 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 
 		// Group by ecosystem and print separate tables
 		ecoGroups := groupByEcosystem(depVulns)
-		ecoOrder := []models.Ecosystem{models.EcosystemGo, models.EcosystemNpm, models.EcosystemPyPI, models.EcosystemMaven}
-		for _, eco := range ecoOrder {
+		for _, eco := range allEcosystems {
 			group := ecoGroups[eco]
 			if len(group) == 0 {
 				continue
 			}
 			fmt.Fprintf(w, "\n  %s %s (%d)\n\n", ecosystemIcon(eco), eco, len(group))
 			printDepTable(w, group)
-		}
-		// Any remaining ecosystems not in the predefined order
-		for eco, group := range ecoGroups {
-			if eco == models.EcosystemGo || eco == models.EcosystemNpm || eco == models.EcosystemPyPI || eco == models.EcosystemMaven {
-				continue
-			}
-			if len(group) > 0 {
-				fmt.Fprintf(w, "\n  📦 %s (%d)\n\n", eco, len(group))
-				printDepTable(w, group)
-			}
 		}
 		printEnrichmentDetails(w, depVulns)
 	}
@@ -240,17 +241,10 @@ func printSummary(w io.Writer, vulns []models.Vulnerability) {
 	if len(ecoCounts) > 1 {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "By ecosystem:\n")
-		ecoOrder := []models.Ecosystem{models.EcosystemGo, models.EcosystemNpm, models.EcosystemPyPI, models.EcosystemMaven}
-		for _, eco := range ecoOrder {
+		for _, eco := range allEcosystems {
 			if c := ecoCounts[eco]; c > 0 {
 				fmt.Fprintf(w, "  %s %s: %d\n", ecosystemIcon(eco), eco, c)
 			}
-		}
-		for eco, c := range ecoCounts {
-			if eco == models.EcosystemGo || eco == models.EcosystemNpm || eco == models.EcosystemPyPI || eco == models.EcosystemMaven {
-				continue
-			}
-			fmt.Fprintf(w, "  📦 %s: %d\n", eco, c)
 		}
 	}
 }
@@ -310,6 +304,14 @@ func ecosystemIcon(eco models.Ecosystem) string {
 		return "🐍"
 	case models.EcosystemMaven:
 		return "☕"
+	case models.EcosystemCrates:
+		return "🦀"
+	case models.EcosystemRubyGem:
+		return "💎"
+	case models.EcosystemPHP:
+		return "🐘"
+	case models.EcosystemConan:
+		return "⚙️"
 	default:
 		return "📦"
 	}

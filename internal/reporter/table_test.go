@@ -36,7 +36,7 @@ func TestSplitMalicious(t *testing.T) {
 
 func TestTableReport_MaliciousSection(t *testing.T) {
 	result := &models.ScanResult{
-		ProjectPath: "/test/project",
+		ProjectPath:   "/test/project",
 		TotalPackages: 10,
 		Ecosystems:    []models.Ecosystem{models.EcosystemNpm},
 		ScannedAt:     time.Now(),

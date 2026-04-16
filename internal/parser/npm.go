@@ -28,7 +28,7 @@ type npmLockfile struct {
 type npmPackage struct {
 	Version   string      `json:"version"`
 	Dev       bool        `json:"dev"`
-	License   interface{} `json:"license"` // Can be string or {"type":"MIT"}
+	License   interface{} `json:"license"`   // Can be string or {"type":"MIT"}
 	Integrity string      `json:"integrity"` // Subresource integrity hash
 	Resolved  string      `json:"resolved"`  // Registry URL
 }

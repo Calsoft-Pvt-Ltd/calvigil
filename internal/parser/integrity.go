@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
@@ -19,38 +20,53 @@ import (
 // checksums use a different scheme (sha256 of .crate) and are flagged if
 // the checksum field is unexpectedly empty for a non-root package.
 func VerifyIntegrity(ctx context.Context, packages []models.Package, verbose bool) []models.IntegrityIssue {
-	var issues []models.IntegrityIssue
-
 	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Separate npm packages (need network verification) from others.
+	var npmPkgs []models.Package
+	var localIssues []models.IntegrityIssue
 
 	for _, pkg := range packages {
 		switch pkg.Ecosystem {
 		case models.EcosystemNpm:
 			if pkg.Integrity == "" {
-				// No integrity recorded — flag as missing
-				issues = append(issues, models.IntegrityIssue{
-					Package: pkg,
-					Reason:  "no integrity hash recorded in lockfile",
-				})
+				// npm v1 lockfiles often lack integrity hashes — skip silently.
 				continue
 			}
-			issue := verifyNpmIntegrity(ctx, client, pkg)
-			if issue != nil {
-				issues = append(issues, *issue)
-			}
+			npmPkgs = append(npmPkgs, pkg)
 
 		case models.EcosystemCrates:
 			if pkg.Integrity == "" {
-				issues = append(issues, models.IntegrityIssue{
+				localIssues = append(localIssues, models.IntegrityIssue{
 					Package: pkg,
 					Reason:  "no checksum recorded in Cargo.lock",
 				})
 			}
-			// Cargo checksums are verified by cargo itself; we just flag missing ones.
 		}
 	}
 
-	return issues
+	// Verify npm packages concurrently (bounded to 10 goroutines).
+	const maxWorkers = 10
+	sem := make(chan struct{}, maxWorkers)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, pkg := range npmPkgs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p models.Package) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if issue := verifyNpmIntegrity(ctx, client, p); issue != nil {
+				mu.Lock()
+				localIssues = append(localIssues, *issue)
+				mu.Unlock()
+			}
+		}(pkg)
+	}
+	wg.Wait()
+
+	return localIssues
 }
 
 // npmRegistryVersion is the minimum info we need from the npm registry.

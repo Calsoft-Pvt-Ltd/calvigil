@@ -1,0 +1,25 @@
+[[package]]
+name = "test-project"
+version = "0.1.0"
+dependencies = [
+ "serde 1.0.180",
+ "tokio 1.32.0",
+]
+
+[[package]]
+name = "serde"
+version = "1.0.180"
+checksum = "0ea67f183f058fe1a4568e8553eab3e0cfbb6063a28a1403f0ebf21265f0e735"
+dependencies = [
+ "serde_derive 1.0.180",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.180"
+checksum = "24e744d7782b686ab3b73267ef05697159cc0e5abbed3f47f9933165e5219036"
+
+[[package]]
+name = "tokio"
+version = "1.32.0"
+checksum = "17ed6077ed6cd6c74735c21f75f2e0a46a998b8082d9245078e0e9d6ae0ac7d2"
