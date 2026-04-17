@@ -10,9 +10,14 @@ import (
 
 // writeReport writes scan results using the given reporter to the specified
 // output file, or stdout if outputFile is empty.
+//
+// Output files are created with mode 0600 because scan reports may contain
+// sensitive information (full package inventories, CVEs, AI-enriched code
+// snippets). Using os.Create would honor the process umask and could yield
+// world-readable files on systems with a permissive umask.
 func writeReport(rep reporter.Reporter, result *models.ScanResult, outputFile string) error {
 	if outputFile != "" {
-		f, err := os.Create(outputFile)
+		f, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			return fmt.Errorf("cannot create output file: %w", err)
 		}

@@ -104,7 +104,8 @@ func runScanImage(cmd *cobra.Command, args []string) error {
 	// Report
 	var w io.Writer = os.Stdout
 	if imageOpts.outputFile != "" {
-		f, err := os.Create(imageOpts.outputFile)
+		// 0600: reports may contain sensitive data (CVEs, package inventories).
+		f, err := os.OpenFile(imageOpts.outputFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			return fmt.Errorf("cannot create output file: %w", err)
 		}

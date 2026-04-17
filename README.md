@@ -300,6 +300,109 @@ calvigil config set github-token ghp_...
 calvigil config get openai-model
 ```
 
+## Security Hardening
+
+calvigil applies defense-in-depth to the scanner itself. Recent hardening
+work addresses both the data it handles and the code it executes on
+behalf of the user.
+
+### Secret storage (API keys)
+
+- API keys (`openai-api-key`, `ollama-api-key`, etc.) are **never written
+  to `~/.calvigil.yaml`**. They are stored in the OS credential manager
+  via [`go-keyring`](https://github.com/zalando/go-keyring):
+  - macOS → Keychain
+  - Windows → Credential Manager
+  - Linux desktop → Secret Service (GNOME Keyring / KWallet)
+- On startup, calvigil **probes the backend once**. If the credential
+  manager is unavailable (typical in CI, containers, headless SSH, or
+  Linux servers without a Secret Service daemon), calvigil transparently
+  falls back to `~/.calvigil-secrets.json` with file mode `0600`.
+- Override the backend with an environment variable:
+
+  ```bash
+  # Force the on-disk file store (recommended for CI)
+  export CALVIGIL_SECRET_BACKEND=file
+
+  # Force the OS keyring (fails fast if unavailable)
+  export CALVIGIL_SECRET_BACKEND=keyring
+  ```
+
+  The default (`auto`) picks the keyring when it works and falls back
+  silently otherwise — so calvigil is **headless-safe out of the box**.
+
+### Output files
+
+Reports written with `--output` (JSON, SARIF, HTML, PDF, CycloneDX,
+OpenVEX) are created with mode `0600`. A report may contain vulnerable
+package inventories and source snippets; treating them as sensitive by
+default avoids accidental world-readable disclosures on shared CI
+runners.
+
+### Container image references
+
+`calvigil scan-image <ref>` validates the image reference before handing
+it to the image library. References containing shell metacharacters
+(`;`, `|`, `&`, backticks, `$(…)`, newlines, NULs, …) are rejected
+early. This prevents a malicious reference from being interpreted by a
+downstream tool.
+
+### Semgrep custom rules
+
+Semgrep rule files execute as code inside the scanner. By default
+calvigil only loads rules shipped inside the binary
+(`rules/semgrep/*.yaml`). To load project-local rules you must opt in
+explicitly:
+
+```bash
+calvigil scan . --semgrep-rules ./my-rules --trust-project-rules
+```
+
+- Without `--trust-project-rules`, paths under the scanned project are
+  rejected.
+- Symlinks in `--semgrep-rules` are resolved and must also land in a
+  trusted location, so a symlink inside the project cannot escape the
+  trust check.
+
+### Skipped directories when walking a project
+
+All walkers (dependency detector, source analyzer, binary scanner, IaC
+scanner, license scanner) share a single skip list
+(`internal/fsutil.SkippedSubDirs`). Directories named `testdata`,
+`test-fixtures`, `node_modules`, `vendor`, `target`, `__pycache__`,
+`.venv`, `.git`, `.idea`, `.vscode`, `dist`, `build`, `.terraform`,
+`.mypy_cache`, `.pytest_cache`, and similar are skipped when they
+appear **as a subdirectory** of the scan root.
+
+This follows the Go convention that `go test` ignores directories
+named `testdata`. It prevents a repo self-scan from flagging
+deliberately-vulnerable integration-test fixtures (e.g. log4j 2.14.1,
+old lodash, urllib3 1.25.8) as real vulnerabilities in the project.
+
+Users who explicitly point calvigil *at* one of these directories —
+for example `calvigil scan ./tests/integration/testdata` when writing
+fixture tests — still get it scanned; the rule only skips them as
+*subdirectories* of a larger scan.
+
+### CI recommendations
+
+Minimal GitHub Actions setup:
+
+```yaml
+- name: Scan
+  env:
+    CALVIGIL_SECRET_BACKEND: file          # skip keyring probe on runners
+    OPENAI_API_KEY: ${{ secrets.OPENAI }}  # optional, only if using AI analysis
+  run: |
+    calvigil scan . --skip-ai --format sarif --output calvigil.sarif
+```
+
+- Use `--skip-ai` when you don't want to spend tokens on PR runs.
+- Use `--format sarif` and upload via `github/codeql-action/upload-sarif`
+  to get findings into the Security tab.
+- Run calvigil from the repository root — `testdata/` directories are
+  skipped automatically.
+
 ## CLI Reference
 
 ```

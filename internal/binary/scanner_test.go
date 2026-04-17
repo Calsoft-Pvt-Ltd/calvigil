@@ -185,22 +185,6 @@ func TestParseJARFilename(t *testing.T) {
 	}
 }
 
-func TestShouldSkipDir(t *testing.T) {
-	skip := []string{"node_modules", ".git", "vendor", "__pycache__", ".idea", ".vscode", ".venv", "venv", ".env", ".cache", ".tox", ".nox"}
-	for _, name := range skip {
-		if !shouldSkipDir(name) {
-			t.Errorf("shouldSkipDir(%q) = false, want true", name)
-		}
-	}
-
-	noSkip := []string{"src", "lib", "internal", "cmd", "main"}
-	for _, name := range noSkip {
-		if shouldSkipDir(name) {
-			t.Errorf("shouldSkipDir(%q) = true, want false", name)
-		}
-	}
-}
-
 func TestExtractRegex(t *testing.T) {
 	got := extractRegex(pomPropsGroupRe, "groupId=org.example\nartifactId=mylib\n")
 	if got != "org.example" {

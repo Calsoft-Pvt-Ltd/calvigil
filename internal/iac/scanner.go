@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/fsutil"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
@@ -276,13 +277,6 @@ var iacRules = []IaCRule{
 	},
 }
 
-// skipDirs contains directories to skip during IaC scanning.
-var skipDirs = map[string]bool{
-	"node_modules": true, ".git": true, "vendor": true, "__pycache__": true,
-	".terraform": true, ".terragrunt-cache": true, ".venv": true, "venv": true,
-	".cache": true, ".idea": true, ".vscode": true, "dist": true, "build": true,
-}
-
 // iacExtensions maps file extensions to IaC categories.
 var iacExtensions = map[string]string{
 	".tf":     "Terraform",
@@ -341,7 +335,7 @@ func Scan(root string, verbose bool) (*ScanResult, error) {
 			return nil
 		}
 		if fi.IsDir() {
-			if skipDirs[fi.Name()] {
+			if path != root && fsutil.ShouldSkipSubDir(fi.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

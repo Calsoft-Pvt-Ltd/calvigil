@@ -38,6 +38,9 @@ func SyftAvailable() bool {
 
 // Scan runs the full image scan pipeline: pull SBOM, parse packages, match vulns.
 func (s *Scanner) Scan(ctx context.Context) (*models.ScanResult, error) {
+	if err := validateImageRef(s.imageRef); err != nil {
+		return nil, fmt.Errorf("invalid image reference: %w", err)
+	}
 	start := time.Now()
 
 	if s.verbose {

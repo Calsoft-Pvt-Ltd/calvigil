@@ -17,6 +17,11 @@ import (
 type SemgrepAnalyzer struct {
 	RulesDir string // directory containing custom .yaml rule files
 	Verbose  bool
+	// TrustProjectRules, when true, loads Semgrep rule files (.semgrep/ and
+	// .semgrep.yml) from inside the scanned project. This is off by default
+	// because scanning an untrusted project with its own rules is a code
+	// execution vector through Semgrep.
+	TrustProjectRules bool
 }
 
 // NewSemgrepAnalyzer creates a new Semgrep-based analyzer.
@@ -80,24 +85,42 @@ func (s *SemgrepAnalyzer) Analyze(ctx context.Context, projectPath string, verbo
 	// Determine rules source
 	rulesConfigured := false
 	if s.RulesDir != "" {
-		// Use custom rule packs directory
-		info, err := os.Stat(s.RulesDir)
+		// Resolve symlinks so --semgrep-rules=<link> cannot point outside
+		// where the operator expects.
+		resolved, rerr := filepath.EvalSymlinks(s.RulesDir)
+		if rerr != nil {
+			resolved = s.RulesDir
+		}
+		info, err := os.Stat(resolved)
 		if err == nil && info.IsDir() {
-			args = append(args, "--config", s.RulesDir)
+			args = append(args, "--config", resolved)
 			rulesConfigured = true
 		}
 	}
 
-	// Also check for project-local .semgrep/ or .semgrep.yml
-	localRulesDir := filepath.Join(projectPath, ".semgrep")
-	if info, err := os.Stat(localRulesDir); err == nil && info.IsDir() {
-		args = append(args, "--config", localRulesDir)
-		rulesConfigured = true
-	}
-	localRulesFile := filepath.Join(projectPath, ".semgrep.yml")
-	if _, err := os.Stat(localRulesFile); err == nil {
-		args = append(args, "--config", localRulesFile)
-		rulesConfigured = true
+	// Optionally load project-local .semgrep/ or .semgrep.yml. Off by
+	// default: scanning an untrusted repo that ships its own rules is a
+	// code execution vector through Semgrep's rule engine.
+	if s.TrustProjectRules {
+		localRulesDir := filepath.Join(projectPath, ".semgrep")
+		if info, err := os.Stat(localRulesDir); err == nil && info.IsDir() {
+			args = append(args, "--config", localRulesDir)
+			rulesConfigured = true
+		}
+		localRulesFile := filepath.Join(projectPath, ".semgrep.yml")
+		if _, err := os.Stat(localRulesFile); err == nil {
+			args = append(args, "--config", localRulesFile)
+			rulesConfigured = true
+		}
+	} else if verbose {
+		localRulesDir := filepath.Join(projectPath, ".semgrep")
+		localRulesFile := filepath.Join(projectPath, ".semgrep.yml")
+		if _, err := os.Stat(localRulesDir); err == nil {
+			fmt.Fprintf(os.Stderr, "  Ignoring %s (pass --trust-project-rules to load it)\n", localRulesDir)
+		}
+		if _, err := os.Stat(localRulesFile); err == nil {
+			fmt.Fprintf(os.Stderr, "  Ignoring %s (pass --trust-project-rules to load it)\n", localRulesFile)
+		}
 	}
 
 	// Fall back to bundled rules if available

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/fsutil"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
@@ -63,12 +64,12 @@ func Detect(root string) ([]DetectedFile, []models.Ecosystem, error) {
 			return nil // skip files we can't read
 		}
 
-		// Skip hidden directories and common non-project directories
+		// Skip well-known non-project subdirectories (vendor, node_modules,
+		// testdata, etc.). Only applied below the scan root so that users
+		// who explicitly point calvigil at one of these directories still
+		// get it scanned.
 		if info.IsDir() {
-			name := info.Name()
-			if name == "node_modules" || name == ".git" || name == "vendor" ||
-				name == ".idea" || name == ".vscode" || name == "target" ||
-				name == "build" || name == "dist" || name == "__pycache__" {
+			if path != root && fsutil.ShouldSkipSubDir(info.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

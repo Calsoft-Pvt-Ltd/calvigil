@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/fsutil"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
@@ -553,22 +554,6 @@ var sourceExtensions = map[string]bool{
 	".pem": true, ".key": true,
 }
 
-// skipDirs are directories to skip during source code scanning.
-var skipDirs = map[string]bool{
-	"node_modules": true, ".git": true, "vendor": true,
-	"__pycache__": true, ".idea": true, ".vscode": true,
-	"target": true, "build": true, "dist": true,
-	".next": true, ".nuxt": true,
-	// Python virtual environments
-	".venv": true, "venv": true, ".env": true, "env": true,
-	"site-packages": true, ".tox": true, ".nox": true,
-	// Ruby, Rust, Go caches
-	".bundle": true, ".cargo": true, ".cache": true,
-	// Other build/output directories
-	"out": true, "bin": true, "obj": true, "lib": true,
-	".terraform": true, ".serverless": true,
-}
-
 // PatternMatch represents a match found by the pattern scanner.
 type PatternMatch struct {
 	Rule     PatternRule
@@ -611,7 +596,7 @@ func ScanPatterns(projectPath string) ([]PatternMatch, error) {
 				return nil
 			}
 			if info.IsDir() {
-				if skipDirs[info.Name()] {
+				if path != projectPath && fsutil.ShouldSkipSubDir(info.Name()) {
 					return filepath.SkipDir
 				}
 				return nil

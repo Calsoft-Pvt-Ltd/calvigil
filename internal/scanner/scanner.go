@@ -14,6 +14,7 @@ import (
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/cache"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/config"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/detector"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/fsutil"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/license"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
@@ -380,6 +381,7 @@ func (s *Scanner) scanSemgrep(ctx context.Context) ([]models.Vulnerability, []st
 	var errs []string
 
 	sg := analyzer.NewSemgrepAnalyzer(s.opts.SemgrepRules, s.opts.Verbose)
+	sg.TrustProjectRules = s.opts.TrustProjectRules
 	if !sg.Available() {
 		if s.opts.Verbose {
 			fmt.Fprintf(os.Stderr, "Skipping Semgrep analysis (semgrep not installed)\n")
@@ -491,9 +493,7 @@ func populateReachability(vulns []models.Vulnerability, projectPath string, verb
 			return nil
 		}
 		if info.IsDir() {
-			base := info.Name()
-			if base == "node_modules" || base == ".git" || base == "vendor" ||
-				base == "__pycache__" || base == "target" || base == "build" || base == "dist" {
+			if path != projectPath && fsutil.ShouldSkipSubDir(info.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

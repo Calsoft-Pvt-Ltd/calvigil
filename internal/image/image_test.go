@@ -98,3 +98,22 @@ func TestScan_VerboseNoSyft(t *testing.T) {
 		t.Error("expected error when syft is not available")
 	}
 }
+
+// TestScan_RejectsMaliciousImageRef verifies that Scan() refuses to hand a
+// ref containing shell metacharacters to syft, even when syft is installed.
+func TestScan_RejectsMaliciousImageRef(t *testing.T) {
+	bad := []string{
+		"nginx;rm -rf /",
+		"nginx:`whoami`",
+		"nginx:$(id)",
+		"nginx latest",
+		"",
+	}
+	for _, ref := range bad {
+		s := NewScanner(ref, false, nil)
+		_, err := s.Scan(context.Background())
+		if err == nil {
+			t.Errorf("Scan(%q) accepted unsafe ref", ref)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/fsutil"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
@@ -53,7 +54,7 @@ func Scan(root string, verbose bool) (*ScanResult, error) {
 			return nil
 		}
 		if fi.IsDir() {
-			if shouldSkipDir(fi.Name()) {
+			if path != root && fsutil.ShouldSkipSubDir(fi.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -335,15 +336,4 @@ func extractRegex(re *regexp.Regexp, s string) string {
 		return strings.TrimSpace(m[1])
 	}
 	return ""
-}
-
-var binarySkipDirs = map[string]bool{
-	"node_modules": true, ".git": true, "vendor": true,
-	"__pycache__": true, ".idea": true, ".vscode": true,
-	".venv": true, "venv": true, ".env": true,
-	".cache": true, ".tox": true, ".nox": true,
-}
-
-func shouldSkipDir(name string) bool {
-	return binarySkipDirs[name]
 }
