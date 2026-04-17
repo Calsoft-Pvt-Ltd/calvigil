@@ -117,3 +117,108 @@ func TestScan_RejectsMaliciousImageRef(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSBOM(t *testing.T) {
+	input := `{
+		"artifacts": [
+			{
+				"name": "lodash",
+				"version": "4.17.21",
+				"type": "npm",
+				"language": "javascript",
+				"purl": "pkg:npm/lodash@4.17.21",
+				"locations": [{"path": "/app/node_modules/lodash"}]
+			},
+			{
+				"name": "flask",
+				"version": "2.3.2",
+				"type": "python",
+				"language": "python",
+				"purl": "",
+				"locations": []
+			},
+			{
+				"name": "stdlib",
+				"version": "1.21.0",
+				"type": "go-module",
+				"language": "go",
+				"purl": "pkg:golang/stdlib@1.21.0",
+				"locations": [{"path": "/usr/local/go"}, {"path": "/other"}]
+			}
+		]
+	}`
+
+	pkgs, err := parseSBOM([]byte(input))
+	if err != nil {
+		t.Fatalf("parseSBOM: %v", err)
+	}
+	if len(pkgs) != 3 {
+		t.Fatalf("got %d packages, want 3", len(pkgs))
+	}
+
+	// lodash
+	if pkgs[0].Name != "lodash" || pkgs[0].Version != "4.17.21" {
+		t.Errorf("pkg[0] = %s@%s, want lodash@4.17.21", pkgs[0].Name, pkgs[0].Version)
+	}
+	if pkgs[0].Ecosystem != models.EcosystemNpm {
+		t.Errorf("pkg[0].Ecosystem = %q, want npm", pkgs[0].Ecosystem)
+	}
+	if pkgs[0].PURL != "pkg:npm/lodash@4.17.21" {
+		t.Errorf("pkg[0].PURL = %q", pkgs[0].PURL)
+	}
+	if pkgs[0].FilePath != "/app/node_modules/lodash" {
+		t.Errorf("pkg[0].FilePath = %q", pkgs[0].FilePath)
+	}
+
+	// flask — no PURL, no locations
+	if pkgs[1].PURL != "" {
+		t.Errorf("pkg[1].PURL = %q, want empty", pkgs[1].PURL)
+	}
+	if pkgs[1].FilePath != "" {
+		t.Errorf("pkg[1].FilePath = %q, want empty", pkgs[1].FilePath)
+	}
+
+	// stdlib — first location used
+	if pkgs[2].FilePath != "/usr/local/go" {
+		t.Errorf("pkg[2].FilePath = %q, want /usr/local/go", pkgs[2].FilePath)
+	}
+}
+
+func TestParseSBOM_SkipsIncomplete(t *testing.T) {
+	input := `{
+		"artifacts": [
+			{"name": "", "version": "1.0", "type": "npm"},
+			{"name": "pkg", "version": "", "type": "npm"},
+			{"name": "unknown-thing", "version": "1.0", "type": "unknown-type", "language": ""},
+			{"name": "real", "version": "2.0", "type": "npm"}
+		]
+	}`
+
+	pkgs, err := parseSBOM([]byte(input))
+	if err != nil {
+		t.Fatalf("parseSBOM: %v", err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("got %d packages, want 1 (only 'real')", len(pkgs))
+	}
+	if pkgs[0].Name != "real" {
+		t.Errorf("got %q, want 'real'", pkgs[0].Name)
+	}
+}
+
+func TestParseSBOM_InvalidJSON(t *testing.T) {
+	_, err := parseSBOM([]byte("not json"))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestParseSBOM_EmptyArtifacts(t *testing.T) {
+	pkgs, err := parseSBOM([]byte(`{"artifacts": []}`))
+	if err != nil {
+		t.Fatalf("parseSBOM: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Errorf("got %d packages, want 0", len(pkgs))
+	}
+}

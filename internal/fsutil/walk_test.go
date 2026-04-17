@@ -1,13 +1,15 @@
 package fsutil
-package fsutil
 
 import "testing"
 
 func TestShouldSkipSubDir(t *testing.T) {
 	skip := []string{
 		"testdata", "test-fixtures", "node_modules", "vendor", "target",
-		"__pycache__", "site-packages", ".venv", "venv",
-		".git", ".idea", ".vscode", "build", "dist",
+		"__pycache__", "site-packages", ".venv", "venv", ".env", "env",
+		".bundle", ".cargo", ".terraform", ".terragrunt-cache", ".serverless",
+		".git", ".idea", ".vscode",
+		"build", "dist", "out", "bin", "obj",
+		".next", ".nuxt", ".cache",
 		".tox", ".nox", ".mypy_cache", ".pytest_cache",
 	}
 	for _, name := range skip {

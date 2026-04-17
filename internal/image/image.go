@@ -136,8 +136,13 @@ func (s *Scanner) extractPackages(ctx context.Context) ([]models.Package, error)
 		return nil, fmt.Errorf("syft failed: %w", err)
 	}
 
+	return parseSBOM(out)
+}
+
+// parseSBOM parses raw syft JSON output into a package list.
+func parseSBOM(data []byte) ([]models.Package, error) {
 	var sbom syftJSON
-	if err := json.Unmarshal(out, &sbom); err != nil {
+	if err := json.Unmarshal(data, &sbom); err != nil {
 		return nil, fmt.Errorf("cannot parse syft output: %w", err)
 	}
 

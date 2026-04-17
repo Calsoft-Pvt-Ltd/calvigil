@@ -559,3 +559,94 @@ func TestRunScanLicense_WithRiskAndVerbose(t *testing.T) {
 		t.Fatalf("scan-license error: %v", err)
 	}
 }
+
+func TestRunScan_NoCwdArgs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Chdir(dir)
+
+	outFile := filepath.Join(dir, "report.json")
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	// No path argument — runScan should use cwd.
+	rootCmd.SetArgs([]string{"scan", "--format", "json", "--output", outFile,
+		"--skip-ai", "--skip-semgrep", "--no-cache"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+}
+
+func TestRunScan_SARIFFormat(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	outFile := filepath.Join(dir, "report.sarif")
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"scan", dir, "--format", "sarif", "--output", outFile,
+		"--skip-ai", "--skip-semgrep", "--no-cache"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+	data, _ := os.ReadFile(outFile)
+	if len(data) == 0 {
+		t.Error("expected non-empty SARIF report")
+	}
+}
+
+func TestRunScan_CycloneDXFormat(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	outFile := filepath.Join(dir, "report.cdx.json")
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"scan", dir, "--format", "cyclonedx", "--output", outFile,
+		"--skip-ai", "--skip-semgrep", "--no-cache"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+	data, _ := os.ReadFile(outFile)
+	if len(data) == 0 {
+		t.Error("expected non-empty CycloneDX report")
+	}
+}
+
+func TestRunScanLicense_NoCwdArgs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Chdir(dir)
+
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"scan-license"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan-license error: %v", err)
+	}
+}
+
+func TestRunScanLicense_TableFormat(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644)
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	// Table format (default) exercises the printLicenseSummary path.
+	rootCmd.SetArgs([]string{"scan-license", dir, "--format", "table", "--output", ""})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan-license error: %v", err)
+	}
+}
+
+func TestRunScanImage_MissingArg(t *testing.T) {
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetArgs([]string{"scan-image"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error when no image arg provided")
+	}
+}
