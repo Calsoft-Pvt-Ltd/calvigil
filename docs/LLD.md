@@ -1,8 +1,12 @@
 # Calvigil — Low-Level Design (LLD)
 
-**Version:** 1.0  
-**Date:** March 2026  
+**Version:** 1.1
+**Date:** April 2026
 **Module:** `github.com/Calsoft-Pvt-Ltd/calvigil`
+
+> **Change log**
+> - **1.1 (Apr 2026):** Added `internal/binary/`, `internal/iac/`, `internal/fsutil/`, `internal/cache/`, `internal/config/secrets.go`, `internal/image/validate.go`, `internal/parser/integrity.go|consistency.go|rust.go|ruby.go|php.go|conan.go`, `cmd/scan_binary.go`, `cmd/scan_iac.go`, `cmd/helpers.go`, SPDX reporter section, security hardening notes.
+> - **1.0 (Mar 2026):** Initial LLD.
 
 ---
 
@@ -23,6 +27,13 @@
 13. [Semgrep Rules — `rules/semgrep/`](#13-semgrep-rules)
 14. [Error Handling Strategy](#14-error-handling-strategy)
 15. [Sequence Diagrams](#15-sequence-diagrams)
+16. [IaC Scanner — `internal/iac/`](#16-iac-scanner--internaliac)
+17. [Binary / SCA Scanner — `internal/binary/`](#17-binary--sca-scanner--internalbinary)
+18. [Vulnerability Cache — `internal/cache/`](#18-vulnerability-cache--internalcache)
+19. [Filesystem Skip Helper — `internal/fsutil/`](#19-filesystem-skip-helper--internalfsutil)
+20. [Secret Store — `internal/config/secrets.go`](#20-secret-store--internalconfigsecretsgo)
+21. [Image Reference Validation — `internal/image/validate.go`](#21-image-reference-validation--internalimagevalidatego)
+22. [Additional `cmd/` files](#22-additional-cmd-files)
 
 ---
 
@@ -36,6 +47,9 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   ├── scan.go                      # `scan [path]` command
 │   ├── scan_image.go                # `scan-image <image>` command
 │   ├── scan_license.go              # `scan-license [path]` command (license-only)
+│   ├── scan_binary.go               # `scan-binary <path>` command (Go binaries / JARs / wheels)
+│   ├── scan_iac.go                  # `scan-iac <path>` command (Terraform / K8s / Dockerfile / etc.)
+│   ├── helpers.go                   # writeReport(), filterVulnsBySeverity(), output-file 0600 perms
 │   ├── config.go                    # `config set/get` commands
 │   └── version.go                   # `version` command
 ├── internal/
@@ -43,15 +57,22 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   ├── vulnerability.go         # Vulnerability, Package, ScanResult, ScanOptions, Severity, LicenseIssue, LicenseRisk, IntegrityIssue, ConsistencyIssue
 │   │   └── purl.go                  # PURL generation (pkg:type/ns/name@version)
 │   ├── config/
-│   │   └── config.go                # Config load/save, env var override, secret masking
+│   │   ├── config.go                # Config load/save (YAML), env var override
+│   │   └── secrets.go               # Pluggable secretStore: keyring (go-keyring) + file fallback (~/.calvigil-secrets.json, 0600)
 │   ├── detector/
-│   │   └── detector.go              # Filesystem walk, ecosystem identification
+│   │   └── detector.go              # Filesystem walk (uses fsutil.ShouldSkipSubDir), ecosystem identification
+│   ├── fsutil/
+│   │   └── walk.go                  # SkippedSubDirs map + ShouldSkipSubDir() — single source of truth for all walkers
 │   ├── parser/
 │   │   ├── parser.go                # Parser interface + ForFile() factory
 │   │   ├── golang.go                # GoModParser
 │   │   ├── maven.go                 # PomXMLParser, GradleParser
 │   │   ├── npm.go                   # NpmLockParser, YarnLockParser, PnpmLockParser
-│   │   ├── python.go                # RequirementsTxtParser, PipfileLockParser, PoetryLockParser
+│   │   ├── python.go                # RequirementsTxtParser, PipfileLockParser, PoetryLockParser, UvLockParser
+│   │   ├── rust.go                  # CargoLockParser
+│   │   ├── ruby.go                  # GemfileLockParser
+│   │   ├── php.go                   # ComposerLockParser
+│   │   ├── conan.go                 # ConanLockParser (C/C++)
 │   │   ├── integrity.go             # Lockfile integrity verification (npm registry, Cargo checksum)
 │   │   └── consistency.go           # Phantom dependency detection (lockfile vs manifest)
 │   ├── matcher/
@@ -66,7 +87,7 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   ├── patterns.go              # PatternRule regex scanner (12 rules)
 │   │   ├── prompts.go               # AI prompt templates (system, analysis, enrichment)
 │   │   ├── evidence.go              # Evidence packet builder for AI enrichment
-│   │   └── semgrep.go               # SemgrepAnalyzer (external CLI integration)
+│   │   └── semgrep.go               # SemgrepAnalyzer (external CLI integration; trust-project-rules opt-in)
 │   ├── reporter/
 │   │   ├── reporter.go              # Reporter interface + ForFormat() factory
 │   │   ├── table.go                 # TableReporter (go-pretty terminal tables)
@@ -85,12 +106,17 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   └── cache.go                 # File-based vulnerability cache (~/.calvigil/cache/, configurable TTL)
 │   ├── scanner/
 │   │   └── scanner.go               # Pipeline orchestrator
+│   ├── iac/
+│   │   └── scanner.go               # IaCRule + 25 built-in rules; Scan(); ToVulnerabilities(); Categories()
+│   ├── binary/
+│   │   └── scanner.go               # Go binary (debug/buildinfo) + JAR (zip + pom.properties + MANIFEST.MF) + Python wheel
 │   └── image/
-│       └── image.go                 # Container image scanner (via Syft)
+│       ├── image.go                 # Container image scanner (via Syft); parseSBOM()
+│       └── validate.go              # Image-reference validation (scheme allow-list + OCI ref pattern)
 └── rules/
     └── semgrep/
-        ├── owasp-top10.yaml          # 11 OWASP security rules
-        └── language-specific.yaml    # 5 language-specific rules
+        ├── owasp-top10.yaml         # OWASP-style security rules (SQLi, CMDi, XSS, SSRF, weak crypto, ...)
+        └── language-specific.yaml   # Go/Python language-specific rules
 ```
 
 ---
@@ -1703,3 +1729,467 @@ Scanner             Analyzer(AI)           OpenAI/Ollama API
   │                     │                       │
   │←─vulns[].AIEnrich──│                       │
 ```
+
+---
+
+## 16. IaC Scanner — `internal/iac/`
+
+### 16.1 Purpose
+
+Detect security misconfigurations in **Infrastructure-as-Code** files (Terraform, Kubernetes, Dockerfile, CloudFormation, Docker Compose, Helm) using a built-in catalog of regex-based rules. Findings are convertible to `models.Vulnerability` so they flow through the same reporters as SCA findings.
+
+### 16.2 Public API
+
+```go
+// Scan walks root, applies every rule whose FileTypes match each file's
+// extension/basename, and returns aggregated findings. Skips standard dirs
+// via fsutil.ShouldSkipSubDir (with the path != root guard).
+func Scan(root string, verbose bool) (*ScanResult, error)
+
+// ToVulnerabilities maps Findings into models.Vulnerability records. The
+// vuln ID is the rule ID (e.g. "IAC-007"), the affected "package" carries
+// the file path so existing reporters can render it.
+func ToVulnerabilities(findings []Finding, projectPath string) []models.Vulnerability
+
+// Categories returns the unique IaC categories present in the supplied
+// scanned-file list (Terraform, Kubernetes, ...). Used by reporters for
+// summary stats.
+func Categories(files []ScannedFile) []string
+```
+
+### 16.3 Types
+
+```go
+type IaCRule struct {
+    ID          string             // "IAC-001" .. "IAC-025"
+    Name        string             // human-readable
+    Description string
+    Severity    models.Severity    // Critical | High | Medium | Low
+    Pattern     *regexp.Regexp     // compiled at init
+    FileTypes   []string           // e.g. {".tf"}, {"Dockerfile"}, {".yaml", ".yml"}
+    Category    string             // Terraform | Kubernetes | Dockerfile | ...
+}
+
+type Finding struct {
+    Rule     IaCRule
+    FilePath string
+    Line     int    // 1-based line where the regex matched
+    Content  string // matched line, trimmed
+}
+
+type ScanResult struct {
+    Findings []Finding
+    Files    []ScannedFile
+}
+
+type ScannedFile struct {
+    Path     string
+    Category string
+    Findings int
+}
+```
+
+### 16.4 Built-in Rule Catalog (25 rules)
+
+| ID       | Name                                       | Severity | Category       |
+|----------|--------------------------------------------|----------|----------------|
+| IAC-001  | Security Group -- Unrestricted Ingress     | High     | Terraform      |
+| IAC-002  | S3 Bucket -- Public ACL                    | Critical | Terraform      |
+| IAC-003  | S3 Bucket -- Server-Side Encryption Disabled | Medium | Terraform      |
+| IAC-004  | IAM Policy -- Wildcard Actions             | Critical | Terraform      |
+| IAC-005  | RDS -- Storage Not Encrypted               | High     | Terraform      |
+| IAC-006  | CloudTrail -- Logging Disabled             | High     | Terraform      |
+| IAC-007  | Security Group -- Unrestricted SSH         | Critical | Terraform      |
+| IAC-008  | Kubernetes -- Privileged Container         | Critical | Kubernetes     |
+| IAC-009  | Kubernetes -- Run As Root                  | High     | Kubernetes     |
+| IAC-010  | Kubernetes -- Missing Resource Limits      | Medium   | Kubernetes     |
+| IAC-011  | Kubernetes -- Host Network Enabled         | High     | Kubernetes     |
+| IAC-012  | Kubernetes -- Default Namespace            | Low      | Kubernetes     |
+| IAC-013  | Kubernetes -- Host PID Enabled             | High     | Kubernetes     |
+| IAC-014  | Dockerfile -- Running as Root              | Medium   | Dockerfile     |
+| IAC-015  | Dockerfile -- Using latest Tag             | Medium   | Dockerfile     |
+| IAC-016  | Dockerfile -- ADD Instead of COPY          | Low      | Dockerfile     |
+| IAC-017  | Dockerfile -- Curl Pipe to Shell           | High     | Dockerfile     |
+| IAC-018  | CloudFormation -- Public S3 Bucket         | Critical | CloudFormation |
+| IAC-019  | CloudFormation -- Open Security Group Ingress | High  | CloudFormation |
+| IAC-020  | Docker Compose -- Privileged Mode          | Critical | Docker Compose |
+| IAC-021  | Helm -- Tiller Enabled (Helm 2)            | Critical | Helm           |
+| IAC-022  | Helm -- Container Uses latest Tag          | Medium   | Helm           |
+| IAC-023  | Helm -- No Resource Limits                 | Medium   | Helm           |
+| IAC-024  | Helm -- Host Network Enabled               | High     | Helm           |
+| IAC-025  | Helm -- Privileged Container               | Critical | Helm           |
+
+### 16.5 Walk Algorithm
+
+```
+Scan(root)
+ ├── filepath.Walk(root)
+ │    ├── if dir && path != root && fsutil.ShouldSkipSubDir(name) → SkipDir
+ │    └── for each file: identify candidate rules by ext/basename
+ ├── concurrent file scan (sync.WaitGroup, mutex-guarded result)
+ │    └── per-file: bufio.Scanner over lines × rules whose FileTypes match
+ └── return ScanResult{Findings, Files}
+```
+
+### 16.6 Extension
+
+To add a new rule: append an `IaCRule` literal to `iacRules` in [internal/iac/scanner.go](internal/iac/scanner.go). No other changes required — the walker, reporter mapping, and severity filtering pick it up automatically. New tests should cover both a positive (matching) fixture and a negative (non-matching) fixture.
+
+---
+
+## 17. Binary / SCA Scanner — `internal/binary/`
+
+### 17.1 Purpose
+
+Extract embedded dependency information from compiled artifacts so SBOM/vulnerability matching works even when source / lockfiles are unavailable (production tarballs, container layers, CI build outputs).
+
+### 17.2 Supported Formats
+
+| Format       | Extension(s)         | Extractor function | Source of truth |
+|--------------|----------------------|--------------------|-----------------|
+| Go binary    | (no ext, executable) | `scanGoBinary`     | `debug/buildinfo` (BuildInfo embedded by Go ≥ 1.18) |
+| JAR / WAR    | `.jar`, `.war`, `.ear` | `scanJAR`        | `META-INF/maven/**/pom.properties` → `MANIFEST.MF` → filename heuristic |
+| Python wheel | `.whl`               | `scanWheel`        | `*.dist-info/METADATA` (PEP 566) |
+
+### 17.3 Public API
+
+```go
+type ScanResult struct {
+    Packages []models.Package
+    Files    []ScannedFile
+}
+
+type ScannedFile struct {
+    Path     string
+    Type     string // "go-binary" | "jar" | "python-wheel"
+    PkgCount int
+}
+
+// Scan walks root, identifies supported binaries, and extracts
+// their embedded dependency lists. Deduplicates by ecosystem|name|version.
+// Honours fsutil.ShouldSkipSubDir with the path != root guard.
+func Scan(root string, verbose bool) (*ScanResult, error)
+```
+
+### 17.4 Extractor Details
+
+**Go binary (`scanGoBinary`)**
+1. `buildinfo.ReadFile(path)` — succeeds only on Go binaries, fails fast otherwise.
+2. Returns one `models.Package` per `*BuildInfo.Deps` entry plus the main module, ecosystem `"go"`.
+
+**JAR (`scanJAR`)**
+1. Open as ZIP via `archive/zip`.
+2. **Primary**: walk entries matching `META-INF/maven/<group>/<artifact>/pom.properties` → parse `groupId`, `artifactId`, `version`.
+3. **Fallback**: read `META-INF/MANIFEST.MF`, look for `Bundle-SymbolicName` / `Implementation-Title` / `Implementation-Version` (`scanJARManifest`).
+4. **Last resort**: parse the filename (`<artifact>-<version>.jar`) via `parseJARFilename` regex.
+5. Ecosystem `"maven"`, name `<group>:<artifact>`.
+
+**Python wheel (`scanWheel`)**
+1. Open as ZIP.
+2. Locate `*.dist-info/METADATA`, parse `Name:` and `Version:` headers (`parsePythonMetadata`).
+3. Ecosystem `"pypi"`.
+
+### 17.5 Helper Functions
+
+| Helper                  | Purpose |
+|-------------------------|---------|
+| `parsePomProperties(r)` | Parse Java `.properties` format into a map |
+| `parseJARFilename(p)`   | Regex `^(.+?)-(\d.*?)\.jar$` → name+version fallback |
+| `scanJARManifest(zr,p)` | Build a `*models.Package` from MANIFEST.MF when pom.properties is absent |
+| `parsePythonMetadata(r)` | Read `Name:`/`Version:` from PEP 566 METADATA |
+| `extractRegex(s,re)`    | Generic single-group match helper |
+
+### 17.6 Pipeline Integration
+
+The `cmd/scan_binary.go` command bypasses `detector` and `parser` entirely:
+
+```
+scan-binary <path>
+ → binary.Scan(path, verbose)
+ → matcher.AggregatedMatcher.Match(packages)
+ → reporter.Report(result, format) [writes 0600]
+```
+
+### 17.7 Extension
+
+Add a new format by:
+1. Adding the extension to the switch in `scanFile()`.
+2. Implementing `scan<Format>(path string) []models.Package` returning `Ecosystem` matching an existing PURL type recognized by OSV/NVD.
+3. Adding a `ScannedFile.Type` label string.
+
+---
+
+## 18. Vulnerability Cache — `internal/cache/`
+
+### 18.1 Purpose
+
+Avoid hammering OSV / NVD / GHSA endpoints when re-running scans on unchanged dependency sets. File-based, sha256-keyed, TTL-expiring.
+
+### 18.2 Public API
+
+```go
+const DefaultTTL = 24 * time.Hour
+
+func DefaultDir() string                          // ~/.calvigil/cache (empty if no $HOME)
+
+type Cache struct { /* dir, ttl */ }
+
+func New(dir string, ttl time.Duration) *Cache    // empty dir → DefaultDir; ttl ≤ 0 → DefaultTTL
+func (c *Cache) Get(source string, packages []models.Package) ([]models.Vulnerability, bool)
+func (c *Cache) Put(source string, packages []models.Package, vulns []models.Vulnerability) error
+func (c *Cache) Clear() error
+```
+
+### 18.3 Internal Layout
+
+```go
+type entry struct {
+    Vulns     []models.Vulnerability `json:"vulns"`
+    CachedAt  time.Time              `json:"cached_at"`
+    ExpiresAt time.Time              `json:"expires_at"`
+}
+```
+
+- Key derivation: `sha256(source || pkg.Name || pkg.Version || pkg.Ecosystem ...)` then hex.
+- File path: `<dir>/<hex>.json`, file mode `0o600`, dir mode `0o700`.
+- Expiry: lazy — `Get` deletes the entry if `time.Now().After(e.ExpiresAt)` and returns miss.
+- Corrupt file: deleted on unmarshal failure, treated as miss.
+
+### 18.4 Integration
+
+Each `Matcher` (OSV/NVD/GHSA) consults the cache before issuing network requests:
+
+```
+matcher.Match(pkgs)
+ ├── if v, ok := cache.Get(source, pkgs); ok → return v   (cache hit)
+ ├── otherwise → call upstream API
+ └── cache.Put(source, pkgs, result)                       (best-effort)
+```
+
+### 18.5 Tunables
+
+| Knob                                          | Default        | Source |
+|-----------------------------------------------|----------------|--------|
+| Cache directory                               | `~/.calvigil/cache` | `DefaultDir()` |
+| TTL                                           | 24h            | `DefaultTTL` |
+| Per-scanner override                          | n/a            | Pass non-empty `dir`/`ttl` to `cache.New` |
+| Manual eviction                               | n/a            | `Cache.Clear()` (rm-rf semantics over `*.json`) |
+
+---
+
+## 19. Filesystem Skip Helper — `internal/fsutil/`
+
+### 19.1 Purpose
+
+Single source of truth for which subdirectory names every walker (detector, binary scanner, IaC scanner, pattern scanner, scanner orchestrator) must skip. Eliminates the prior bug where each walker had its own divergent skip list and `testdata/` fixtures were being scanned as if they were real code.
+
+### 19.2 Public API
+
+```go
+var SkippedSubDirs = map[string]struct{}{ ... } // canonical set
+func ShouldSkipSubDir(name string) bool
+```
+
+### 19.3 Skip Set Categories
+
+| Category            | Members |
+|---------------------|---------|
+| Test fixtures       | `testdata`, `test-fixtures` |
+| Package managers    | `node_modules`, `vendor`, `target`, `__pycache__`, `site-packages`, `.venv`, `venv`, `.env`, `env`, `.bundle`, `.cargo`, `.terraform`, `.terragrunt-cache`, `.serverless` |
+| VCS / IDE           | `.git`, `.idea`, `.vscode` |
+| Build / cache / out | `build`, `dist`, `out`, `bin`, `obj`, `.next`, `.nuxt`, `.cache`, `.tox`, `.nox`, `.mypy_cache`, `.pytest_cache` |
+
+### 19.4 Required Usage Pattern (invariant)
+
+Walkers **must** apply the skip rule with a `path != root` guard so users who explicitly point `calvigil` at one of these directories (e.g. `calvigil scan ./testdata`) still get it scanned:
+
+```go
+err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+    if err != nil { return nil }
+    if info.IsDir() && path != root && fsutil.ShouldSkipSubDir(info.Name()) {
+        return filepath.SkipDir
+    }
+    // ... per-file work
+    return nil
+})
+```
+
+### 19.5 Extension
+
+Add a directory name to the `SkippedSubDirs` map literal in [internal/fsutil/walk.go](internal/fsutil/walk.go) — no other change is required because all walkers route through `ShouldSkipSubDir`. Update `walk_test.go` to assert membership.
+
+---
+
+## 20. Secret Store — `internal/config/secrets.go`
+
+### 20.1 Purpose
+
+Persist API keys (OpenAI, NVD, GHSA) outside the YAML config file so credentials never appear in plain text on disk by default. Pluggable backend with automatic OS keyring → file fallback.
+
+### 20.2 Backends
+
+```go
+type secretStore interface {
+    Get(key string) (string, error)        // errSecretNotFound on miss
+    Set(key, value string) error
+    Delete(key string) error                // missing → no-op (no error)
+}
+```
+
+| Backend         | Implementation     | Storage location | Notes |
+|-----------------|--------------------|------------------|-------|
+| `keyringStore`  | `github.com/zalando/go-keyring` (service `"calvigil"`) | macOS Keychain / Windows Cred Mgr / Linux Secret Service | Preferred when available |
+| `fileStore`     | JSON file          | `~/.calvigil-secrets.json` mode `0600` | Headless / CI / containers |
+
+### 20.3 Backend Selection (`getStore()`)
+
+```go
+sync.Once first call:
+ 1. Read CALVIGIL_SECRET_BACKEND env var:
+       "file"    → fileStore
+       "keyring" → keyringStore (no probe)
+       (other)   → continue
+ 2. Probe: keyring.Set("calvigil", "_calvigil_probe", "ok")
+       success → keyring.Delete probe; use keyringStore
+       failure → use fileStore
+```
+
+The probe avoids paying the runtime cost on every call and ensures cleanly headless environments degrade silently.
+
+### 20.4 File Layout (`fileStore`)
+
+```json
+{
+  "openai_api_key": "sk-...",
+  "nvd_api_key":    "...",
+  "github_token":   "ghp_..."
+}
+```
+
+Mode `0600`. Mutated under a `sync.Mutex`. The path is re-resolved from `os.UserHomeDir()` on every operation so changing `$HOME` mid-process (in tests) works.
+
+### 20.5 Test Hook
+
+```go
+func resetStoreForTests()  // clears defaultStoreOnce + defaultStoreImpl
+```
+
+Allows the same test process to re-probe after switching `CALVIGIL_SECRET_BACKEND`.
+
+---
+
+## 21. Image Reference Validation — `internal/image/validate.go`
+
+### 21.1 Purpose
+
+`scan-image <ref>` ultimately invokes `syft <ref>` (and syft may delegate to `docker`/`podman`). A malformed or hostile `<ref>` could either confuse syft or — worse — be interpreted by an underlying runtime in unexpected ways. `validateImageRef` is the boundary check that runs before any external process is spawned.
+
+### 21.2 Algorithm
+
+```
+validateImageRef(ref):
+ 1. reject empty
+ 2. reject len > 1024
+ 3. reject any control char (< 0x20 or 0x7f) or whitespace
+ 4. reject shell metacharacters: ` $ ; & | < > ( ) * ? ! \ " '
+ 5. if ref contains ":" with non-empty prefix:
+       scheme = ToLower(ref[:i])
+       if scheme ∈ supportedSchemes:
+           path = ref[i+1:]
+           reject empty path
+           reject ".." traversal sequence
+           require safePathPattern match  → return nil
+ 6. require ociRefPattern match           → return nil
+```
+
+### 21.3 Supported Schemes
+
+```go
+{"docker", "docker-archive", "oci", "oci-archive", "oci-dir",
+ "podman", "containerd", "singularity", "registry", "dir", "file"}
+```
+
+### 21.4 Patterns
+
+```go
+ociRefPattern = `^[A-Za-z0-9][A-Za-z0-9._-]*` +
+                `(?::[0-9]{1,5})?` +
+                `(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*` +
+                `(?::[A-Za-z0-9][A-Za-z0-9._-]*)?` +
+                `(?:@sha256:[a-f0-9]{64})?$`
+
+safePathPattern = `^[A-Za-z0-9._/@:+\-]+$`
+```
+
+### 21.5 Accepted vs Rejected
+
+| Input                                          | Result |
+|------------------------------------------------|--------|
+| `nginx`                                        | accept |
+| `nginx:1.25`                                   | accept |
+| `ghcr.io/org/app:tag`                          | accept |
+| `library/nginx@sha256:<64hex>`                 | accept |
+| `docker-archive:/tmp/image.tar`                | accept |
+| `dir:/rootfs`                                  | accept |
+| `nginx; rm -rf /`                              | reject (metachar) |
+| `$(curl evil.sh)`                              | reject (metachar) |
+| `dir:/etc/../etc/shadow`                       | reject (`..`) |
+| `nginx ` (trailing space)                      | reject (whitespace) |
+
+### 21.6 Caller
+
+```go
+// internal/image/image.go : Scanner.Scan()
+if err := validateImageRef(s.imageRef); err != nil {
+    return nil, fmt.Errorf("invalid image reference: %w", err)
+}
+cmd := exec.Command("syft", s.imageRef, "-o", "json")
+```
+
+---
+
+## 22. Additional `cmd/` Files
+
+### 22.1 `cmd/scan_iac.go`
+
+| Flag             | Short | Default  | Purpose |
+|------------------|-------|----------|---------|
+| `--format`       | `-f`  | `table`  | `table\|json\|sarif\|cyclonedx\|openvex\|html\|pdf` |
+| `--output`       | `-o`  | (stdout) | Output file path (written 0600) |
+| `--severity`     | `-s`  | (all)    | Minimum severity: `critical\|high\|medium\|low` |
+
+Flow:
+```
+scan-iac <path>
+ → iac.Scan(path, verbose)
+ → iac.ToVulnerabilities(findings, path)
+ → filterVulnsBySeverity(vulns, min)
+ → reporter.ForFormat(fmt).Report(scanResult, output)
+```
+
+### 22.2 `cmd/scan_binary.go`
+
+Identical flag set to `scan-iac` (`--format`, `--output`, `--severity`). Flow:
+```
+scan-binary <path>
+ → binary.Scan(path, verbose)
+ → matcher.AggregatedMatcher.Match(packages)
+ → filterVulnsBySeverity
+ → writeReport(...)
+```
+
+### 22.3 `cmd/helpers.go`
+
+```go
+// Render report through the chosen reporter; if outputFile != "" the file
+// is created with mode 0600 (so secrets in evidence packets are not
+// world-readable). Otherwise writes to stdout.
+func writeReport(rep reporter.Reporter, result *models.ScanResult, outputFile string) error
+
+// Drop vulnerabilities below the requested minimum severity. min == "" or
+// an unrecognised value is treated as "no filter".
+func filterVulnsBySeverity(vulns []models.Vulnerability, min models.Severity) []models.Vulnerability
+```
+
+The `0600` mode applies uniformly to every output format (JSON/SARIF/CycloneDX/OpenVEX/HTML/PDF) because reports may embed AI-enriched evidence (snippets of source, secrets-likely strings, exploit chains). This is a project-wide invariant — every new reporter must route through `writeReport`.
+

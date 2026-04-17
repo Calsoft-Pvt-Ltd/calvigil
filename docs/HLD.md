@@ -1,8 +1,12 @@
 # Calvigil — High-Level Design (HLD)
 
-**Version:** 1.0  
-**Date:** March 2026  
+**Version:** 1.1
+**Date:** April 2026
 **Module:** `github.com/Calsoft-Pvt-Ltd/calvigil`
+
+> **Change log**
+> - **1.1 (Apr 2026):** Added IaC scanner, binary/SCA scanner, supply-chain integrity & phantom-dependency checks, vulnerability cache, OS keyring secret store, image-reference validation, project-rules trust opt-in, shared filesystem skip helper, CI integration, and SPDX 2.3 reporter sections. Renumbered duplicate "Section 9".
+> - **1.0 (Mar 2026):** Initial HLD.
 
 ---
 
@@ -112,10 +116,13 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **Matcher** | `internal/matcher/` | Query CVE databases (OSV, NVD, GHSA) |
 | **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama), pattern matching, Semgrep |
 | **Reporter** | `internal/reporter/` | Format and emit scan results |
-| **Image Scanner** | `internal/image/` | Container image scanning via Syft |
+| **Image Scanner** | `internal/image/` | Container image scanning via Syft, image-reference validation |
+| **IaC Scanner** | `internal/iac/` | Regex-based misconfiguration scanner for Terraform / Kubernetes / Dockerfile / CloudFormation / Docker Compose / Helm (25 built-in rules) |
+| **Binary Scanner** | `internal/binary/` | SCA on compiled artifacts: Go binaries (`debug/buildinfo`), JARs (`pom.properties` / MANIFEST.MF / filename), Python wheels (`.dist-info/METADATA`) |
 | **License** | `internal/license/` | License classification, SPDX expression parser, registry resolver |
 | **Cache** | `internal/cache/` | File-based vulnerability response caching (~/.calvigil/cache/) |
-| **Config** | `internal/config/` | Credential and preference management |
+| **Config** | `internal/config/` | Credential and preference management; OS keyring + file-fallback secret store |
+| **FS Util** | `internal/fsutil/` | Single source of truth for skip-dir rules shared by all walkers |
 | **Models** | `internal/models/` | Shared data structures (Vulnerability, Package, ScanResult, IntegrityIssue, ConsistencyIssue) |
 
 ---
@@ -128,10 +135,10 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **Python** | `requirements.txt`, `Pipfile.lock`, `poetry.lock`, `uv.lock` | `RequirementsTxtParser`, `PipfileLockParser`, `PoetryLockParser`, `UvLockParser` |
 | **Node.js** | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` | `NpmLockParser`, `YarnLockParser`, `PnpmLockParser` |
 | **Java** | `pom.xml`, `build.gradle`, `build.gradle.kts` | `PomXMLParser`, `GradleParser` |
-| **Rust** | `Cargo.lock` | `CargoLockParser` |
-| **Ruby** | `Gemfile.lock` | `GemfileLockParser` |
-| **PHP** | `composer.lock` | `ComposerLockParser` |
-| **C/C++** | `conan.lock` | `ConanLockParser` |
+| **Rust** | `Cargo.lock` | `CargoLockParser` (`internal/parser/rust.go`) |
+| **Ruby** | `Gemfile.lock` | `GemfileLockParser` (`internal/parser/ruby.go`) |
+| **PHP** | `composer.lock` | `ComposerLockParser` (`internal/parser/php.go`) |
+| **C/C++** | `conan.lock` | `ConanLockParser` (`internal/parser/conan.go`) |
 
 ---
 
@@ -313,10 +320,18 @@ Supply chain checks integrate into the main scan pipeline (Step 2a) after depend
 
 ---
 
-## 9. Data Flow — Container Image Scan
+## 10. Data Flow — Container Image Scan
 
 ```
 User runs: calvigil scan-image nginx:latest
+                         │
+            ┌────────────▼───────────────┐
+            │ 0. VALIDATE IMAGE REFERENCE│
+            │    Reject shell metachars   │
+            │    (;, |, &, `, $(), \n)   │
+            │    Validate scheme prefix   │
+            │    or OCI ref pattern       │
+            └────────────┬───────────────┘
                          │
             ┌────────────▼───────────────┐
             │ 1. SBOM EXTRACTION         │
@@ -344,7 +359,7 @@ User runs: calvigil scan-image nginx:latest
 
 ---
 
-## 9. Output Formats
+## 11. Output Formats
 
 | Format | Standard/Spec | Primary Use Case |
 |--------|--------------|-----------------|
@@ -359,14 +374,47 @@ User runs: calvigil scan-image nginx:latest
 
 ---
 
-## 10. Configuration & Security
+## 12. Configuration & Security
 
-### 10.1 Configuration Storage
-- **Location:** `~/.calvigil.json`
-- **Environment overrides:** `OPENAI_API_KEY`, `NVD_API_KEY`, `GITHUB_TOKEN`, `OLLAMA_URL`, `OLLAMA_MODEL`
-- **Secret masking:** API keys displayed as `****<last4>` in `config get`
+### 12.1 Non-Secret Configuration
+- **Location:** `~/.calvigil.yaml` (created with mode `0600`)
+- Stores non-sensitive preferences only: model name, Ollama URL, default cache TTL, etc.
 
-### 10.2 AI Provider Selection
+### 12.2 Secret Storage (API keys)
+API keys are **never written to the YAML config file**. They are stored in a pluggable secret store with auto-fallback:
+
+| Backend | When used | Storage |
+|---------|----------|---------|
+| OS keyring | Default when available | macOS Keychain / Windows Credential Manager / Linux Secret Service via `go-keyring` |
+| Encrypted-file fallback | When keyring probe fails (CI / containers / headless) | `~/.calvigil-secrets.json`, mode `0600` |
+
+The store is selected lazily on first access (`sync.Once` probe). Override with the `CALVIGIL_SECRET_BACKEND` environment variable: `keyring`, `file`, or unset (auto).
+
+**Recognized secrets:** `openai-key`, `nvd-key`, `github-token`. **Recognized env-var overrides:** `OPENAI_API_KEY`, `NVD_API_KEY`, `GITHUB_TOKEN`, `OLLAMA_URL`, `OLLAMA_MODEL`.
+
+`config get` masks secrets as `****<last4>`.
+
+### 12.3 Output File Permissions
+All reports written via `--output` are created with mode `0600`. Reports may contain CVE inventories, package lists, and AI-enriched code snippets.
+
+### 12.4 Container Image Reference Validation
+`scan-image` validates the reference before invoking syft. Refs containing `;`, `|`, `&`, backticks, `$(...)`, newlines, or NUL bytes are rejected. Scheme-prefixed refs (`docker-archive:`, `dir:`, `oci:`, etc.) and OCI refs (`name[:tag][@sha256:digest]`) are matched against allow-list patterns in `internal/image/validate.go`.
+
+### 12.5 Custom Semgrep Rules — Trust Model
+Semgrep rule files execute as code. By default calvigil only loads bundled rules. To load rules from a path inside the scanned project:
+
+```bash
+calvigil scan . --semgrep-rules ./.semgrep --trust-project-rules
+```
+
+Without `--trust-project-rules`, rule paths inside the scanned project are rejected. Symlinks in `--semgrep-rules` are resolved before the trust check, preventing escape via in-project symlinks.
+
+### 12.6 Skip-Dir Convention
+All five filesystem walkers (detector, source analyzer, binary scanner, IaC scanner, license scanner) share `internal/fsutil.SkippedSubDirs`. Directory names such as `testdata`, `test-fixtures`, `node_modules`, `vendor`, `target`, `__pycache__`, `.venv`, `.git`, `.terraform`, `dist`, `build`, `.mypy_cache` are skipped **only when encountered as a subdirectory of the scan root**. A user explicitly running `calvigil scan ./testdata` (e.g. integration tests) still gets it scanned.
+
+This follows the Go convention that `go test` ignores `testdata`. It also prevents the project's CI self-scan from flagging deliberately-vulnerable integration fixtures (log4j, old urllib3, etc.) as real vulnerabilities.
+
+### 12.7 AI Provider Selection
 Automatic provider resolution priority:
 1. Explicit `--provider` flag → use specified
 2. Ollama available locally → prefer Ollama (privacy)
@@ -375,7 +423,7 @@ Automatic provider resolution priority:
 
 ---
 
-## 11. Deployment Model
+## 13. Deployment Model
 
 Calvigil is a **single static Go binary** with no runtime dependencies beyond optional external tools:
 
@@ -400,7 +448,7 @@ Version is embedded at build time via `-ldflags`:
 
 ---
 
-## 12. Technology Stack
+## 14. Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -415,12 +463,156 @@ Version is embedded at build time via `-ldflags`:
 
 ---
 
-## 13. Non-Functional Requirements
+## 15. Non-Functional Requirements
 
 | Attribute | Design Decision |
 |-----------|----------------|
-| **Performance** | OSV batch API (up to 1000 packages/request); NVD capped at 20 queries/scan; AI batches of 20 snippets |
-| **Privacy** | Ollama support for fully local AI analysis; no telemetry |
-| **Extensibility** | Parser, Matcher, Analyzer, Reporter all implemented as interfaces |
-| **Portability** | Single static binary; cross-platform (macOS, Linux, Windows) |
-| **Graceful degradation** | Missing Semgrep/Syft/AI → skip that engine, continue scan |
+| **Performance** | OSV batch API (up to 1000 packages/request); NVD capped at 20 queries/scan; AI batches of 20 snippets; vulnerability cache (~/.calvigil/cache/, default 24h TTL); license resolution at 10-way concurrency; integrity verification at 10-way concurrency |
+| **Privacy** | Ollama support for fully local AI analysis; secret store prefers OS keyring; no telemetry |
+| **Extensibility** | Parser, Matcher, Analyzer, Reporter, IaCRule, PatternRule all implemented as interfaces or rule arrays |
+| **Portability** | Single static binary; cross-platform (macOS, Linux, Windows); keyring auto-falls-back to file in headless environments |
+| **Graceful degradation** | Missing Semgrep/Syft/AI/Chrome → skip that engine, continue scan |
+| **Safe-by-default** | `0600` perms on config + reports + secrets file; image-ref validated against shell metacharacters; project Semgrep rules require explicit opt-in; `testdata/`-style dirs auto-skipped |
+
+---
+
+## 16. Data Flow — IaC Misconfiguration Scan
+
+```
+User runs: calvigil scan-iac ./infra --severity high
+                         │
+            ┌────────────▼───────────────┐
+            │ 1. WALK FILESYSTEM         │
+            │    fsutil.ShouldSkipSubDir  │
+            │    Match by extension or    │
+            │    basename:                │
+            │    .tf .tfvars .yaml .yml   │
+            │    Dockerfile compose.yml   │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 2. APPLY 25 RULES          │
+            │    Regex-based, per file:   │
+            │    Terraform: SG/S3/IAM/RDS/│
+            │      CloudTrail             │
+            │    Kubernetes: Privileged,  │
+            │      RunAsRoot, HostNet,    │
+            │      ResourceLimits         │
+            │    Dockerfile: Root, latest,│
+            │      ADD, curl|sh           │
+            │    CloudFormation, Compose, │
+            │      Helm                   │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 3. CONVERT TO VULNS        │
+            │    iac.ToVulnerabilities()  │
+            │    Source = "iac"           │
+            │    Filter by --severity     │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 4. REPORT                  │
+            └────────────────────────────┘
+```
+
+Files are scanned concurrently with a worker pool. Each rule has explicit
+`FileTypes` and `Category`; matches are emitted as `iac.Finding` and then
+mapped to `models.Vulnerability` for the standard reporters.
+
+---
+
+## 17. Data Flow — Binary / SCA Scan
+
+```
+User runs: calvigil scan-binary ./bin --format json
+                         │
+            ┌────────────▼───────────────┐
+            │ 1. WALK & DISPATCH         │
+            │    fsutil.ShouldSkipSubDir  │
+            │    By extension or magic:   │
+            │      go-binary  → buildinfo │
+            │      .jar       → zip+meta  │
+            │      .whl/.egg  → wheel meta│
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 2. EXTRACT PACKAGES        │
+            │    Go: debug/buildinfo →   │
+            │      module + deps with    │
+            │      versions              │
+            │    JAR: pom.properties →   │
+            │      MANIFEST.MF →         │
+            │      filename heuristic    │
+            │    Wheel: METADATA + name  │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 3. MATCH VULNERABILITIES   │
+            │    Same matchers as scan    │
+            │    (OSV / NVD / GHSA)       │
+            └────────────┬───────────────┘
+                         │
+            ┌────────────▼───────────────┐
+            │ 4. REPORT                  │
+            └────────────────────────────┘
+```
+
+---
+
+## 18. Vulnerability Result Cache
+
+Disk cache for matcher responses keyed by `sha256(source-name + sorted package list)`.
+
+| Property | Value |
+|----------|-------|
+| Location | `~/.calvigil/cache/` |
+| Format | One JSON file per cache key |
+| Default TTL | 24h (`--cache-ttl=1h` to override) |
+| Disable | `--no-cache` |
+| Eviction | Lazy on `Get` (entry past `ExpiresAt` → cache miss) |
+| Manual purge | Delete `~/.calvigil/cache/` |
+
+Cache layer wraps each `Matcher` so OSV / NVD / GHSA each have independent caches. Used by `scan`, `scan-image`, and `scan-binary`. Not used by `scan-license` (license registries have their own short-lived in-process call sites).
+
+---
+
+## 19. CI/CD Integration
+
+`.github/workflows/security-scan.yml` is the project's own self-scan workflow and a reference recipe for downstream users:
+
+```yaml
+- name: Self-scan
+  env:
+    CALVIGIL_SECRET_BACKEND: file        # skip the keyring probe
+  run: |
+    calvigil scan . \
+      --skip-ai \
+      --semgrep-rules rules/semgrep \
+      --format sarif --output calvigil.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with: { sarif_file: calvigil.sarif }
+```
+
+Key CI guidance:
+- Set `CALVIGIL_SECRET_BACKEND=file` to skip the keyring probe on headless runners.
+- Use `--skip-ai` on PR runs to avoid LLM token cost.
+- Use `--format sarif` and the official upload action to surface findings in the GitHub Security tab.
+- Run from the repository root; `testdata/` and similar directories are skipped automatically (see §12.6).
+
+---
+
+## 20. Roadmap / Extension Points
+
+The following extension points are stable contracts that downstream code (and AI-assisted enhancement work) can target:
+
+| Extension Point | Interface / Pattern | How to extend |
+|---|---|---|
+| New ecosystem | `parser.Parser` + register in `parser.ForFile()` and `detector.knownMarkers` | Implement `Parse(io.Reader, string) ([]Package, error)`; add manifest filename mapping |
+| New CVE source | `matcher.Matcher` + add to scanner's matcher list | Implement `Name()` and `Match(ctx, []Package) ([]Vulnerability, error)` |
+| New AI provider | `analyzer.Analyzer` + add provider id to `Scanner.resolveAIProvider()` | Implement `Analyze(ctx, projectPath, verbose)` and optional `EnrichVulnerabilities(...)` |
+| New IaC rule | Append to `iacRules` slice in `internal/iac/scanner.go` | Provide ID, Name, Severity, Pattern, FileTypes, Category |
+| New pattern rule | Append to `builtInRules` in `internal/analyzer/patterns.go` | Provide ID, Name, Severity, Pattern, Languages |
+| New report format | `reporter.Reporter` + add case to `reporter.ForFormat()` | Implement `Report(*ScanResult, io.Writer) error` |
+| New skip directory | `fsutil.SkippedSubDirs` map | Add basename; all walkers pick it up automatically |
+| New secret backend | `secretStore` interface in `internal/config/secrets.go` | Implement Get/Set/Delete; wire into `getStore()` |

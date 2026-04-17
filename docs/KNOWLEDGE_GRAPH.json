@@ -1,0 +1,388 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "calvigil",
+  "version": "1.1",
+  "description": "Knowledge graph of the calvigil scanner — nodes (packages, types, functions), edges (depends/implements/calls), invariants, and extension recipes. Designed for Claude/AI-assistant retrieval.",
+  "module": "github.com/Calsoft-Pvt-Ltd/calvigil",
+  "language": "go",
+  "go_version": "1.25.0",
+  "docs": {
+    "hld": "docs/HLD.md",
+    "lld": "docs/LLD.md",
+    "knowledge_graph_md": "docs/KNOWLEDGE_GRAPH.md"
+  },
+
+  "packages": [
+    {
+      "id": "cmd",
+      "path": "cmd/",
+      "kind": "cli",
+      "responsibility": "Cobra commands, flag parsing, output orchestration",
+      "files": ["root.go", "scan.go", "scan_image.go", "scan_license.go", "scan_binary.go", "scan_iac.go", "config.go", "version.go", "helpers.go"],
+      "imports": ["internal/scanner", "internal/image", "internal/binary", "internal/iac", "internal/reporter", "internal/config", "internal/models"],
+      "hld_section": [5, 12],
+      "lld_section": [1, 22]
+    },
+    {
+      "id": "models",
+      "path": "internal/models/",
+      "kind": "domain",
+      "responsibility": "Leaf domain types: Vulnerability, Package, ScanResult, Severity, PURL",
+      "files": ["vulnerability.go", "purl.go"],
+      "imports": [],
+      "hld_section": [4],
+      "lld_section": [2]
+    },
+    {
+      "id": "config",
+      "path": "internal/config/",
+      "kind": "infra",
+      "responsibility": "YAML config + pluggable secret store (keyring|file)",
+      "files": ["config.go", "secrets.go"],
+      "imports": ["github.com/zalando/go-keyring"],
+      "hld_section": [12],
+      "lld_section": [3, 20]
+    },
+    {
+      "id": "fsutil",
+      "path": "internal/fsutil/",
+      "kind": "infra",
+      "responsibility": "Canonical skip-dir set used by every filesystem walker",
+      "files": ["walk.go"],
+      "imports": [],
+      "hld_section": [6],
+      "lld_section": [19]
+    },
+    {
+      "id": "detector",
+      "path": "internal/detector/",
+      "kind": "pipeline",
+      "responsibility": "Walk filesystem, identify ecosystems by manifest filename",
+      "files": ["detector.go"],
+      "imports": ["internal/fsutil", "internal/models"],
+      "hld_section": [6],
+      "lld_section": [4]
+    },
+    {
+      "id": "parser",
+      "path": "internal/parser/",
+      "kind": "pipeline",
+      "responsibility": "Manifest/lockfile -> []models.Package; integrity + consistency checks",
+      "files": ["parser.go", "golang.go", "maven.go", "npm.go", "python.go", "rust.go", "ruby.go", "php.go", "conan.go", "integrity.go", "consistency.go"],
+      "imports": ["internal/models"],
+      "hld_section": [7],
+      "lld_section": [5]
+    },
+    {
+      "id": "matcher",
+      "path": "internal/matcher/",
+      "kind": "pipeline",
+      "responsibility": "Packages -> vulnerabilities via OSV/NVD/GHSA, with caching",
+      "files": ["matcher.go", "osv.go", "nvd.go", "ghsa.go"],
+      "imports": ["internal/models", "internal/cache"],
+      "hld_section": [8],
+      "lld_section": [6]
+    },
+    {
+      "id": "analyzer",
+      "path": "internal/analyzer/",
+      "kind": "pipeline",
+      "responsibility": "AI enrichment (OpenAI/Ollama) + regex pattern rules + Semgrep wrapper",
+      "files": ["analyzer.go", "openai.go", "ollama.go", "patterns.go", "prompts.go", "evidence.go", "semgrep.go"],
+      "imports": ["internal/models", "internal/fsutil"],
+      "hld_section": [8],
+      "lld_section": [7]
+    },
+    {
+      "id": "license",
+      "path": "internal/license/",
+      "kind": "pipeline",
+      "responsibility": "SPDX classification, copyleft/permissive checks",
+      "files": ["license.go", "spdx_licenses.go", "resolver.go"],
+      "imports": ["internal/models"],
+      "hld_section": [8],
+      "lld_section": [8]
+    },
+    {
+      "id": "cache",
+      "path": "internal/cache/",
+      "kind": "infra",
+      "responsibility": "sha256-keyed file TTL cache for vuln query results",
+      "files": ["cache.go"],
+      "imports": ["internal/models"],
+      "hld_section": [18],
+      "lld_section": [18]
+    },
+    {
+      "id": "scanner",
+      "path": "internal/scanner/",
+      "kind": "pipeline",
+      "responsibility": "Pipeline orchestrator: detect -> parse -> match -> analyze -> report",
+      "files": ["scanner.go"],
+      "imports": ["internal/detector", "internal/parser", "internal/matcher", "internal/analyzer", "internal/license", "internal/reporter", "internal/fsutil", "internal/models"],
+      "hld_section": [6],
+      "lld_section": [9]
+    },
+    {
+      "id": "iac",
+      "path": "internal/iac/",
+      "kind": "scanner",
+      "responsibility": "25 built-in IaC misconfiguration rules across Terraform/K8s/Dockerfile/CFN/Compose/Helm",
+      "files": ["scanner.go"],
+      "imports": ["internal/fsutil", "internal/models"],
+      "hld_section": [16],
+      "lld_section": [16]
+    },
+    {
+      "id": "binary",
+      "path": "internal/binary/",
+      "kind": "scanner",
+      "responsibility": "Embedded SCA from Go binaries / JARs / Python wheels",
+      "files": ["scanner.go"],
+      "imports": ["internal/fsutil", "internal/models"],
+      "hld_section": [17],
+      "lld_section": [17]
+    },
+    {
+      "id": "image",
+      "path": "internal/image/",
+      "kind": "scanner",
+      "responsibility": "Container image scanning via syft + image-ref validation",
+      "files": ["image.go", "validate.go"],
+      "imports": ["internal/matcher", "internal/models"],
+      "hld_section": [10, 21],
+      "lld_section": [14, 21]
+    },
+    {
+      "id": "reporter",
+      "path": "internal/reporter/",
+      "kind": "output",
+      "responsibility": "Output formatters (table/JSON/SARIF/CycloneDX/OpenVEX/SPDX/HTML/PDF)",
+      "files": ["reporter.go", "table.go", "json.go", "sarif.go", "cyclonedx.go", "openvex.go", "spdx.go", "html.go", "pdf.go"],
+      "imports": ["internal/models"],
+      "hld_section": [11],
+      "lld_section": [10]
+    }
+  ],
+
+  "interfaces": [
+    {
+      "id": "Parser",
+      "package": "internal/parser",
+      "purpose": "Convert one manifest/lockfile to []models.Package",
+      "methods": ["Parse(path string) ([]models.Package, error)", "Supports(path string) bool"],
+      "implementations": ["GoModParser", "PomXMLParser", "GradleParser", "NpmLockParser", "YarnLockParser", "PnpmLockParser", "RequirementsTxtParser", "PipfileLockParser", "PoetryLockParser", "UvLockParser", "CargoLockParser", "GemfileLockParser", "ComposerLockParser", "ConanLockParser"],
+      "factory": "parser.ForFile(path)"
+    },
+    {
+      "id": "Matcher",
+      "package": "internal/matcher",
+      "purpose": "Lookup vulnerabilities for a package set",
+      "methods": ["Match(packages []models.Package) ([]models.Vulnerability, error)", "Source() string"],
+      "implementations": ["OSVMatcher", "NVDMatcher", "GitHubAdvisoryMatcher", "AggregatedMatcher"]
+    },
+    {
+      "id": "Analyzer",
+      "package": "internal/analyzer",
+      "purpose": "Code-level scanning + AI enrichment",
+      "methods": ["Analyze(root string) ([]models.Vulnerability, error)", "EnrichVulns(v []models.Vulnerability) ([]models.Vulnerability, error)"],
+      "implementations": ["OpenAIAnalyzer", "OllamaAnalyzer", "PatternAnalyzer", "SemgrepAnalyzer"]
+    },
+    {
+      "id": "Reporter",
+      "package": "internal/reporter",
+      "purpose": "Render ScanResult into a target format",
+      "methods": ["Report(result *models.ScanResult, w io.Writer) error", "Format() string"],
+      "implementations": ["TableReporter", "JSONReporter", "SARIFReporter", "CycloneDXReporter", "OpenVEXReporter", "SPDXReporter", "HTMLReporter", "PDFReporter"],
+      "factory": "reporter.ForFormat(fmt)"
+    },
+    {
+      "id": "secretStore",
+      "package": "internal/config",
+      "purpose": "Pluggable secret persistence (unexported; backend chosen at runtime)",
+      "methods": ["Get(key string) (string, error)", "Set(key, value string) error", "Delete(key string) error"],
+      "implementations": ["keyringStore (zalando/go-keyring)", "fileStore (~/.calvigil-secrets.json mode 0600)"],
+      "selector": "getStore() — sync.Once probe; CALVIGIL_SECRET_BACKEND env override"
+    }
+  ],
+
+  "key_functions": [
+    {
+      "qualified": "fsutil.ShouldSkipSubDir",
+      "file": "internal/fsutil/walk.go",
+      "signature": "func ShouldSkipSubDir(name string) bool",
+      "summary": "Reports whether a directory basename is in SkippedSubDirs. Caller MUST guard with `path != root` so explicit user targets still scan.",
+      "callers": ["detector", "binary", "iac", "analyzer/patterns", "scanner"]
+    },
+    {
+      "qualified": "iac.Scan",
+      "file": "internal/iac/scanner.go",
+      "signature": "func Scan(root string, verbose bool) (*ScanResult, error)",
+      "summary": "Walks root, applies 25 built-in regex rules to matching files, returns ScanResult.",
+      "rules_count": 25
+    },
+    {
+      "qualified": "iac.ToVulnerabilities",
+      "file": "internal/iac/scanner.go",
+      "signature": "func ToVulnerabilities(findings []Finding, projectPath string) []models.Vulnerability",
+      "summary": "Maps IaC Findings into models.Vulnerability so reporters/severity-filter pipeline applies."
+    },
+    {
+      "qualified": "binary.Scan",
+      "file": "internal/binary/scanner.go",
+      "signature": "func Scan(root string, verbose bool) (*ScanResult, error)",
+      "summary": "Walks root, extracts embedded deps from Go binaries, JARs, Python wheels. Dedups on ecosystem|name|version."
+    },
+    {
+      "qualified": "cache.New",
+      "file": "internal/cache/cache.go",
+      "signature": "func New(dir string, ttl time.Duration) *Cache",
+      "summary": "Empty dir -> ~/.calvigil/cache; ttl <= 0 -> 24h."
+    },
+    {
+      "qualified": "(*cache.Cache).Get",
+      "file": "internal/cache/cache.go",
+      "signature": "func (c *Cache) Get(source string, packages []models.Package) ([]models.Vulnerability, bool)",
+      "summary": "Returns (nil, false) on miss/expired/corrupt; deletes corrupt or expired files."
+    },
+    {
+      "qualified": "(*cache.Cache).Put",
+      "file": "internal/cache/cache.go",
+      "signature": "func (c *Cache) Put(source string, packages []models.Package, vulns []models.Vulnerability) error",
+      "summary": "Writes JSON entry to <dir>/<sha256-key>.json with mode 0600 (dir 0700)."
+    },
+    {
+      "qualified": "image.validateImageRef",
+      "file": "internal/image/validate.go",
+      "signature": "func validateImageRef(ref string) error",
+      "summary": "Boundary check before exec.Command(syft). Rejects control chars, whitespace, shell metachars, '..' traversal in scheme paths.",
+      "supported_schemes": ["docker", "docker-archive", "oci", "oci-archive", "oci-dir", "podman", "containerd", "singularity", "registry", "dir", "file"]
+    },
+    {
+      "qualified": "config.getStore",
+      "file": "internal/config/secrets.go",
+      "signature": "func getStore() secretStore",
+      "summary": "sync.Once: respects CALVIGIL_SECRET_BACKEND, otherwise probes OS keyring with sentinel write+delete; falls back to file."
+    },
+    {
+      "qualified": "cmd.writeReport",
+      "file": "cmd/helpers.go",
+      "signature": "func writeReport(rep reporter.Reporter, result *models.ScanResult, outputFile string) error",
+      "summary": "Single sink for all report output. Files are always created with mode 0600."
+    },
+    {
+      "qualified": "cmd.filterVulnsBySeverity",
+      "file": "cmd/helpers.go",
+      "signature": "func filterVulnsBySeverity(vulns []models.Vulnerability, min models.Severity) []models.Vulnerability",
+      "summary": "Drops vulns below min. Empty/unrecognised min = no filter."
+    }
+  ],
+
+  "iac_rules": [
+    {"id": "IAC-001", "name": "Security Group -- Unrestricted Ingress",          "severity": "high",     "category": "Terraform"},
+    {"id": "IAC-002", "name": "S3 Bucket -- Public ACL",                         "severity": "critical", "category": "Terraform"},
+    {"id": "IAC-003", "name": "S3 Bucket -- Server-Side Encryption Disabled",    "severity": "medium",   "category": "Terraform"},
+    {"id": "IAC-004", "name": "IAM Policy -- Wildcard Actions",                  "severity": "critical", "category": "Terraform"},
+    {"id": "IAC-005", "name": "RDS -- Storage Not Encrypted",                    "severity": "high",     "category": "Terraform"},
+    {"id": "IAC-006", "name": "CloudTrail -- Logging Disabled",                  "severity": "high",     "category": "Terraform"},
+    {"id": "IAC-007", "name": "Security Group -- Unrestricted SSH",              "severity": "critical", "category": "Terraform"},
+    {"id": "IAC-008", "name": "Kubernetes -- Privileged Container",              "severity": "critical", "category": "Kubernetes"},
+    {"id": "IAC-009", "name": "Kubernetes -- Run As Root",                       "severity": "high",     "category": "Kubernetes"},
+    {"id": "IAC-010", "name": "Kubernetes -- Missing Resource Limits",           "severity": "medium",   "category": "Kubernetes"},
+    {"id": "IAC-011", "name": "Kubernetes -- Host Network Enabled",              "severity": "high",     "category": "Kubernetes"},
+    {"id": "IAC-012", "name": "Kubernetes -- Default Namespace",                 "severity": "low",      "category": "Kubernetes"},
+    {"id": "IAC-013", "name": "Kubernetes -- Host PID Enabled",                  "severity": "high",     "category": "Kubernetes"},
+    {"id": "IAC-014", "name": "Dockerfile -- Running as Root",                   "severity": "medium",   "category": "Dockerfile"},
+    {"id": "IAC-015", "name": "Dockerfile -- Using latest Tag",                  "severity": "medium",   "category": "Dockerfile"},
+    {"id": "IAC-016", "name": "Dockerfile -- ADD Instead of COPY",               "severity": "low",      "category": "Dockerfile"},
+    {"id": "IAC-017", "name": "Dockerfile -- Curl Pipe to Shell",                "severity": "high",     "category": "Dockerfile"},
+    {"id": "IAC-018", "name": "CloudFormation -- Public S3 Bucket",              "severity": "critical", "category": "CloudFormation"},
+    {"id": "IAC-019", "name": "CloudFormation -- Open Security Group Ingress",   "severity": "high",     "category": "CloudFormation"},
+    {"id": "IAC-020", "name": "Docker Compose -- Privileged Mode",               "severity": "critical", "category": "Docker Compose"},
+    {"id": "IAC-021", "name": "Helm -- Tiller Enabled (Helm 2)",                 "severity": "critical", "category": "Helm"},
+    {"id": "IAC-022", "name": "Helm -- Container Uses latest Tag",               "severity": "medium",   "category": "Helm"},
+    {"id": "IAC-023", "name": "Helm -- No Resource Limits",                      "severity": "medium",   "category": "Helm"},
+    {"id": "IAC-024", "name": "Helm -- Host Network Enabled",                    "severity": "high",     "category": "Helm"},
+    {"id": "IAC-025", "name": "Helm -- Privileged Container",                    "severity": "critical", "category": "Helm"}
+  ],
+
+  "supported_ecosystems": [
+    {"name": "Go",       "purl_type": "golang",   "manifests": ["go.mod", "go.sum"],            "parser_file": "internal/parser/golang.go"},
+    {"name": "Java",     "purl_type": "maven",    "manifests": ["pom.xml", "build.gradle*"],    "parser_file": "internal/parser/maven.go"},
+    {"name": "JS/TS",    "purl_type": "npm",      "manifests": ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"], "parser_file": "internal/parser/npm.go"},
+    {"name": "Python",   "purl_type": "pypi",     "manifests": ["requirements*.txt", "Pipfile.lock", "poetry.lock", "uv.lock"], "parser_file": "internal/parser/python.go"},
+    {"name": "Rust",     "purl_type": "cargo",    "manifests": ["Cargo.lock"],                  "parser_file": "internal/parser/rust.go"},
+    {"name": "Ruby",     "purl_type": "gem",      "manifests": ["Gemfile.lock"],                "parser_file": "internal/parser/ruby.go"},
+    {"name": "PHP",      "purl_type": "composer", "manifests": ["composer.lock"],               "parser_file": "internal/parser/php.go"},
+    {"name": "C/C++",    "purl_type": "conan",    "manifests": ["conan.lock"],                  "parser_file": "internal/parser/conan.go"}
+  ],
+
+  "report_formats": [
+    {"name": "table",      "ext": "stdout", "spec": "go-pretty",                "file": "internal/reporter/table.go"},
+    {"name": "json",       "ext": ".json",  "spec": "indented JSON",            "file": "internal/reporter/json.go"},
+    {"name": "sarif",      "ext": ".sarif", "spec": "SARIF v2.1.0",             "file": "internal/reporter/sarif.go"},
+    {"name": "cyclonedx",  "ext": ".json",  "spec": "CycloneDX 1.5 BOM + VDR",  "file": "internal/reporter/cyclonedx.go"},
+    {"name": "openvex",    "ext": ".json",  "spec": "OpenVEX 0.2.0",            "file": "internal/reporter/openvex.go"},
+    {"name": "spdx",       "ext": ".json",  "spec": "SPDX 2.3 JSON",            "file": "internal/reporter/spdx.go"},
+    {"name": "html",       "ext": ".html",  "spec": "Self-contained HTML + license donut chart", "file": "internal/reporter/html.go"},
+    {"name": "pdf",        "ext": ".pdf",   "spec": "Headless Chrome render",   "file": "internal/reporter/pdf.go"}
+  ],
+
+  "invariants": [
+    {"id": "I1",  "rule": "Every walker calls fsutil.ShouldSkipSubDir(name) AND guards with `path != root`", "scope": ["detector", "binary", "iac", "analyzer/patterns", "scanner"]},
+    {"id": "I2",  "rule": "All output files are written with mode 0600 via cmd.writeReport", "scope": ["cmd/helpers.go", "all reporters"]},
+    {"id": "I3",  "rule": "Secrets never appear in YAML config struct or .calvigil.yaml — always via secretStore", "scope": ["internal/config/secrets.go", "cmd/config.go"]},
+    {"id": "I4",  "rule": "scan-image always calls validateImageRef before exec.Command", "scope": ["internal/image/image.go"]},
+    {"id": "I5",  "rule": "External Semgrep project rules require explicit --trust-project-rules flag", "scope": ["internal/analyzer/semgrep.go", "cmd/scan.go"]},
+    {"id": "I6",  "rule": "Symlinks resolved and confirmed inside scan root before reading", "scope": ["detector", "all walkers reading file content"]},
+    {"id": "I7",  "rule": "New ecosystems require BOTH a Parser implementation AND a PURL type entry in models/purl.go", "scope": ["internal/parser/*.go", "internal/models/purl.go"]},
+    {"id": "I8",  "rule": "Reporters never write files directly — they write to io.Writer; cmd.writeReport handles file creation", "scope": ["internal/reporter/*.go"]},
+    {"id": "I9",  "rule": "Every Matcher consults cache.Get before network and cache.Put after success", "scope": ["internal/matcher/*.go"]},
+    {"id": "I10", "rule": "Tests mutating HOME/cwd/env use t.Setenv / t.Chdir for parallel safety and auto-restore", "scope": ["*_test.go"]}
+  ],
+
+  "extension_recipes": [
+    {"goal": "New language ecosystem",   "files": ["internal/parser/<lang>.go", "internal/parser/parser.go::ForFile", "internal/models/purl.go"]},
+    {"goal": "New vulnerability source", "files": ["internal/matcher/<src>.go", "cmd/scan.go (wire AggregatedMatcher)"]},
+    {"goal": "New AI provider",          "files": ["internal/analyzer/<provider>.go", "cmd/scan.go (provider switch)"]},
+    {"goal": "New IaC rule",             "files": ["internal/iac/scanner.go (append IaCRule literal)", "internal/iac/testdata/<rule>/{positive,negative}.*"]},
+    {"goal": "New code-pattern rule",    "files": ["internal/analyzer/patterns.go"]},
+    {"goal": "New report format",        "files": ["internal/reporter/<fmt>.go", "internal/reporter/reporter.go::ForFormat", "(NO file IO inside reporter — use cmd.writeReport)"]},
+    {"goal": "New skip-dir convention",  "files": ["internal/fsutil/walk.go (SkippedSubDirs)", "internal/fsutil/walk_test.go"]},
+    {"goal": "New secret backend",       "files": ["internal/config/secrets.go (impl secretStore + extend getStore() switch on CALVIGIL_SECRET_BACKEND)"]},
+    {"goal": "New binary format",        "files": ["internal/binary/scanner.go::scanFile (ext switch + scan<Format>())"]},
+    {"goal": "New CLI subcommand",       "files": ["cmd/<command>.go", "cmd/root.go::init (register)"]}
+  ],
+
+  "environment_variables": [
+    {"name": "CALVIGIL_SECRET_BACKEND", "values": ["keyring", "file"], "default": "auto-probe (keyring then file)", "purpose": "Pin secret store backend"},
+    {"name": "OPENAI_API_KEY",          "purpose": "Override stored OpenAI key for current process"},
+    {"name": "NVD_API_KEY",             "purpose": "Override stored NVD key for current process"},
+    {"name": "GITHUB_TOKEN",            "purpose": "Override stored GHSA token for current process"},
+    {"name": "HOME",                    "purpose": "Used for ~/.calvigil/cache, ~/.calvigil-secrets.json, ~/.calvigil.yaml"}
+  ],
+
+  "filesystem_artifacts": [
+    {"path": "~/.calvigil.yaml",          "mode": "0600", "purpose": "User config (no secrets)"},
+    {"path": "~/.calvigil-secrets.json",  "mode": "0600", "purpose": "Secret store fallback (when keyring unavailable)"},
+    {"path": "~/.calvigil/cache/",        "mode": "0700", "purpose": "Vulnerability cache directory"},
+    {"path": "~/.calvigil/cache/<sha256>.json", "mode": "0600", "purpose": "Cached vulnerability lookup result with TTL"}
+  ],
+
+  "skip_dirs": {
+    "test_fixtures": ["testdata", "test-fixtures"],
+    "package_managers": ["node_modules", "vendor", "target", "__pycache__", "site-packages", ".venv", "venv", ".env", "env", ".bundle", ".cargo", ".terraform", ".terragrunt-cache", ".serverless"],
+    "vcs_ide": [".git", ".idea", ".vscode"],
+    "build_cache_out": ["build", "dist", "out", "bin", "obj", ".next", ".nuxt", ".cache", ".tox", ".nox", ".mypy_cache", ".pytest_cache"]
+  },
+
+  "commands": [
+    {"name": "scan",         "args": "[path]",   "uses": ["scanner"],      "outputs": "ScanResult"},
+    {"name": "scan-image",   "args": "<ref>",    "uses": ["image", "matcher"],  "outputs": "ScanResult", "validates_with": "validateImageRef"},
+    {"name": "scan-binary",  "args": "<path>",   "uses": ["binary", "matcher"], "outputs": "ScanResult"},
+    {"name": "scan-iac",     "args": "<path>",   "uses": ["iac"],          "outputs": "ScanResult (from ToVulnerabilities)"},
+    {"name": "scan-license", "args": "[path]",   "uses": ["detector", "parser", "license"], "outputs": "ScanResult"},
+    {"name": "config",       "args": "set|get",  "uses": ["config", "secrets"], "outputs": "stdout"},
+    {"name": "version",      "args": "",         "uses": [],               "outputs": "stdout"}
+  ]
+}
