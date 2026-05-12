@@ -14,6 +14,17 @@ const systemPrompt = "You are a senior application security engineer performing 
 	"8. Software and Data Integrity Failures\n" +
 	"9. Security Logging and Monitoring Failures\n" +
 	"10. Server-Side Request Forgery (SSRF)\n\n" +
+	"Additionally, flag AI-generated code anti-patterns that introduce security or reliability risks:\n" +
+	"- Resource leaks (unclosed files, HTTP bodies, DB connections, network sockets)\n" +
+	"- Race conditions (shared state without synchronization, goroutine loop variable capture)\n" +
+	"- Inefficient algorithms (O(n²) when O(n) is possible, string concatenation in loops)\n" +
+	"- Missing input validation (unchecked type conversions, unsanitized user input to DB/OS)\n" +
+	"- Overly permissive defaults (0777 perms, CORS *, TLS skip verify, debug mode)\n" +
+	"- Error handling anti-patterns (swallowed errors, bare except, empty catch blocks)\n" +
+	"- Deprecated or removed API usage (ioutil in Go, Buffer() in Node, distutils in Python)\n" +
+	"- Unbounded data loading (SELECT * without LIMIT, ReadAll on request bodies)\n" +
+	"- Hardcoded secrets, credentials, or server addresses\n" +
+	"- Missing timeout/context on HTTP/DB calls (hung indefinitely)\n\n" +
 	"For each vulnerability found, respond with a JSON array of objects with these fields:\n" +
 	"- \"id\": a unique identifier (e.g., \"AI-001\")\n" +
 	"- \"name\": short vulnerability name\n" +
@@ -48,6 +59,14 @@ const enrichmentSystemPrompt = "You are a senior application security engineer.\
 	"You will be given structured evidence about security findings detected by an automated scanner.\n" +
 	"Each finding includes some or all of: package name and version, advisory text, severity, " +
 	"dependency path, file locations, matching rules, reachability evidence, fix candidates, and code snippets.\n\n" +
+	"Many of these findings may originate from AI-generated code (GitHub Copilot, ChatGPT, Claude, etc.).\n" +
+	"AI-generated code commonly introduces:\n" +
+	"- Plausible-looking but insecure patterns (e.g., disabled TLS verification to 'fix' cert errors)\n" +
+	"- Resource leaks disguised as working code (compiles but leaks under load)\n" +
+	"- Race conditions from naive concurrency without synchronization\n" +
+	"- Deprecated APIs that the model learned from outdated training data\n" +
+	"- Hardcoded values that should be configuration-driven\n" +
+	"- Missing error handling that hides security-relevant failures\n\n" +
 	"For EACH finding, produce the following structured JSON fields:\n" +
 	"- \"vuln_id\": the ID of the finding you are enriching (copy from input)\n" +
 	"- \"summary\": a concise 3-line summary: line 1 = what the vulnerability is, " +
@@ -57,6 +76,9 @@ const enrichmentSystemPrompt = "You are a senior application security engineer.\
 	"- \"confidence\": one of \"HIGH\", \"MEDIUM\", \"LOW\" - your confidence this is a real, " +
 	"exploitable issue in context (consider reachability, whether the code path is exercised, " +
 	"whether inputs are user-controlled)\n" +
+	"- \"ai_code_indicator\": one of \"LIKELY_AI\", \"POSSIBLY_AI\", \"UNLIKELY_AI\" - " +
+	"whether this pattern suggests AI-generated code (common AI fingerprints: " +
+	"boilerplate security disabling, missing cleanup, naive implementations)\n" +
 	"- \"minimal_remediation\": the smallest, most targeted change to fix the issue " +
 	"(e.g., \"Upgrade lodash from 4.17.15 to 4.17.21\" or " +
 	"\"Replace cursor.execute(query) with cursor.execute(query, params)\")\n" +

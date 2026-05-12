@@ -267,7 +267,11 @@ func printEnrichmentDetails(w io.Writer, vulns []models.Vulnerability) {
 			continue
 		}
 		e := v.AIEnrichment
-		fmt.Fprintf(w, "\n  ── %s (%s) [Confidence: %s] ──\n", v.ID, colorSeverity(v.Severity), e.Confidence)
+		aiTag := ""
+		if e.AICodeIndicator != "" && e.AICodeIndicator != "UNLIKELY_AI" {
+			aiTag = fmt.Sprintf(" [AI-Generated: %s]", e.AICodeIndicator)
+		}
+		fmt.Fprintf(w, "\n  ── %s (%s) [Confidence: %s]%s ──\n", v.ID, colorSeverity(v.Severity), e.Confidence, aiTag)
 		if e.Summary != "" {
 			for _, line := range strings.Split(e.Summary, "\n") {
 				fmt.Fprintf(w, "     %s\n", line)

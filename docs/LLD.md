@@ -1,10 +1,11 @@
 # Calvigil — Low-Level Design (LLD)
 
-**Version:** 1.1
-**Date:** April 2026
+**Version:** 1.2
+**Date:** May 2026
 **Module:** `github.com/Calsoft-Pvt-Ltd/calvigil`
 
 > **Change log**
+> - **1.2 (May 2026):** Added 18 AI-generated code anti-pattern rules (AI-SEC-001..018), updated `PatternRule` struct with `Excludes` field, `AIEnrichment` model gains `AICodeIndicator`, new Semgrep `ai-code-quality.yaml` pack, updated prompts for AI-code detection.
 > - **1.1 (Apr 2026):** Added `internal/binary/`, `internal/iac/`, `internal/fsutil/`, `internal/cache/`, `internal/config/secrets.go`, `internal/image/validate.go`, `internal/parser/integrity.go|consistency.go|rust.go|ruby.go|php.go|conan.go`, `cmd/scan_binary.go`, `cmd/scan_iac.go`, `cmd/helpers.go`, SPDX reporter section, security hardening notes.
 > - **1.0 (Mar 2026):** Initial LLD.
 
@@ -84,7 +85,7 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   ├── analyzer.go              # Analyzer interface
 │   │   ├── openai.go                # OpenAIAnalyzer (GPT-4 ChatCompletion)
 │   │   ├── ollama.go                # OllamaAnalyzer (local LLM)
-│   │   ├── patterns.go              # PatternRule regex scanner (12 rules)
+│   │   ├── patterns.go              # PatternRule regex scanner (47 rules: 29 SEC + 18 AI-SEC)
 │   │   ├── prompts.go               # AI prompt templates (system, analysis, enrichment)
 │   │   ├── evidence.go              # Evidence packet builder for AI enrichment
 │   │   └── semgrep.go               # SemgrepAnalyzer (external CLI integration; trust-project-rules opt-in)
@@ -841,11 +842,14 @@ type PatternRule struct {
     Description string
     Severity    models.Severity
     Pattern     *regexp.Regexp
+    Excludes    *regexp.Regexp     // Optional: if match also matches this, skip (false-positive filter)
     Languages   []string          // File extensions (e.g., ".go", ".py")
 }
 ```
 
-#### Built-in Rules (12 total)
+#### Built-in Rules (47 total: 29 SEC + 18 AI-SEC)
+
+**Security Rules (SEC-001 through SEC-029):**
 
 | Rule ID | Name | Severity | Pattern Description |
 |---------|------|----------|-------------------|
@@ -854,13 +858,53 @@ type PatternRule struct {
 | SEC-003 | Command Injection | CRITICAL | `exec.Command`, `subprocess`, `child_process` with variables |
 | SEC-004 | Path Traversal | HIGH | `../` in file operations |
 | SEC-005 | Hardcoded Secrets | HIGH | `password|secret|api_key|token` = literal values |
-| SEC-006 | AWS Access Keys | CRITICAL | `AKIA[0-9A-Z]{16}` pattern |
+| SEC-006 | Cloud Provider Credentials | CRITICAL | AWS/GCP/Azure/GitHub/Slack/Stripe/OpenAI patterns |
 | SEC-007 | Weak Cryptography | MEDIUM | `md5`, `sha1` usage |
 | SEC-008 | Cross-Site Scripting | HIGH | `innerHTML`, `document.write` |
-| SEC-009 | Insecure HTTP | MEDIUM | `http://` URLs (non-localhost) |
+| SEC-009 | Insecure HTTP | LOW | `http://` URLs (non-localhost, with exclusions) |
 | SEC-010 | TLS Verification Disabled | CRITICAL | `InsecureSkipVerify: true`, `verify=False` |
 | SEC-011 | Insecure Deserialization | HIGH | `pickle.loads`, `yaml.load`, `ObjectInputStream` |
 | SEC-012 | Permissive CORS | MEDIUM | `Access-Control-Allow-Origin: *` |
+| SEC-013 | Unsafe Rust | MEDIUM | `unsafe` blocks |
+| SEC-014 | Buffer Overflow (C/C++) | HIGH | `strcpy`, `gets`, `sprintf` |
+| SEC-015 | Format String (C/C++) | CRITICAL | User-controlled printf args |
+| SEC-016 | PHP File Inclusion | CRITICAL | `include`/`require` with `$_GET` |
+| SEC-017 | Ruby Mass Assignment | HIGH | `.create(params)` without strong params |
+| SEC-018 | Insecure Random | MEDIUM | `math/rand`, `random.randint`, `Math.random()` |
+| SEC-019 | Weak Cipher | HIGH | DES, 3DES, RC4, Blowfish, AES/ECB |
+| SEC-020 | XXE Processing | HIGH | XML parsers without entity disabling |
+| SEC-021 | JWT Misconfiguration | CRITICAL | `verify=False`, algorithm `none` |
+| SEC-022 | Debug Mode | MEDIUM | `debug=True`, `gin.DebugMode` |
+| SEC-023 | Empty Error Handler | LOW | `catch() {}`, bare `except:` |
+| SEC-024 | SSRF | HIGH | HTTP requests with variable URLs |
+| SEC-025 | Open Redirect | MEDIUM | Redirect from request params |
+| SEC-026 | Private Key Detected | CRITICAL | RSA/EC/PGP/SSH private key headers |
+| SEC-027 | DB Connection String | HIGH | Credentials in connection URIs |
+| SEC-028 | Bearer/Auth Token | HIGH | Hardcoded authorization tokens |
+| SEC-029 | Generic API Key | MEDIUM | `api_key`/`secret_key` = long strings |
+
+**AI-Generated Code Anti-Pattern Rules (AI-SEC-001 through AI-SEC-018):**
+
+| Rule ID | Name | Severity | CWE | What It Catches |
+|---------|------|----------|-----|------------------|
+| AI-SEC-001 | HTTP Response Body Not Closed | MEDIUM | CWE-404 | Go `http.Get()` without `defer resp.Body.Close()` |
+| AI-SEC-002 | Resource Opened in Loop | MEDIUM | CWE-404 | Files/connections opened in loop without close |
+| AI-SEC-003 | Concurrent Map Access | HIGH | CWE-362 | Go map writes inside goroutines without mutex |
+| AI-SEC-004 | Goroutine Loop Variable | HIGH | CWE-362 | Loop variable captured by reference in goroutine |
+| AI-SEC-005 | O(n²) Nested Loop | LOW | CWE-407 | Nested iteration over same collection |
+| AI-SEC-006 | String Concat in Loop | LOW | CWE-400 | `+=` string building instead of Builder |
+| AI-SEC-007 | Ignored Error Return | MEDIUM | CWE-252 | `_ = file.Close()` discarding errors |
+| AI-SEC-008 | Overly Broad Exception | MEDIUM | CWE-396 | Bare `except:`, `catch(Throwable)` |
+| AI-SEC-009 | Deprecated API | MEDIUM | CWE-477 | `ioutil`, `distutils`, `Buffer()`, `Thread.stop` |
+| AI-SEC-010 | Hardcoded Server Address | LOW | CWE-547 | IP:port in Listen/Dial/connect calls |
+| AI-SEC-011 | Unbounded Data Loading | MEDIUM | CWE-770 | `SELECT *` without LIMIT, `ReadAll(resp.Body)` |
+| AI-SEC-012 | Permissive File Permissions | MEDIUM | CWE-732 | `os.WriteFile(..., 0777)` |
+| AI-SEC-013 | Unchecked Type Conversion | MEDIUM | CWE-20 | `_, _ := strconv.Atoi(input)` |
+| AI-SEC-014 | Sensitive Data in Logs | MEDIUM | CWE-532 | `log.Printf("password: %s", pw)` |
+| AI-SEC-015 | Missing Timeout | MEDIUM | CWE-400 | `context.Background()` in HTTP/DB calls |
+| AI-SEC-016 | Sync Crypto in Event Loop | MEDIUM | CWE-400 | `crypto.pbkdf2Sync`, `scryptSync` (Node.js) |
+| AI-SEC-017 | Template Literal SQL | HIGH | CWE-89 | JS/TS `` query(`...${input}`) `` |
+| AI-SEC-018 | Missing CSRF Protection | MEDIUM | CWE-352 | POST/PUT/DELETE without CSRF middleware |
 
 #### Source Extensions Scanned
 ```

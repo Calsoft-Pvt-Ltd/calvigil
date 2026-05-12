@@ -87,11 +87,13 @@
       "id": "analyzer",
       "path": "internal/analyzer/",
       "kind": "pipeline",
-      "responsibility": "AI enrichment (OpenAI/Ollama) + regex pattern rules + Semgrep wrapper",
+      "responsibility": "AI enrichment (OpenAI/Ollama) + 47 regex pattern rules (29 SEC + 18 AI-SEC) + Semgrep wrapper (77+ rules across 3 packs)",
       "files": ["analyzer.go", "openai.go", "ollama.go", "patterns.go", "prompts.go", "evidence.go", "semgrep.go"],
       "imports": ["internal/models", "internal/fsutil"],
       "hld_section": [8],
-      "lld_section": [7]
+      "lld_section": [7],
+      "pattern_rules_count": 47,
+      "semgrep_rules_count": 77
     },
     {
       "id": "license",
@@ -347,6 +349,8 @@
     {"goal": "New AI provider",          "files": ["internal/analyzer/<provider>.go", "cmd/scan.go (provider switch)"]},
     {"goal": "New IaC rule",             "files": ["internal/iac/scanner.go (append IaCRule literal)", "internal/iac/testdata/<rule>/{positive,negative}.*"]},
     {"goal": "New code-pattern rule",    "files": ["internal/analyzer/patterns.go"]},
+    {"goal": "New Semgrep rule pack",     "files": ["rules/semgrep/<name>.yaml (auto-discovered by getBundledRulesDir)"]},
+    {"goal": "Record a change",           "files": ["CHANGELOG.md", "HLD.md/LLD.md version headers", "README.md rule counts", "KNOWLEDGE_GRAPH.md/json rule counts"]},
     {"goal": "New report format",        "files": ["internal/reporter/<fmt>.go", "internal/reporter/reporter.go::ForFormat", "(NO file IO inside reporter — use cmd.writeReport)"]},
     {"goal": "New skip-dir convention",  "files": ["internal/fsutil/walk.go (SkippedSubDirs)", "internal/fsutil/walk_test.go"]},
     {"goal": "New secret backend",       "files": ["internal/config/secrets.go (impl secretStore + extend getStore() switch on CALVIGIL_SECRET_BACKEND)"]},

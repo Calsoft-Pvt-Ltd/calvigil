@@ -1,10 +1,11 @@
 # Calvigil — High-Level Design (HLD)
 
-**Version:** 1.1
-**Date:** April 2026
+**Version:** 1.2
+**Date:** May 2026
 **Module:** `github.com/Calsoft-Pvt-Ltd/calvigil`
 
 > **Change log**
+> - **1.2 (May 2026):** Added 18 AI-generated code anti-pattern rules (AI-SEC-001..018), new Semgrep `ai-code-quality.yaml` rule pack (25+ rules), AI code indicator in enrichment layer, enhanced AI prompts for AI-code detection, CHANGELOG.md.
 > - **1.1 (Apr 2026):** Added IaC scanner, binary/SCA scanner, supply-chain integrity & phantom-dependency checks, vulnerability cache, OS keyring secret store, image-reference validation, project-rules trust opt-in, shared filesystem skip helper, CI integration, and SPDX 2.3 reporter sections. Renumbered duplicate "Section 9".
 > - **1.0 (Mar 2026):** Initial HLD.
 
@@ -114,7 +115,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **Detector** | `internal/detector/` | Filesystem walk to identify project ecosystems |
 | **Parser** | `internal/parser/` | Extract dependencies from manifest/lock files; integrity verification; phantom dep detection |
 | **Matcher** | `internal/matcher/` | Query CVE databases (OSV, NVD, GHSA) |
-| **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama), pattern matching, Semgrep |
+| **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama), 47 pattern rules (29 SEC + 18 AI-SEC for AI-generated code), 77+ Semgrep rules across 3 packs |
 | **Reporter** | `internal/reporter/` | Format and emit scan results |
 | **Image Scanner** | `internal/image/` | Container image scanning via Syft, image-reference validation |
 | **IaC Scanner** | `internal/iac/` | Regex-based misconfiguration scanner for Terraform / Kubernetes / Dockerfile / CloudFormation / Docker Compose / Helm (25 built-in rules) |

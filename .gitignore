@@ -28,4 +28,7 @@ Thumbs.db
 
 # Temporary files
 *.tmp
+
+# Enterprise (private)
+enterprise/
 *.log

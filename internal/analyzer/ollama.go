@@ -267,6 +267,7 @@ func (o *OllamaAnalyzer) EnrichVulnerabilities(ctx context.Context, vulns []mode
 				Summary:              r.Summary,
 				LikelyImpact:         r.LikelyImpact,
 				Confidence:           strings.ToUpper(r.Confidence),
+				AICodeIndicator:      strings.ToUpper(r.AICodeIndicator),
 				MinimalRemediation:   r.MinimalRemediation,
 				SuppressionRationale: r.SuppressionRationale,
 			}

@@ -37,11 +37,28 @@ Calvigil can send your source files to an AI model (OpenAI GPT-4 or a local Olla
 - Insecure TLS configuration, weak cryptography
 - Path traversal, insecure deserialization
 
-This catches security bugs that no dependency database can find — the ones **you** wrote.
+The AI enrichment layer also classifies findings as `LIKELY_AI`, `POSSIBLY_AI`, or `UNLIKELY_AI` — helping teams identify and prioritize risks introduced by AI code generators.
+
+This catches security bugs that no dependency database can find — the ones **you** wrote (or the ones your AI assistant wrote).
+
+### 2a. AI-Generated Code Detection (automatic)
+
+Calvigil includes **18 dedicated rules** that detect anti-patterns commonly introduced by AI code generators (Copilot, ChatGPT, Claude, etc.):
+
+- **Resource leaks**: unclosed HTTP response bodies, files opened in loops without close
+- **Race conditions**: concurrent map writes in goroutines, loop variable capture
+- **Inefficient algorithms**: O(n²) nested loops, string concatenation in loops
+- **Error handling**: ignored error returns, overly broad exception handlers
+- **Deprecated APIs**: `ioutil` (Go), `distutils` (Python), `Buffer()` (Node.js)
+- **Insecure defaults**: 0777 file permissions, hardcoded server addresses
+- **Missing validation**: unchecked type conversions, unbounded data loading
+- **Sensitive data leaks**: passwords and tokens in log output
+
+These run automatically as part of the pattern scanner — no AI model or API key required.
 
 ### 3. SAST Engine — Semgrep (automatic)
 
-Calvigil ships with **52 built-in security rules** powered by Semgrep, covering Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, and C/C++. This provides pattern-based static analysis without needing an AI model.
+Calvigil ships with **77+ built-in security rules** powered by Semgrep, covering Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, and C/C++. This includes a dedicated **AI code quality** rule pack that detects resource leaks, race conditions, deprecated APIs, and inefficient patterns at the AST level. All of this works without needing an AI model.
 
 ### 4. Supply Chain Protection (automatic + opt-in)
 

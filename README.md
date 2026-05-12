@@ -86,9 +86,18 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Full vulnerability matching against OSV, NVD, and GitHub Advisory
 
 - **SAST Engine — Semgrep CE Integration** with custom rule packs:
-  - 52 bundled security rules covering OWASP Top 10 + SonarQube-aligned + language-specific patterns
+  - 77+ bundled security rules covering OWASP Top 10 + SonarQube-aligned + language-specific + AI-generated code quality patterns
   - Custom rule packs for Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, and C/C++
   - Bring your own rules with `--semgrep-rules`
+
+- **AI-Generated Code Detection** — 18 dedicated pattern rules for code produced by AI generators:
+  - Resource leaks (unclosed HTTP bodies, files opened in loops)
+  - Race conditions (concurrent map writes, goroutine loop variable capture)
+  - Inefficient algorithms (O(n²) nested loops, string concat in loops)
+  - Deprecated API usage (ioutil, distutils, Buffer(), Thread.stop)
+  - Error handling anti-patterns (ignored errors, overly broad exceptions)
+  - Missing input validation, insecure defaults, unbounded data loading
+  - AI enrichment layer classifies findings as `LIKELY_AI`, `POSSIBLY_AI`, or `UNLIKELY_AI`
 
 - **Standards Compliance**:
   - **PURL** (Package URL) — standard package identifiers (`pkg:npm/@babel/core@7.0.0`)
@@ -515,6 +524,29 @@ Scan-License Flags:
 | SEC-028 | Hardcoded Bearer or Auth Token | HIGH | CWE-798 |
 | SEC-029 | Generic API Key or Secret | MEDIUM | CWE-798 |
 
+### AI-Generated Code Anti-Patterns
+
+| ID | Pattern | Severity | CWE |
+|----|---------|----------|-----|
+| AI-SEC-001 | HTTP Response Body Not Closed (Go) | MEDIUM | CWE-404 |
+| AI-SEC-002 | Resource Opened in Loop Without Close | MEDIUM | CWE-404 |
+| AI-SEC-003 | Concurrent Map Access Without Sync (Go) | HIGH | CWE-362 |
+| AI-SEC-004 | Goroutine Captures Loop Variable (Go) | HIGH | CWE-362 |
+| AI-SEC-005 | Potential O(n²) Nested Loop | LOW | CWE-407 |
+| AI-SEC-006 | String Concatenation in Loop | LOW | CWE-400 |
+| AI-SEC-007 | Ignored Error Return Value (Go) | MEDIUM | CWE-252 |
+| AI-SEC-008 | Overly Broad Exception Handler | MEDIUM | CWE-396 |
+| AI-SEC-009 | Deprecated or Removed API Usage | MEDIUM | CWE-477 |
+| AI-SEC-010 | Hardcoded Server Address | LOW | CWE-547 |
+| AI-SEC-011 | Unbounded Data Loading | MEDIUM | CWE-770 |
+| AI-SEC-012 | Overly Permissive File Permissions | MEDIUM | CWE-732 |
+| AI-SEC-013 | Unchecked Type Conversion from User Input | MEDIUM | CWE-20 |
+| AI-SEC-014 | Sensitive Data in Log Output | MEDIUM | CWE-532 |
+| AI-SEC-015 | HTTP/DB Call Without Timeout (Go) | MEDIUM | CWE-400 |
+| AI-SEC-016 | Synchronous Crypto in Event Loop (Node.js) | MEDIUM | CWE-400 |
+| AI-SEC-017 | Template Literal in SQL Query (JS/TS) | HIGH | CWE-89 |
+| AI-SEC-018 | State-Changing Endpoint Without CSRF | MEDIUM | CWE-352 |
+
 ## Semgrep CE Integration
 
 The scanner integrates with [Semgrep CE](https://semgrep.dev/) for static application security testing. Install Semgrep and the scanner will automatically use it:
@@ -535,6 +567,7 @@ calvigil scan --skip-semgrep /path/to/project
 **Bundled rule packs** (in `rules/semgrep/`):
 - `owasp-top10.yaml` — 32 rules: SQL injection, command injection, path traversal, hardcoded secrets, insecure TLS, weak crypto, XSS, insecure deserialization, SSRF, insecure random, weak ciphers, XXE, JWT misconfiguration, open redirect
 - `language-specific.yaml` — 20 rules: Go (unsafe pointer, HTTP timeouts, defer in loop, SQL concat, error wrapping), Python (Flask debug, bind 0.0.0.0, Django raw SQL, insecure tempfile, assert for auth), JS (eval, CORS wildcard, JWT no verify, prototype pollution), Java (XXE, ECB mode, weak ciphers, RSA key size)
+- `ai-code-quality.yaml` — 25+ rules: AI-generated code anti-patterns including resource leaks, race conditions, deprecated APIs, inefficient patterns, error handling, input validation, insecure defaults, and information exposure across Go, Python, Java, and JavaScript/TypeScript
 
 ## Standards & Output Formats
 

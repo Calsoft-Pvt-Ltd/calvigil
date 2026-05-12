@@ -527,6 +527,271 @@ var knownPatterns = []PatternRule{
 		Pattern:     regexp.MustCompile(`(?i)(?:api_key|api_secret|secret_key|token_secret|service_key|master_key)\s*(?:=|:)\s*["'][a-zA-Z0-9+/=_-]{20,}["']`),
 		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php", ".rs", ".yaml", ".yml", ".json", ".env", ".properties"},
 	},
+
+	// ── AI-Generated Code Anti-Patterns ─────────────────────────────────────
+	// These rules detect common mistakes introduced by AI code generators
+	// (Copilot, ChatGPT, Claude, etc.) that may compile but are insecure,
+	// inefficient, or violate best practices.
+
+	// Resource Leak: HTTP response body not closed (Go) (CWE-404)
+	{
+		ID:          "AI-SEC-001",
+		Name:        "HTTP Response Body Not Closed (Go)",
+		Description: "AI-generated code often forgets to close HTTP response bodies, causing resource leaks and connection pool exhaustion. Always defer resp.Body.Close() after checking err. (CWE-404)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`(?:http\.(?:Get|Post|Head|Do)\s*\([^)]*\))\s*$`),
+		Excludes:    regexp.MustCompile(`defer\s+.*\.Body\.Close|resp\.Body\.Close`),
+		Languages:   []string{".go"},
+	},
+
+	// Resource Leak: File/connection opened in loop without close (CWE-404)
+	{
+		ID:          "AI-SEC-002",
+		Name:        "Resource Opened in Loop Without Close",
+		Description: "Opening files, connections, or handles inside a loop without closing them in the same iteration causes resource exhaustion. AI-generated code frequently misses this. (CWE-404)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Go: os.Open/Create in loop context
+			`for\s.*\{[^}]*os\.(?:Open|Create)\s*\(` +
+			// Python: open() in loop
+			`|for\s+\w+\s+in\s+.*:\s*\n\s*.*open\s*\(` +
+			// Java: new FileInputStream/connection in loop
+			`|for\s*\([^)]*\)\s*\{[^}]*new\s+(?:File(?:Input|Output)Stream|BufferedReader|Connection)` +
+			`)`),
+		Languages: []string{".go", ".py", ".java"},
+	},
+
+	// Race Condition: Shared map without mutex (Go) (CWE-362)
+	{
+		ID:          "AI-SEC-003",
+		Name:        "Concurrent Map Access Without Synchronization (Go)",
+		Description: "AI-generated Go code often uses maps in goroutines without sync.Mutex or sync.Map, causing fatal concurrent map writes. Use sync.Map or protect with a mutex. (CWE-362)",
+		Severity:    models.SeverityHigh,
+		Pattern:     regexp.MustCompile(`go\s+func\s*\([^)]*\)\s*\{[^}]*\w+\s*\[\s*\w+\s*\]\s*=`),
+		Languages:   []string{".go"},
+	},
+
+	// Race Condition: Goroutine capturing loop variable (Go) (CWE-362)
+	{
+		ID:          "AI-SEC-004",
+		Name:        "Goroutine Captures Loop Variable (Go)",
+		Description: "AI-generated Go code frequently launches goroutines inside loops that capture the loop variable by reference. All goroutines end up using the last value. Pass the variable as a parameter. (CWE-362)",
+		Severity:    models.SeverityHigh,
+		Pattern:     regexp.MustCompile(`for\s+(?:_\s*,\s*)?(\w+)\s*(?::=|=)\s*range\b[^{]*\{[^}]*go\s+(?:func\s*\(|(\w+)\s*\()`),
+		Languages:   []string{".go"},
+	},
+
+	// Inefficient Algorithm: Nested loop on same collection (CWE-407)
+	{
+		ID:          "AI-SEC-005",
+		Name:        "Potential O(n²) Nested Loop",
+		Description: "Nested iteration over the same or similar collections suggests O(n²) complexity. AI generators often produce brute-force approaches. Consider using a map/set for O(n) lookup. (CWE-407)",
+		Severity:    models.SeverityLow,
+		Pattern: regexp.MustCompile(`(?:` +
+			// Go: two range loops close together (heuristic)
+			`for\s+\w+\s*,?\s*\w*\s*:=\s*range\s+\w+\s*\{[^}]*for\s+\w+\s*,?\s*\w*\s*:=\s*range\s+\w+` +
+			// Python: nested for-in loops
+			`|for\s+\w+\s+in\s+\w+\s*:[^\n]*\n\s+for\s+\w+\s+in\s+\w+` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts"},
+	},
+
+	// Inefficient: String concatenation in loop (CWE-400)
+	{
+		ID:          "AI-SEC-006",
+		Name:        "String Concatenation in Loop",
+		Description: "Building strings with += in a loop creates O(n²) allocations. AI-generated code commonly does this. Use strings.Builder (Go), StringBuilder (Java), list join (Python), or array join (JS). (CWE-400)",
+		Severity:    models.SeverityLow,
+		Pattern: regexp.MustCompile(`(?:` +
+			// Go: result += or result = result + inside loop
+			`for\s[^{]*\{[^}]*\w+\s*\+=\s*(?:fmt\.Sprintf|string\(|"[^"]*"\s*\+)` +
+			// Python: result += "..." in for loop
+			`|for\s+\w+\s+in\s+[^:]*:\s*\n\s*\w+\s*\+=\s*["'f]` +
+			// Java: str += inside for loop
+			`|for\s*\([^)]*\)\s*\{[^}]*\w+\s*\+=\s*"` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts"},
+	},
+
+	// Error Handling: Ignored error return value (Go) (CWE-252)
+	{
+		ID:          "AI-SEC-007",
+		Name:        "Ignored Error Return Value (Go)",
+		Description: "AI-generated Go code often discards error return values with _ or by not capturing them. Unhandled errors hide bugs and can lead to security issues. (CWE-252)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`(?:^|\s)(?:_\s*,\s*_\s*=|_\s*=)\s*\w+\.(?:Write|Read|Close|Flush|Exec|Query|Send|Seek|Remove|Mkdir|Chmod|Chown)\s*\(`),
+		Languages:   []string{".go"},
+	},
+
+	// Error Handling: Overly broad exception catch (CWE-396)
+	{
+		ID:          "AI-SEC-008",
+		Name:        "Overly Broad Exception Handler",
+		Description: "Catching all exceptions (bare except, Exception, Throwable, Error) hides real bugs. AI generators often add catch-all handlers for convenience. Catch specific exception types. (CWE-396)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?:` +
+			// Python: bare except or except Exception
+			`except\s*:\s*$` +
+			`|except\s+(?:Exception|BaseException)\s*(?:as\s+\w+)?:` +
+			// Java: catch Throwable/Exception
+			`|catch\s*\(\s*(?:Throwable|Exception)\s+\w+\s*\)` +
+			// JavaScript: catch without specific error handling
+			`|catch\s*\(\s*\w*\s*\)\s*\{\s*(?:console\.log|\/\/)` +
+			`)`),
+		Languages: []string{".py", ".java", ".js", ".ts"},
+	},
+
+	// Deprecated/Removed API Usage (CWE-477)
+	{
+		ID:          "AI-SEC-009",
+		Name:        "Deprecated or Removed API Usage",
+		Description: "AI models trained on older data often suggest deprecated or removed APIs. These may have known security issues or unexpected behavior in current versions. (CWE-477)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Go deprecated APIs
+			`io/ioutil` +
+			`|ioutil\.(?:ReadAll|ReadFile|WriteFile|ReadDir|TempDir|TempFile|NopCloser|Discard)` +
+			// Python deprecated
+			`|from\s+distutils\b` +
+			`|import\s+distutils` +
+			`|from\s+imp\s+import` +
+			`|import\s+imp\b` +
+			`|from\s+optparse\s+import` +
+			`|cgi\.escape\s*\(` +
+			`|asyncio\.coroutine` +
+			`|@asyncio\.coroutine` +
+			// Node.js deprecated
+			`|new\s+Buffer\s*\(` +
+			`|require\s*\(\s*["'](?:domain|sys)["']\s*\)` +
+			`|url\.parse\s*\(` +
+			// Java deprecated
+			`|new\s+Date\s*\(\s*["'][^"']+["']\s*\)` +
+			`|Thread\.stop\s*\(` +
+			`|Runtime\.runFinalizersOnExit` +
+			`|System\.runFinalizersOnExit` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts"},
+	},
+
+	// Hardcoded IP/Port (common in AI-generated code) (CWE-547)
+	{
+		ID:          "AI-SEC-010",
+		Name:        "Hardcoded Server Address",
+		Description: "AI-generated code frequently hardcodes IP addresses and ports. Use configuration files or environment variables for deployment flexibility and security. (CWE-547)",
+		Severity:    models.SeverityLow,
+		Pattern:     regexp.MustCompile(`(?:Listen|Dial|connect|bind|serve)\s*\(\s*["'](?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|localhost):\d{2,5}["']`),
+		Excludes:    regexp.MustCompile(`(?i)(?:test|spec|_test\.go|example|demo|localhost:0)`),
+		Languages:   []string{".go", ".py", ".java", ".js", ".ts"},
+	},
+
+	// Unbounded allocation / missing pagination (CWE-770)
+	{
+		ID:          "AI-SEC-011",
+		Name:        "Unbounded Data Loading",
+		Description: "Loading all records without limit or pagination. AI-generated code often fetches unbounded data which causes OOM in production. Add LIMIT clauses or pagination. (CWE-770)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// SQL without LIMIT
+			`SELECT\s+\*\s+FROM\s+\w+\s*["'\x60]\s*\)` +
+			// Go: reading all into memory from unbounded source
+			`|ioutil\.ReadAll\s*\(\s*(?:resp\.Body|r\.Body|req\.Body)` +
+			`|io\.ReadAll\s*\(\s*(?:resp\.Body|r\.Body|req\.Body)` +
+			// Python: fetchall without limit
+			`|\.fetchall\s*\(\s*\)` +
+			`)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts"},
+	},
+
+	// Insecure Default: Permissive file permissions (CWE-732)
+	{
+		ID:          "AI-SEC-012",
+		Name:        "Overly Permissive File Permissions",
+		Description: "AI-generated code often uses 0777 or 0666 file permissions. Use least-privilege: 0600 for secrets, 0644 for config, 0755 for executables. (CWE-732)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?:` +
+			// Go: os.WriteFile/OpenFile/Mkdir with 0777/0666
+			`(?:os\.WriteFile|os\.OpenFile|os\.Mkdir|os\.MkdirAll)\s*\([^,]+,\s*(?:[^,]+,\s*)?0o?(?:777|766|776|667|666)` +
+			// Python: os.chmod with overly permissive
+			`|os\.chmod\s*\([^,]+,\s*0o?(?:777|766|776|666)` +
+			`)`),
+		Languages: []string{".go", ".py"},
+	},
+
+	// Missing input validation on type conversion (CWE-20)
+	{
+		ID:          "AI-SEC-013",
+		Name:        "Unchecked Type Conversion from User Input",
+		Description: "AI-generated code often converts user input (string to int, etc.) without checking for errors, leading to panics or unexpected zero values. Always validate conversion results. (CWE-20)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?:` +
+			// Go: strconv.Atoi without error check on same line
+			`\w+\s*,\s*_\s*(?::=|=)\s*strconv\.(?:Atoi|ParseInt|ParseFloat|ParseBool|ParseUint)\s*\(` +
+			// Python: int()/float() on request params without try
+			`|(?:int|float)\s*\(\s*(?:request\.|req\.|params\[|args\[|form\[)` +
+			// JS: parseInt without validation
+			`|parseInt\s*\(\s*(?:req\.|request\.|params\.|query\.)` +
+			`)`),
+		Languages: []string{".go", ".py", ".js", ".ts"},
+	},
+
+	// Logging sensitive data (CWE-532)
+	{
+		ID:          "AI-SEC-014",
+		Name:        "Sensitive Data in Log Output",
+		Description: "AI-generated code may log passwords, tokens, or request bodies containing credentials. Sanitize sensitive fields before logging. (CWE-532)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			`(?:log|logger|console|fmt\.Print|fmt\.Fprintf|fmt\.Printf|logging)\s*[\.(]\s*[^)]*(?:password|passwd|secret|token|api[_-]?key|credit[_-]?card|ssn|authorization)\b` +
+			`)`),
+		Excludes:  regexp.MustCompile(`(?i)(?:mask|redact|sanitiz|censor|\*\*\*|xxx|FILTERED)`),
+		Languages: []string{".go", ".py", ".java", ".js", ".ts", ".rb", ".php"},
+	},
+
+	// Missing context.Context timeout (Go) (CWE-400)
+	{
+		ID:          "AI-SEC-015",
+		Name:        "HTTP/DB Call Without Timeout (Go)",
+		Description: "AI-generated Go code often makes HTTP or database calls with context.Background() instead of a timeout context, risking indefinite hangs. Use context.WithTimeout. (CWE-400)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`(?:http\.NewRequestWithContext|\.QueryContext|\.ExecContext)\s*\(\s*context\.Background\s*\(\s*\)`),
+		Languages:   []string{".go"},
+	},
+
+	// Synchronous crypto in event loop (Node.js) (CWE-400)
+	{
+		ID:          "AI-SEC-016",
+		Name:        "Synchronous Crypto in Event Loop (Node.js)",
+		Description: "AI-generated Node.js code uses synchronous crypto functions (pbkdf2Sync, scryptSync, randomBytes) which block the event loop. Use async variants. (CWE-400)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`crypto\.(?:pbkdf2Sync|scryptSync|randomFillSync|generateKeyPairSync)\s*\(`),
+		Languages:   []string{".js", ".ts"},
+	},
+
+	// SQL query built with template literals without parameterization (CWE-89)
+	{
+		ID:          "AI-SEC-017",
+		Name:        "Template Literal in SQL Query",
+		Description: "AI-generated JavaScript/TypeScript often builds SQL with template literals instead of parameterized queries. This enables SQL injection. (CWE-89)",
+		Severity:    models.SeverityHigh,
+		Pattern:     regexp.MustCompile("(?:query|execute|exec)\\s*\\(\\s*`[^`]*\\$\\{"),
+		Languages:   []string{".js", ".ts"},
+	},
+
+	// Missing CSRF protection on state-changing endpoints (CWE-352)
+	{
+		ID:          "AI-SEC-018",
+		Name:        "State-Changing Endpoint Without CSRF Check",
+		Description: "AI-generated API handlers for POST/PUT/DELETE often omit CSRF protection. Ensure state-changing endpoints validate CSRF tokens or use SameSite cookies. (CWE-352)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			// Express: app.post/put/delete without csrf middleware nearby
+			`app\.(?:post|put|delete|patch)\s*\(\s*["']/` +
+			// Go: HandleFunc with POST without CSRF
+			`|HandleFunc\s*\(\s*["'][^"']+["']\s*,\s*func` +
+			`)`),
+		Excludes:  regexp.MustCompile(`(?i)(?:csrf|csrfProtection|csrfToken|_csrf|xsrf)`),
+		Languages: []string{".js", ".ts", ".go"},
+	},
 }
 
 // sourceExtensions defines which file extensions to scan for source code analysis.

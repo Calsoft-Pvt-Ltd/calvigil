@@ -1,0 +1,407 @@
+rules:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AI-Generated Code Quality & Security Rules
+  # ═══════════════════════════════════════════════════════════════════════════
+  # These rules target patterns commonly introduced by AI code generators
+  # (GitHub Copilot, ChatGPT, Claude, etc.) that compile but are insecure,
+  # inefficient, or violate production best practices.
+
+  # ─── Resource Leaks (CWE-404) ──────────────────────────────────────────
+
+  - id: ai-go-http-body-leak
+    patterns:
+      - pattern: |
+          $RESP, $ERR := http.Get(...)
+          ...
+      - pattern-not: |
+          $RESP, $ERR := http.Get(...)
+          ...
+          defer $RESP.Body.Close()
+          ...
+    message: >
+      HTTP response body not closed. AI-generated code often forgets
+      `defer resp.Body.Close()` after error check, causing connection leaks.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-404"]
+      category: ai-code-quality
+      subcategory: resource-leak
+
+  - id: ai-go-file-open-no-close
+    patterns:
+      - pattern: |
+          $F, $ERR := os.Open(...)
+          ...
+      - pattern-not: |
+          $F, $ERR := os.Open(...)
+          ...
+          defer $F.Close()
+          ...
+      - pattern-not: |
+          $F, $ERR := os.Open(...)
+          ...
+          $F.Close()
+          ...
+    message: >
+      File opened but never closed. Use `defer f.Close()` immediately after
+      the error check to prevent file descriptor leaks.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-404"]
+      category: ai-code-quality
+      subcategory: resource-leak
+
+  - id: ai-python-file-no-context-manager
+    pattern: |
+      $F = open(...)
+    message: >
+      File opened without context manager (with statement). AI-generated Python
+      code should use `with open(...) as f:` to ensure proper cleanup on exceptions.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-404"]
+      category: ai-code-quality
+      subcategory: resource-leak
+
+  - id: ai-java-stream-not-closed
+    patterns:
+      - pattern: |
+          $STREAM = new $TYPE(...)
+          ...
+      - pattern-not: |
+          $STREAM = new $TYPE(...)
+          ...
+          $STREAM.close()
+          ...
+      - metavariable-regex:
+          metavariable: $TYPE
+          regex: (FileInputStream|FileOutputStream|BufferedReader|BufferedWriter|Connection|PreparedStatement)
+    message: >
+      Resource not closed. Use try-with-resources (AutoCloseable) to ensure
+      streams and connections are properly closed even on exceptions.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-404"]
+      category: ai-code-quality
+      subcategory: resource-leak
+
+  # ─── Race Conditions (CWE-362) ─────────────────────────────────────────
+
+  - id: ai-go-goroutine-loop-var
+    pattern: |
+      for ..., $VAR := range ... {
+        ...
+        go func() {
+          ... $VAR ...
+        }()
+        ...
+      }
+    message: >
+      Goroutine captures loop variable by reference. All goroutines will see the
+      last value of the loop variable. Pass $VAR as a function parameter instead.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-362"]
+      category: ai-code-quality
+      subcategory: race-condition
+
+  - id: ai-go-global-map-no-mutex
+    patterns:
+      - pattern: |
+          var $MAP = map[$K]$V{...}
+          ...
+          func $FN(...) {
+            ...
+            $MAP[$KEY] = $VAL
+            ...
+          }
+    message: >
+      Global map modified in a function without mutex protection. If this function
+      is called concurrently, it will cause a fatal concurrent map write.
+      Use sync.Mutex or sync.Map.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-362"]
+      category: ai-code-quality
+      subcategory: race-condition
+
+  - id: ai-python-shared-mutable-default
+    pattern: |
+      def $FN(..., $PARAM=$DEFAULT, ...):
+        ...
+    message: >
+      Mutable default argument (list/dict) in function definition. AI-generated Python
+      code often uses `def fn(items=[])` which shares state across calls.
+      Use `None` as default and initialize inside the function.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-362"]
+      category: ai-code-quality
+      subcategory: shared-state
+    metavariable-regex:
+      metavariable: $DEFAULT
+      regex: (\[\]|\{\})
+
+  # ─── Error Handling (CWE-252, CWE-390) ─────────────────────────────────
+
+  - id: ai-go-error-ignored
+    pattern: |
+      $X, _ := $FN(...)
+    message: >
+      Error return value explicitly discarded. AI-generated Go code often ignores
+      errors for brevity. Handle errors properly to prevent silent failures.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-252"]
+      category: ai-code-quality
+      subcategory: error-handling
+
+  - id: ai-python-bare-except
+    pattern: |
+      try:
+        ...
+      except:
+        ...
+    message: >
+      Bare except catches all exceptions including SystemExit and KeyboardInterrupt.
+      AI-generated code should catch specific exceptions (e.g., except ValueError).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-396"]
+      category: ai-code-quality
+      subcategory: error-handling
+
+  - id: ai-js-empty-catch
+    pattern: |
+      try { ... } catch($ERR) { }
+    message: >
+      Empty catch block silently swallows errors. AI-generated code often adds
+      try/catch without proper error handling. Log or re-throw the error.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-390"]
+      category: ai-code-quality
+      subcategory: error-handling
+
+  # ─── Deprecated APIs (CWE-477) ─────────────────────────────────────────
+
+  - id: ai-go-ioutil-deprecated
+    pattern-either:
+      - pattern: ioutil.ReadAll(...)
+      - pattern: ioutil.ReadFile(...)
+      - pattern: ioutil.WriteFile(...)
+      - pattern: ioutil.ReadDir(...)
+      - pattern: ioutil.TempDir(...)
+      - pattern: ioutil.TempFile(...)
+      - pattern: ioutil.NopCloser(...)
+    message: >
+      io/ioutil is deprecated since Go 1.16. AI models trained on older data
+      still suggest it. Use io.ReadAll, os.ReadFile, os.WriteFile, os.ReadDir,
+      os.MkdirTemp, os.CreateTemp, io.NopCloser respectively.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-477"]
+      category: ai-code-quality
+      subcategory: deprecated-api
+
+  - id: ai-node-buffer-constructor
+    pattern-either:
+      - pattern: new Buffer($INPUT)
+      - pattern: new Buffer($SIZE)
+    message: >
+      Buffer() constructor is deprecated and unsafe (may expose uninitialized memory).
+      AI models still suggest it. Use Buffer.alloc(), Buffer.from(), or Buffer.allocUnsafe().
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-477"]
+      category: ai-code-quality
+      subcategory: deprecated-api
+
+  - id: ai-python-distutils
+    pattern-either:
+      - pattern: from distutils import ...
+      - pattern: import distutils
+      - pattern: from distutils.core import ...
+    message: >
+      distutils is deprecated and removed in Python 3.12. AI models trained on
+      older data still suggest it. Use setuptools or the build module instead.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-477"]
+      category: ai-code-quality
+      subcategory: deprecated-api
+
+  # ─── Inefficient Patterns (CWE-400, CWE-407) ───────────────────────────
+
+  - id: ai-go-string-concat-loop
+    pattern: |
+      for ... {
+        ...
+        $S = $S + ...
+        ...
+      }
+    message: >
+      String concatenation in a loop creates O(n²) allocations. Use
+      strings.Builder for efficient string building in Go.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-400"]
+      category: ai-code-quality
+      subcategory: performance
+
+  - id: ai-go-append-no-prealloc
+    pattern: |
+      var $SLICE []$TYPE
+      for ... {
+        ...
+        $SLICE = append($SLICE, ...)
+        ...
+      }
+    message: >
+      Slice grown with append in loop without pre-allocation. If the final size
+      is known or estimable, use make([]T, 0, capacity) to avoid repeated allocations.
+    severity: INFO
+    languages: [go]
+    metadata:
+      cwe: ["CWE-400"]
+      category: ai-code-quality
+      subcategory: performance
+
+  - id: ai-python-list-comprehension-in-all
+    pattern: |
+      all([$EXPR for $VAR in $ITER])
+    message: >
+      Using list comprehension inside all() creates the full list before checking.
+      Use a generator expression: all(expr for var in iter) for short-circuit evaluation.
+    severity: INFO
+    languages: [python]
+    metadata:
+      cwe: ["CWE-400"]
+      category: ai-code-quality
+      subcategory: performance
+
+  - id: ai-js-await-in-loop
+    pattern: |
+      for (...) {
+        ...
+        await $EXPR
+        ...
+      }
+    message: >
+      Sequential await in loop. AI-generated code often awaits in loops when
+      operations are independent. Use Promise.all() for concurrent execution.
+    severity: INFO
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-400"]
+      category: ai-code-quality
+      subcategory: performance
+
+  # ─── Input Validation (CWE-20) ─────────────────────────────────────────
+
+  - id: ai-go-unchecked-strconv
+    pattern: |
+      $VAL, _ = strconv.Atoi($INPUT)
+    message: >
+      strconv.Atoi error ignored. If $INPUT is user-provided, invalid input
+      silently becomes 0, which may bypass validation. Always check the error.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-20"]
+      category: ai-code-quality
+      subcategory: input-validation
+
+  - id: ai-js-no-input-validation
+    pattern: |
+      app.$METHOD($PATH, (req, res) => {
+        ...
+        $DB.$OP(..., req.body.$FIELD, ...)
+        ...
+      })
+    message: >
+      User input (req.body) passed directly to database operation without
+      validation or sanitization. Validate and sanitize all user inputs.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-20"]
+      owasp: ["A03:2021 - Injection"]
+      category: ai-code-quality
+      subcategory: input-validation
+    metavariable-regex:
+      metavariable: $METHOD
+      regex: (post|put|patch|delete)
+
+  # ─── Insecure Defaults (CWE-276) ───────────────────────────────────────
+
+  - id: ai-go-permissive-cors
+    pattern-either:
+      - pattern: |
+          AllowAllOrigins: true
+      - pattern: |
+          AllowOrigins: []string{"*"}
+    message: >
+      CORS allows all origins. AI-generated code often uses permissive CORS for
+      convenience. Restrict to specific trusted domains in production.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-942"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: ai-code-quality
+      subcategory: insecure-default
+
+  - id: ai-go-tls-skip-verify
+    pattern: |
+      &tls.Config{..., InsecureSkipVerify: true, ...}
+    message: >
+      TLS certificate verification disabled. AI-generated code adds this to
+      "fix" TLS errors during development. Remove before production deployment.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      category: ai-code-quality
+      subcategory: insecure-default
+
+  # ─── Logging & Information Exposure (CWE-532) ──────────────────────────
+
+  - id: ai-go-log-sensitive
+    pattern-either:
+      - pattern: log.Printf(..., $PASSWORD, ...)
+      - pattern: log.Println(..., $TOKEN, ...)
+      - pattern: fmt.Printf(..., $SECRET, ...)
+    message: >
+      Potentially sensitive data logged. AI-generated code often logs request/response
+      bodies and credentials during development. Remove before production.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-532"]
+      category: ai-code-quality
+      subcategory: information-exposure
+    metavariable-regex:
+      metavariable: $PASSWORD
+      regex: (?i).*(password|token|secret|key|credential).*
+    metavariable-regex:
+      metavariable: $TOKEN
+      regex: (?i).*(password|token|secret|key|credential).*
+    metavariable-regex:
+      metavariable: $SECRET
+      regex: (?i).*(password|token|secret|key|credential).*

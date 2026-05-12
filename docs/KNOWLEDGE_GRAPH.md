@@ -71,7 +71,7 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 | `internal/binary/`          | [scanner.go](../internal/binary/scanner.go)                                                         | Go binaries / JARs / Python wheels SCA | 17 | 17 |
 | `internal/image/`           | [image.go](../internal/image/image.go), [validate.go](../internal/image/validate.go)                | Container image scan via Syft + ref validation | 10, 21 | 14, 21 |
 | `internal/reporter/`        | (reporter.go, table.go, json.go, sarif.go, cyclonedx.go, openvex.go, spdx.go, html.go, pdf.go)      | Output formatters (table/JSON/SARIF/CycloneDX/OpenVEX/SPDX/HTML/PDF) | 11 | 10 |
-| `rules/semgrep/`            | owasp-top10.yaml, language-specific.yaml                                                             | Built-in Semgrep ruleset (trusted; project rules opt-in) | 12.5 | 7 |
+| `rules/semgrep/`            | owasp-top10.yaml, language-specific.yaml, ai-code-quality.yaml                                       | Built-in Semgrep ruleset (trusted; project rules opt-in) | 12.5 | 7 |
 
 ---
 
@@ -124,9 +124,12 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 
 ### `internal/analyzer`
 - `Analyzer` interface
-- `OpenAIAnalyzer`, `OllamaAnalyzer` (AI enrichment of vulns)
-- `PatternRule` (12 built-in regex rules; uses `fsutil.ShouldSkipSubDir`)
+- `OpenAIAnalyzer`, `OllamaAnalyzer` (AI enrichment of vulns + `AICodeIndicator` classification)
+- `PatternRule` — **47 built-in regex rules** (29 SEC + 18 AI-SEC); uses `fsutil.ShouldSkipSubDir`
+  - SEC-001 .. SEC-029: OWASP Top 10, secrets, crypto, injection, deserialization, etc.
+  - AI-SEC-001 .. AI-SEC-018: AI-generated code anti-patterns (resource leaks, race conditions, inefficient algorithms, deprecated APIs, missing validation, insecure defaults)
 - `SemgrepAnalyzer` (external CLI; **project rules require opt-in `--trust-project-rules`**)
+- 3 bundled Semgrep rule packs: `owasp-top10.yaml` (32), `language-specific.yaml` (20), `ai-code-quality.yaml` (25+)
 
 ### `internal/reporter`
 - `Reporter` interface · `ForFormat(fmt) Reporter`
@@ -166,6 +169,8 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 | New secret backend (e.g. Vault) | Implement `secretStore` in `internal/config/secrets.go`; extend `getStore()` switch on `CALVIGIL_SECRET_BACKEND` |
 | New binary format               | Add ext branch in `internal/binary/scanner.go::scanFile`; implement `scan<Format>(path) []models.Package` returning a recognized PURL ecosystem |
 | New CLI subcommand              | `cmd/<command>.go` with Cobra command, register in `cmd/root.go::init`; reuse `helpers.go::writeReport` + `filterVulnsBySeverity` |
+| New Semgrep rule pack           | Add `<name>.yaml` to `rules/semgrep/`; it is auto-discovered by `getBundledRulesDir()` |
+| Record a change                 | Add dated entry to `CHANGELOG.md`; bump version in HLD/LLD headers; update rule counts in README §Supported Patterns, LLD §8.1, KNOWLEDGE_GRAPH.md §4or §3 |
 
 ---
 

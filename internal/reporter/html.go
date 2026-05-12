@@ -101,6 +101,7 @@ type htmlEnrichment struct {
 	LikelyImpact         string
 	Confidence           string
 	ConfidenceClass      string
+	AICodeIndicator      string
 	MinimalRemediation   string
 	SuppressionRationale string
 }
@@ -301,6 +302,7 @@ func toHTMLVuln(v models.Vulnerability, projectPath string) htmlVuln {
 			LikelyImpact:         v.AIEnrichment.LikelyImpact,
 			Confidence:           v.AIEnrichment.Confidence,
 			ConfidenceClass:      strings.ToLower(v.AIEnrichment.Confidence),
+			AICodeIndicator:      v.AIEnrichment.AICodeIndicator,
 			MinimalRemediation:   v.AIEnrichment.MinimalRemediation,
 			SuppressionRationale: v.AIEnrichment.SuppressionRationale,
 		}

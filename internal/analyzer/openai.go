@@ -281,6 +281,7 @@ type aiEnrichmentResult struct {
 	Summary              string `json:"summary"`
 	LikelyImpact         string `json:"likely_impact"`
 	Confidence           string `json:"confidence"`
+	AICodeIndicator      string `json:"ai_code_indicator"`
 	MinimalRemediation   string `json:"minimal_remediation"`
 	SuppressionRationale string `json:"suppression_rationale"`
 }
@@ -326,6 +327,7 @@ func (a *OpenAIAnalyzer) EnrichVulnerabilities(ctx context.Context, vulns []mode
 				Summary:              r.Summary,
 				LikelyImpact:         r.LikelyImpact,
 				Confidence:           strings.ToUpper(r.Confidence),
+				AICodeIndicator:      strings.ToUpper(r.AICodeIndicator),
 				MinimalRemediation:   r.MinimalRemediation,
 				SuppressionRationale: r.SuppressionRationale,
 			}

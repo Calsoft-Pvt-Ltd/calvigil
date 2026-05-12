@@ -649,3 +649,272 @@ func TestSEC029_NoFalsePositiveOnShortValues(t *testing.T) {
 		}
 	}
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// AI-Generated Code Anti-Pattern Tests
+// ══════════════════════════════════════════════════════════════════════════
+
+func TestAISEC004_GoroutineCapturesLoopVar(t *testing.T) {
+	rule := findRule(t, "AI-SEC-004")
+
+	positives := []string{
+		`for _, item := range items { go func() { process(item) }() }`,
+		`for i := range tasks { go handleTask(i) }`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-004 failed to detect goroutine loop var capture:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC007_IgnoredErrorReturnValue(t *testing.T) {
+	rule := findRule(t, "AI-SEC-007")
+
+	positives := []string{
+		` _ = file.Close()`,
+		` _, _ = conn.Write(data)`,
+		` _ = os.Remove(path)`,
+		` _ = os.Mkdir(dir, 0755)`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-007 failed to detect ignored error:\n  %s", line)
+		}
+	}
+
+	negatives := []string{
+		`err = file.Close()`,
+		`n, err := conn.Write(data)`,
+		`if err := os.Remove(path); err != nil {`,
+	}
+
+	for _, line := range negatives {
+		if rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-007 false positive:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC008_OverlyBroadExceptionHandler(t *testing.T) {
+	rule := findRule(t, "AI-SEC-008")
+
+	positives := []string{
+		`except:`,
+		`except Exception as e:`,
+		`except BaseException as e:`,
+		`catch (Throwable ex)`,
+		`catch (Exception e)`,
+		`catch (err) { console.log(err)`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-008 failed to detect overly broad exception:\n  %s", line)
+		}
+	}
+
+	negatives := []string{
+		`except ValueError as e:`,
+		`except (TypeError, KeyError):`,
+		`catch (IOException e)`,
+		`catch (err) { throw new AppError(err)`,
+	}
+
+	for _, line := range negatives {
+		if rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-008 false positive:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC009_DeprecatedAPIUsage(t *testing.T) {
+	rule := findRule(t, "AI-SEC-009")
+
+	positives := []string{
+		`import "io/ioutil"`,
+		`data, err := ioutil.ReadAll(resp.Body)`,
+		`files, err := ioutil.ReadDir(".")`,
+		`from distutils import setup`,
+		`import distutils`,
+		`from imp import find_module`,
+		`import imp`,
+		`from optparse import OptionParser`,
+		`cgi.escape(data)`,
+		`@asyncio.coroutine`,
+		`buf := new Buffer(1024)`,
+		`const sys = require("sys")`,
+		`const domain = require("domain")`,
+		`const parsed = url.parse(input)`,
+		`Thread.stop()`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-009 failed to detect deprecated API:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC012_OverlyPermissiveFilePerms(t *testing.T) {
+	rule := findRule(t, "AI-SEC-012")
+
+	positives := []string{
+		`os.WriteFile("config.json", data, 0777)`,
+		`os.OpenFile("data.txt", os.O_CREATE, 0666)`,
+		`os.Mkdir("/tmp/data", 0777)`,
+		`os.MkdirAll("/var/data", 0777)`,
+		`os.chmod("/tmp/script.sh", 0o777)`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-012 failed to detect permissive perms:\n  %s", line)
+		}
+	}
+
+	negatives := []string{
+		`os.WriteFile("config.json", data, 0600)`,
+		`os.Mkdir("/tmp/data", 0755)`,
+		`os.OpenFile("log.txt", os.O_APPEND, 0644)`,
+	}
+
+	for _, line := range negatives {
+		if rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-012 false positive:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC013_UncheckedTypeConversion(t *testing.T) {
+	rule := findRule(t, "AI-SEC-013")
+
+	positives := []string{
+		`val, _ := strconv.Atoi(input)`,
+		`num, _ = strconv.ParseInt(s, 10, 64)`,
+		`f, _ := strconv.ParseFloat(param, 64)`,
+		`id = int(request.args["id"])`,
+		`count = int(params["count"])`,
+		`const id = parseInt(req.query.id)`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-013 failed to detect unchecked conversion:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC014_SensitiveDataInLogs(t *testing.T) {
+	rule := findRule(t, "AI-SEC-014")
+
+	positives := []string{
+		`log.Printf("User password: %s", password)`,
+		`logger.info("token=%s", api_token)`,
+		`console.log("secret: " + secret)`,
+		`fmt.Printf("Authorization: %s", token)`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-014 failed to detect sensitive log:\n  %s", line)
+		}
+	}
+
+	// Lines with redaction markers should be excluded
+	negatives := []string{
+		`log.Printf("User password: %s", mask(password))`,
+		`logger.info("token=%s", redact(token))`,
+		`fmt.Printf("api_key: ***FILTERED***")`,
+	}
+
+	for _, line := range negatives {
+		if rule.Pattern.MatchString(line) && !rule.Excludes.MatchString(line) {
+			t.Errorf("AI-SEC-014 false positive (should be excluded):\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC015_HTTPCallWithoutTimeout(t *testing.T) {
+	rule := findRule(t, "AI-SEC-015")
+
+	positives := []string{
+		`req, _ := http.NewRequestWithContext(context.Background(), "GET", url, nil)`,
+		`rows, err := db.QueryContext(context.Background(), sql)`,
+		`_, err := db.ExecContext(context.Background(), stmt)`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-015 failed to detect missing timeout:\n  %s", line)
+		}
+	}
+
+	negatives := []string{
+		`req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)`,
+		`rows, err := db.QueryContext(ctx, sql)`,
+	}
+
+	for _, line := range negatives {
+		if rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-015 false positive:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC016_SyncCryptoInEventLoop(t *testing.T) {
+	rule := findRule(t, "AI-SEC-016")
+
+	positives := []string{
+		`const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512')`,
+		`const key = crypto.scryptSync(password, salt, 64)`,
+		`const buf = crypto.randomFillSync(buffer)`,
+		`const keys = crypto.generateKeyPairSync('rsa', options)`,
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-016 failed to detect sync crypto:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC017_TemplateLiteralInSQL(t *testing.T) {
+	rule := findRule(t, "AI-SEC-017")
+
+	positives := []string{
+		"db.query(`SELECT * FROM users WHERE id = ${userId}`)",
+		"connection.execute(`INSERT INTO logs VALUES (${data})`)",
+	}
+
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-017 failed to detect template literal SQL:\n  %s", line)
+		}
+	}
+}
+
+// ── Ensure all AI-SEC rules are present ───────────────────────────
+
+func TestAllAISecRulesExist(t *testing.T) {
+	expectedIDs := []string{
+		"AI-SEC-001", "AI-SEC-002", "AI-SEC-003", "AI-SEC-004",
+		"AI-SEC-005", "AI-SEC-006", "AI-SEC-007", "AI-SEC-008",
+		"AI-SEC-009", "AI-SEC-010", "AI-SEC-011", "AI-SEC-012",
+		"AI-SEC-013", "AI-SEC-014", "AI-SEC-015", "AI-SEC-016",
+		"AI-SEC-017", "AI-SEC-018",
+	}
+
+	ruleIDs := make(map[string]bool)
+	for _, r := range knownPatterns {
+		ruleIDs[r.ID] = true
+	}
+
+	for _, id := range expectedIDs {
+		if !ruleIDs[id] {
+			t.Errorf("missing AI-generated code rule: %s", id)
+		}
+	}
+}
