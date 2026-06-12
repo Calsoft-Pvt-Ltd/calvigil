@@ -4,6 +4,10 @@ layout: home
 nav_order: 1
 ---
 
+<p align="center">
+  <img src="{{ '/assets/images/calvigil-logo.png' | relative_url }}" alt="Calvigil Logo" width="200">
+</p>
+
 # Calvigil
 
 **AI-Powered Vulnerability Scanner CLI**
