@@ -21,36 +21,9 @@ High-level design and internal structure of calvigil.
 
 ## System Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           CLI Layer (cmd/)                              │
-│  scan │ scan-image │ scan-binary │ scan-iac │ scan-license │ config    │
-└───────┼────────────┼─────────────┼──────────┼──────────────┼───────────┘
-        │            │             │          │              │
-        ▼            ▼             ▼          ▼              ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        Internal Packages                                 │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────┐           │
-│  │ Scanner  │  │ Detector │  │  Parser  │  │  Matcher      │           │
-│  │ (orchestr)│  │(ecosys.) │  │(lockfile)│  │ (CVE lookup)  │           │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───────┬───────┘           │
-│       │              │              │               │                   │
-│  ┌────┴─────┐  ┌────┴─────┐  ┌────┴─────┐  ┌──────┴────────┐          │
-│  │ Analyzer │  │ Reporter │  │ IaC Scan │  │ Cache Layer   │          │
-│  │ (AI+SAST)│  │ (output) │  │          │  │               │          │
-│  └──────────┘  └──────────┘  └──────────┘  └───────────────┘          │
-└──────────────────────────────────────────────────────────────────────────┘
-        │              │              │               │
-        ▼              ▼              ▼               ▼
-┌──────────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────────┐
-│ CVE Databases│ │ LLM APIs │ │ Semgrep CE│ │ Syft (Anchore)   │
-│ • OSV.dev    │ │ • OpenAI │ │ (external │ │ (SBOM extraction)│
-│ • OSS Index  │ │ • Ollama │ │  binary)  │ │                  │
-│ • NVD (NIST) │ │ • LM Stu │ │           │ │                  │
-│ • GitHub Adv │ │          │ │           │ │                  │
-│ • CISA KEV   │ │          │ │           │ │                  │
-└──────────────┘ └──────────┘ └───────────┘ └──────────────────┘
-```
+<p align="center">
+  <img src="{{ '/assets/images/architecture-calvigil.png' | relative_url }}" alt="Calvigil architecture" >
+</p>
 
 ---
 
