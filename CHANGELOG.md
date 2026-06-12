@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [4.6.0] — Unreleased
+## [5.0.0] — 2026-06-12
 
 ### Added
 - **Sonatype OSS Index matcher**: New always-on vulnerability database alongside OSV.dev
@@ -24,18 +24,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     instead of dropped — missing severity, CVSS score, fix version, summary, and
     references are filled in from whichever source has them
 - `--skip-tests` flag: exclude test files from reachability analysis
-
-### Fixed
-- **`UNKNOWN` severity** appearing when a source omitted a severity label:
-  - OSV: severity now derived from CVSS v3 → v4 → v2 vectors (top-level and per-affected)
-  - GitHub Advisory: falls back to numeric CVSS score when the label is missing
-  - Canonical normalization derives severity from CVSS score as a last resort
-
----
-
-## [4.5.0] — 2026-06-12
-
-### Added
 - **LM Studio Support**: New AI provider for running local LLMs via [LM Studio](https://lmstudio.ai/)
   - OpenAI-compatible `/v1/chat/completions` endpoint (default: `http://localhost:1234`)
   - Full code analysis and vulnerability enrichment support (same capabilities as Ollama)
@@ -44,12 +32,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Environment variables: `LMSTUDIO_URL`, `LMSTUDIO_MODEL`
   - Auto-detection in `--provider auto` mode (tried after Ollama, before OpenAI)
   - Availability check via `/v1/models` endpoint
-
----
-
-## [4.4.0] — 2026-05-12
-
-### Added
 - **AI-Generated Code Detection**: 18 new pattern rules (AI-SEC-001 through AI-SEC-018) targeting anti-patterns commonly introduced by AI code generators (Copilot, ChatGPT, Claude, etc.)
   - Resource leak detection: unclosed HTTP response bodies, files/connections opened in loops (CWE-404)
   - Race condition detection: concurrent map access without sync, goroutine loop variable capture (CWE-362)
@@ -70,12 +52,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **CHANGELOG.md**: This file, for tracking changes date-wise going forward
 
 ### Changed
+- **Vulnerability aggregation now merges duplicate findings across databases** (by ID or alias)
+  instead of keeping only the first occurrence — reports may show richer data for the same finding
 - `AIEnrichment` model now includes `AICodeIndicator` field for AI-generated code classification
 - `aiEnrichmentResult` struct updated with `ai_code_indicator` JSON field
 - HTML reporter displays AI code indicator alongside enrichment details
 - Table reporter shows `[AI-Generated: LIKELY_AI]` tag in enrichment output
 - Pattern rule count increased from 29 to 47 (29 SEC + 18 AI-SEC)
 - Semgrep bundled rule packs increased from 52 to 77+ rules (3 YAML files)
+
+### Fixed
+- **`UNKNOWN` severity** appearing when a source omitted a severity label:
+  - OSV: severity now derived from CVSS v3 → v4 → v2 vectors (top-level and per-affected)
+  - GitHub Advisory: falls back to numeric CVSS score when the label is missing
+  - Canonical normalization derives severity from CVSS score as a last resort
 
 ---
 
