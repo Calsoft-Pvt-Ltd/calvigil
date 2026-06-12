@@ -161,7 +161,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	// Step 3b: Populate dependency paths and reachability evidence
 	if len(allVulns) > 0 {
 		populateDepPaths(allVulns, s.opts.Path)
-		populateReachability(allVulns, s.opts.Path, s.opts.Verbose)
+		populateReachability(allVulns, s.opts.Path, s.opts.Verbose, s.opts.SkipTests)
 	}
 
 	// Step 3.5: AI enrichment layer — enrich ALL vulnerabilities with structured analysis
@@ -273,6 +273,7 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 	// Build matchers
 	matchers := []matcher.Matcher{
 		matcher.NewOSVMatcher(),
+		matcher.NewOSSIndexMatcher(s.cfg.OSSIndexUser, s.cfg.OSSIndexToken),
 	}
 
 	if s.cfg.NVDKey != "" {
@@ -305,6 +306,27 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 		errs = append(errs, fmt.Sprintf("vulnerability matching error: %v", err))
 	}
 
+	// Enrich with the CISA Known Exploited Vulnerabilities catalog. This is
+	// best-effort: failures never alter or remove findings.
+	if len(vulns) > 0 {
+		kev := matcher.NewKEVEnricher()
+		if kevErr := kev.Enrich(ctx, vulns); kevErr != nil {
+			if s.opts.Verbose {
+				fmt.Fprintf(os.Stderr, "   KEV enrichment skipped: %v\n", kevErr)
+			}
+		} else if s.opts.Verbose {
+			exploited := 0
+			for i := range vulns {
+				if vulns[i].KnownExploited {
+					exploited++
+				}
+			}
+			if exploited > 0 {
+				fmt.Fprintf(os.Stderr, "   CISA KEV: %d finding(s) are known to be actively exploited\n", exploited)
+			}
+		}
+	}
+
 	// Store in cache
 	if s.cache != nil && len(vulns) > 0 {
 		if cacheErr := s.cache.Put("aggregated", allPackages, vulns); cacheErr != nil && s.opts.Verbose {
@@ -330,7 +352,7 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 		}
 
 		// Run pattern matching only
-		matches, err := analyzer.ScanPatterns(s.opts.Path)
+		matches, err := analyzer.ScanPatterns(s.opts.Path, s.opts.SkipTests)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("pattern scan error: %v", err))
 			return nil, errs
@@ -351,9 +373,26 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 			fmt.Fprintf(os.Stderr, "Running AI-powered code analysis (Ollama: %s @ %s)...\n", model, url)
 		}
 		ai := analyzer.NewOllamaAnalyzer(url, model)
+		ai.SkipTests = s.opts.SkipTests
 		vulns, err := ai.Analyze(ctx, s.opts.Path, s.opts.Verbose)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("Ollama analysis error: %v", err))
+		}
+		if s.opts.Verbose {
+			fmt.Fprintf(os.Stderr, "   Found %d issues via code analysis\n\n", len(vulns))
+		}
+		return vulns, errs
+
+	case "lmstudio":
+		url, model := s.lmstudioSettings()
+		if s.opts.Verbose {
+			fmt.Fprintf(os.Stderr, "Running AI-powered code analysis (LM Studio: %s @ %s)...\n", model, url)
+		}
+		ai := analyzer.NewLMStudioAnalyzer(url, model)
+		ai.SkipTests = s.opts.SkipTests
+		vulns, err := ai.Analyze(ctx, s.opts.Path, s.opts.Verbose)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("LM Studio analysis error: %v", err))
 		}
 		if s.opts.Verbose {
 			fmt.Fprintf(os.Stderr, "   Found %d issues via code analysis\n\n", len(vulns))
@@ -365,6 +404,7 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 			fmt.Fprintf(os.Stderr, "Running AI-powered code analysis (model: %s)...\n", s.cfg.OpenAIModel)
 		}
 		ai := analyzer.NewOpenAIAnalyzer(s.cfg.OpenAIKey, s.cfg.OpenAIModel)
+		ai.SkipTests = s.opts.SkipTests
 		vulns, err := ai.Analyze(ctx, s.opts.Path, s.opts.Verbose)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("AI analysis error: %v", err))
@@ -465,7 +505,7 @@ func populateDepPaths(vulns []models.Vulnerability, projectPath string) {
 // populateReachability does a lightweight check to determine if vulnerable packages
 // are actually imported/referenced in source code. Code-analysis and Semgrep findings
 // are marked as directly reachable since they matched actual source code.
-func populateReachability(vulns []models.Vulnerability, projectPath string, verbose bool) {
+func populateReachability(vulns []models.Vulnerability, projectPath string, verbose bool, skipTests bool) {
 	// Build a set of package names from dependency vulns that need reachability checks
 	needCheck := make(map[string]bool)
 	for i := range vulns {
@@ -496,6 +536,12 @@ func populateReachability(vulns []models.Vulnerability, projectPath string, verb
 			if path != projectPath && fsutil.ShouldSkipSubDir(info.Name()) {
 				return filepath.SkipDir
 			}
+			if skipTests && path != projectPath && fsutil.IsTestDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if skipTests && fsutil.IsTestFile(path) {
 			return nil
 		}
 		ext := filepath.Ext(path)
@@ -571,13 +617,13 @@ func scanFileForImports(filePath string, patterns map[string]bool) {
 	}
 }
 
-// enricher is the interface both OpenAI and Ollama analyzers satisfy for enrichment.
+// enricher is the interface OpenAI, Ollama, and LM Studio analyzers satisfy for enrichment.
 type enricher interface {
 	EnrichVulnerabilities(ctx context.Context, vulns []models.Vulnerability, projectPath string, verbose bool) []models.Vulnerability
 }
 
 // resolveAIProvider determines which AI provider to use.
-// Returns "openai", "ollama", or "" (none available).
+// Returns "openai", "ollama", "lmstudio", or "" (none available).
 func (s *Scanner) resolveAIProvider() string {
 	provider := strings.ToLower(s.opts.AIProvider)
 	if provider == "" {
@@ -587,6 +633,8 @@ func (s *Scanner) resolveAIProvider() string {
 	switch provider {
 	case "ollama":
 		return "ollama"
+	case "lmstudio":
+		return "lmstudio"
 	case "openai":
 		if s.cfg.OpenAIKey != "" {
 			return "openai"
@@ -599,6 +647,14 @@ func (s *Scanner) resolveAIProvider() string {
 			ol := analyzer.NewOllamaAnalyzer(url, model)
 			if ol.Available() {
 				return "ollama"
+			}
+		}
+		// Try LM Studio if configured and reachable
+		lmsURL, lmsModel := s.lmstudioSettings()
+		if lmsModel != "" {
+			lms := analyzer.NewLMStudioAnalyzer(lmsURL, lmsModel)
+			if lms.Available() {
+				return "lmstudio"
 			}
 		}
 		// Fall back to OpenAI if key is available
@@ -622,6 +678,19 @@ func (s *Scanner) ollamaSettings() (string, string) {
 	return url, model
 }
 
+// lmstudioSettings returns the effective LM Studio URL and model from CLI flags or config.
+func (s *Scanner) lmstudioSettings() (string, string) {
+	url := s.opts.LMStudioURL
+	if url == "" {
+		url = s.cfg.LMStudioURL
+	}
+	model := s.opts.LMStudioModel
+	if model == "" {
+		model = s.cfg.LMStudioModel
+	}
+	return url, model
+}
+
 // getAIEnricher returns the appropriate AI enricher based on provider selection, or nil.
 func (s *Scanner) getAIEnricher() enricher {
 	provider := s.resolveAIProvider()
@@ -629,6 +698,9 @@ func (s *Scanner) getAIEnricher() enricher {
 	case "ollama":
 		url, model := s.ollamaSettings()
 		return analyzer.NewOllamaAnalyzer(url, model)
+	case "lmstudio":
+		url, model := s.lmstudioSettings()
+		return analyzer.NewLMStudioAnalyzer(url, model)
 	case "openai":
 		return analyzer.NewOpenAIAnalyzer(s.cfg.OpenAIKey, s.cfg.OpenAIModel)
 	default:

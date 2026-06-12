@@ -21,7 +21,7 @@ This document covers the high-level architecture, major components, data flow, e
 
 ### 1.3 Goals
 - Detect known CVEs in project dependencies via multiple vulnerability databases
-- Identify OWASP Top 10 security issues in source code using AI (GPT-4/Ollama) and pattern matching
+- Identify OWASP Top 10 security issues in source code using AI (GPT-4/Ollama/LM Studio) and pattern matching
 - Perform static analysis using Semgrep CE with bundled security rules
 - Scan container images for vulnerable packages
 - Scan compiled binaries and archives for embedded dependency vulnerabilities
@@ -61,10 +61,11 @@ This document covers the high-level architecture, major components, data flow, e
 ┌──────────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────────┐ ┌──────────────────┐
 │ CVE Databases│ │ LLM APIs │ │ Semgrep CE│ │ Syft (Anchore)   │ │ License Registries│
 │ • OSV.dev    │ │ • OpenAI │ │ (external │ │ (SBOM extraction)│ │ • deps.dev        │
-│ • NVD (NIST) │ │ • Ollama │ │  binary)  │ │                  │ │ • PyPI            │
-│ • GitHub Adv │ │          │ │           │ │                  │ │ • npm registry    │
-└──────────────┘ └──────────┘ └───────────┘ └──────────────────┘ │ • RubyGems        │
-                                                                 └──────────────────┘
+│ • OSS Index  │ │ • Ollama │ │  binary)  │ │                  │ │ • PyPI            │
+│ • NVD (NIST) │ │          │ │           │ │                  │ │ • npm registry    │
+│ • GitHub Adv │ │          │ │           │ │                  │ │ • RubyGems        │
+│ • CISA KEV   │ │          │ │           │ │                  │ │                   │
+└──────────────┘ └──────────┘ └───────────┘ └──────────────────┘ └──────────────────┘
 ```
 
 ---
@@ -114,8 +115,8 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **Scanner** | `internal/scanner/` | Pipeline orchestration — ties all engines together |
 | **Detector** | `internal/detector/` | Filesystem walk to identify project ecosystems |
 | **Parser** | `internal/parser/` | Extract dependencies from manifest/lock files; integrity verification; phantom dep detection |
-| **Matcher** | `internal/matcher/` | Query CVE databases (OSV, NVD, GHSA) |
-| **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama), 47 pattern rules (29 SEC + 18 AI-SEC for AI-generated code), 77+ Semgrep rules across 3 packs |
+| **Matcher** | `internal/matcher/` | Query CVE databases (OSV, OSS Index, NVD, GHSA); canonical normalization + cross-source merge; CISA KEV enrichment |
+| **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama/LM Studio), 47 pattern rules (29 SEC + 18 AI-SEC for AI-generated code), 77+ Semgrep rules across 3 packs |
 | **Reporter** | `internal/reporter/` | Format and emit scan results |
 | **Image Scanner** | `internal/image/` | Container image scanning via Syft, image-reference validation |
 | **IaC Scanner** | `internal/iac/` | Regex-based misconfiguration scanner for Terraform / Kubernetes / Dockerfile / CloudFormation / Docker Compose / Helm (25 built-in rules) |
@@ -150,8 +151,12 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | Database | API Endpoint | Auth | Rate Limit | Role |
 |----------|-------------|------|------------|------|
 | **OSV.dev** | `POST /v1/querybatch` | None | Unrestricted | Primary — batch queries, no API key needed |
+| **Sonatype OSS Index** | `POST /api/v3/component-report` | Optional basic auth | 128 coords/request; higher with free account | Primary — PURL-based, all ecosystems |
 | **NVD** | `GET /rest/json/cves/2.0` | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — CVSS enrichment |
 | **GitHub Advisory** | `GET /advisories` | Optional PAT | Standard GitHub limits | Supplementary — GHSA cross-references |
+| **CISA KEV** | `GET known_exploited_vulnerabilities.json` | None | Unrestricted | Enrichment — flags actively exploited CVEs (`KnownExploited`) |
+
+All matcher results pass through the **Canonical Data Model** (`internal/matcher/canonical.go`): IDs are normalized (CVE preferred, GHSA/ecosystem IDs become aliases), severity is derived from CVSS vectors/scores when a source omits it, and duplicate findings across databases are merged by ID or alias — missing fields are filled in from whichever source provides them.
 
 ### 5.2 AI Providers
 
@@ -159,6 +164,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 |----------|---------|----------|
 | **OpenAI** | ChatCompletion API (GPT-4) | Cloud AI analysis (higher quality) |
 | **Ollama** | `/v1/chat/completions` (local) | Privacy-first local LLM (llama3, codellama, mistral) |
+| **LM Studio** | `/v1/chat/completions` (local) | Desktop-friendly local LLM with GUI model management |
 
 ### 5.3 License Registries
 
@@ -350,7 +356,8 @@ User runs: calvigil scan-image nginx:latest
             ┌────────────▼───────────────┐
             │ 3. VULNERABILITY MATCHING  │
             │    Same matchers as scan    │
-            │    (OSV, NVD, GHSA)         │
+            │    (OSV, OSS Index,         │
+            │     NVD, GHSA)              │
             └────────────┬───────────────┘
                          │
             ┌────────────▼───────────────┐
@@ -391,7 +398,7 @@ API keys are **never written to the YAML config file**. They are stored in a plu
 
 The store is selected lazily on first access (`sync.Once` probe). Override with the `CALVIGIL_SECRET_BACKEND` environment variable: `keyring`, `file`, or unset (auto).
 
-**Recognized secrets:** `openai-key`, `nvd-key`, `github-token`. **Recognized env-var overrides:** `OPENAI_API_KEY`, `NVD_API_KEY`, `GITHUB_TOKEN`, `OLLAMA_URL`, `OLLAMA_MODEL`.
+**Recognized secrets:** `openai-key`, `nvd-key`, `github-token`, `ossindex-token`. **Recognized env-var overrides:** `OPENAI_API_KEY`, `NVD_API_KEY`, `GITHUB_TOKEN`, `OSSINDEX_USER`, `OSSINDEX_TOKEN`, `OLLAMA_URL`, `OLLAMA_MODEL`, `LMSTUDIO_URL`, `LMSTUDIO_MODEL`.
 
 `config get` masks secrets as `****<last4>`.
 
@@ -419,8 +426,9 @@ This follows the Go convention that `go test` ignores `testdata`. It also preven
 Automatic provider resolution priority:
 1. Explicit `--provider` flag → use specified
 2. Ollama available locally → prefer Ollama (privacy)
-3. OpenAI API key configured → use OpenAI
-4. Neither → skip AI analysis
+3. LM Studio available locally → use LM Studio
+4. OpenAI API key configured → use OpenAI
+5. Neither → skip AI analysis
 
 ---
 
@@ -434,6 +442,7 @@ Optional:   Semgrep CE (pip install semgrep)   — for SAST
             Syft       (brew install syft)      — for image scanning
             Chrome     (system install)         — for PDF reports
             Ollama     (ollama serve)            — for local AI
+            LM Studio  (lmstudio.ai)            — for local AI (GUI)
 ```
 
 ### 11.1 Build
@@ -469,7 +478,7 @@ Version is embedded at build time via `-ldflags`:
 | Attribute | Design Decision |
 |-----------|----------------|
 | **Performance** | OSV batch API (up to 1000 packages/request); NVD capped at 20 queries/scan; AI batches of 20 snippets; vulnerability cache (~/.calvigil/cache/, default 24h TTL); license resolution at 10-way concurrency; integrity verification at 10-way concurrency |
-| **Privacy** | Ollama support for fully local AI analysis; secret store prefers OS keyring; no telemetry |
+| **Privacy** | Ollama and LM Studio support for fully local AI analysis; secret store prefers OS keyring; no telemetry |
 | **Extensibility** | Parser, Matcher, Analyzer, Reporter, IaCRule, PatternRule all implemented as interfaces or rule arrays |
 | **Portability** | Single static binary; cross-platform (macOS, Linux, Windows); keyring auto-falls-back to file in headless environments |
 | **Graceful degradation** | Missing Semgrep/Syft/AI/Chrome → skip that engine, continue scan |
@@ -551,7 +560,8 @@ User runs: calvigil scan-binary ./bin --format json
             ┌────────────▼───────────────┐
             │ 3. MATCH VULNERABILITIES   │
             │    Same matchers as scan    │
-            │    (OSV / NVD / GHSA)       │
+            │    (OSV / OSS Index /       │
+            │     NVD / GHSA)             │
             └────────────┬───────────────┘
                          │
             ┌────────────▼───────────────┐
@@ -574,7 +584,7 @@ Disk cache for matcher responses keyed by `sha256(source-name + sorted package l
 | Eviction | Lazy on `Get` (entry past `ExpiresAt` → cache miss) |
 | Manual purge | Delete `~/.calvigil/cache/` |
 
-Cache layer wraps each `Matcher` so OSV / NVD / GHSA each have independent caches. Used by `scan`, `scan-image`, and `scan-binary`. Not used by `scan-license` (license registries have their own short-lived in-process call sites).
+Cache layer stores the merged result of the aggregated matcher (OSV / OSS Index / NVD / GHSA). Used by `scan`, `scan-image`, and `scan-binary`. Not used by `scan-license` (license registries have their own short-lived in-process call sites).
 
 ---
 

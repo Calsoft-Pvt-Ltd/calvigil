@@ -103,11 +103,11 @@ func TestSPDX_WithVulnerabilities(t *testing.T) {
 		},
 		Vulnerabilities: []models.Vulnerability{
 			{
-				ID:      "CVE-2024-1234",
-				Summary: "Test vuln",
+				ID:       "CVE-2024-1234",
+				Summary:  "Test vuln",
 				Severity: models.SeverityHigh,
-				Package: models.Package{Name: "express", Version: "4.18.2"},
-				FixedIn: "4.18.3",
+				Package:  models.Package{Name: "express", Version: "4.18.2"},
+				FixedIn:  "4.18.3",
 			},
 		},
 	}

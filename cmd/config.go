@@ -13,7 +13,7 @@ var configCmd = &cobra.Command{
 	Long: `Manage configuration values like API keys.
 
 Configuration is stored in ~/.calvigil.json.
-Environment variables (OPENAI_API_KEY, NVD_API_KEY, GITHUB_TOKEN) take precedence.`,
+Environment variables (OPENAI_API_KEY, NVD_API_KEY, GITHUB_TOKEN, OSSINDEX_USER, OSSINDEX_TOKEN) take precedence.`,
 }
 
 var configSetCmd = &cobra.Command{
@@ -23,7 +23,9 @@ var configSetCmd = &cobra.Command{
   openai-key     OpenAI API key for AI-powered code analysis
   openai-model   OpenAI model to use (default: gpt-4)
   nvd-key        NVD API key for vulnerability lookups
-  github-token   GitHub token for advisory database access`,
+  github-token   GitHub token for advisory database access
+  ossindex-user  Sonatype OSS Index account email (optional, raises rate limits)
+  ossindex-token Sonatype OSS Index API token (optional, raises rate limits)`,
 	Example: `  calvigil config set openai-key sk-...
   calvigil config set openai-model gpt-4-turbo
   calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`,

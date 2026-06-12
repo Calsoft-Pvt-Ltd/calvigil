@@ -77,14 +77,18 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   ├── integrity.go             # Lockfile integrity verification (npm registry, Cargo checksum)
 │   │   └── consistency.go           # Phantom dependency detection (lockfile vs manifest)
 │   ├── matcher/
-│   │   ├── matcher.go               # Matcher interface + AggregatedMatcher (dedup)
+│   │   ├── matcher.go               # Matcher interface + AggregatedMatcher (normalize + merge)
+│   │   ├── canonical.go             # Canonical Data Model (Normalize + Merge)
 │   │   ├── osv.go                   # OSVMatcher (batch API)
+│   │   ├── ossindex.go              # OSSIndexMatcher (Sonatype OSS Index, PURL-based)
 │   │   ├── nvd.go                   # NVDMatcher (REST API)
+│   │   ├── kev.go                   # KEVEnricher (CISA Known Exploited Vulnerabilities)
 │   │   └── ghsa.go                  # GitHubAdvisoryMatcher (REST API)
 │   ├── analyzer/
 │   │   ├── analyzer.go              # Analyzer interface
 │   │   ├── openai.go                # OpenAIAnalyzer (GPT-4 ChatCompletion)
 │   │   ├── ollama.go                # OllamaAnalyzer (local LLM)
+│   │   ├── lmstudio.go              # LMStudioAnalyzer (LM Studio local LLM)
 │   │   ├── patterns.go              # PatternRule regex scanner (47 rules: 29 SEC + 18 AI-SEC)
 │   │   ├── prompts.go               # AI prompt templates (system, analysis, enrichment)
 │   │   ├── evidence.go              # Evidence packet builder for AI enrichment
@@ -287,9 +291,11 @@ type ScanOptions struct {
     SemgrepRules   string
     OutputFile     string
     Verbose        bool
-    AIProvider     string       // "openai", "ollama", "auto"
+    AIProvider     string       // "openai", "ollama", "lmstudio", "auto"
     OllamaURL      string       // Default: http://localhost:11434
     OllamaModel    string
+    LMStudioURL    string       // Default: http://localhost:1234
+    LMStudioModel  string
     ImageRef       string
     CheckLicenses  bool
     VerifyIntegrity bool        // Verify lockfile hashes against registries
@@ -356,9 +362,11 @@ calvigil
 | `--skip-deps` | | bool | `false` | Skip dependency scanning |
 | `--skip-semgrep` | | bool | `false` | Skip Semgrep SAST |
 | `--semgrep-rules` | | string | `""` | Custom Semgrep rule directory |
-| `--provider` | | string | `""` | AI provider: openai, ollama, auto |
+| `--provider` | | string | `""` | AI provider: openai, ollama, lmstudio, auto |
 | `--ollama-url` | | string | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | | string | `""` | Ollama model name |
+| `--lmstudio-url` | | string | `http://localhost:1234` | LM Studio server URL |
+| `--lmstudio-model` | | string | `""` | LM Studio model name |
 | `--check-licenses` | | bool | `false` | Enable license compliance checking |
 | `--verify-integrity` | | bool | `false` | Verify lockfile integrity hashes against registries |
 | `--no-cache` | | bool | `false` | Disable vulnerability response caching |
@@ -379,6 +387,7 @@ calvigil
 2. Load config (`config.Load()`)
 3. Build matcher list:
    - Always: `matcher.NewOSVMatcher()`
+   - Always: `matcher.NewOSSIndexMatcher(user, token)` (anonymous when no creds)
    - If NVD key: `matcher.NewNVDMatcher(key)`
    - If GitHub token: `matcher.NewGitHubAdvisoryMatcher(token)`
 4. Create `image.NewScanner(imageRef, verbose, matchers)`
@@ -419,6 +428,8 @@ calvigil
 | `github-token` | `GITHUB_TOKEN` | GitHub personal access token |
 | `ollama-url` | `OLLAMA_URL` | Ollama server URL |
 | `ollama-model` | `OLLAMA_MODEL` | Ollama model name |
+| `lmstudio-url` | `LMSTUDIO_URL` | LM Studio server URL |
+| `lmstudio-model` | `LMSTUDIO_MODEL` | LM Studio model name |
 
 ### 3.6 `cmd/version.go`
 
@@ -713,11 +724,27 @@ func NewAggregatedMatcher(matchers ...Matcher) *AggregatedMatcher
 func (a *AggregatedMatcher) Match(ctx, packages) ([]Vulnerability, error)
 ```
 
-**Deduplication Algorithm:**
-1. Run all matchers, collect all vulnerabilities
-2. Build seen-map keyed by CVE ID
-3. For each vulnerability, check ID and all aliases against seen-map
-4. Skip duplicates, preferring the first occurrence
+**Normalize-and-Merge Algorithm:**
+1. Run all matchers concurrently, collect all vulnerabilities
+2. Normalize each record through the Canonical Data Model (`Normalize`)
+3. Build seen-map keyed by canonical ID **and** every alias → index into results
+4. On a duplicate (ID or alias already seen), `Merge` the new record into the
+   existing one — fill missing severity / CVSS score / fix version / summary /
+   references; existing data always wins
+
+#### Canonical Data Model (`canonical.go`)
+
+```go
+func Normalize(v *models.Vulnerability)
+func Merge(dst *models.Vulnerability, src models.Vulnerability)
+```
+
+- **`Normalize`** — picks the most authoritative ID (CVE > GHSA > ecosystem ID),
+  demotes the previous ID to aliases, dedupes aliases, derives severity from the
+  CVSS score when the source label is UNKNOWN, trims summary/details whitespace.
+- **`Merge`** — fills `dst`'s missing fields (severity, score, summary, details,
+  `FixedIn`, `PublishedAt`, `KnownExploited`) from `src`; unions aliases and
+  references.
 
 ### 7.1 OSVMatcher (`osv.go`)
 
@@ -816,8 +843,55 @@ Maven → "maven"
 3. For each advisory, check if any vulnerable package matches by name
 4. Parse `vulnerable_version_range` (e.g., `>= 1.0, < 1.5`)
 5. Use `first_patched_version.identifier` for `FixedIn`
-6. Map GHSA severity strings (critical/high/medium/low) to Severity enum
+6. Map GHSA severity strings (critical/high/medium/low) to Severity enum;
+   fall back to `models.ScoreToSeverity(CVSSScore)` when the label is missing
 7. Set `Source: SourceGitHubAdv`
+
+### 7.4 OSSIndexMatcher (`ossindex.go`)
+
+```go
+type OSSIndexMatcher struct {
+    client   *http.Client
+    baseURL  string
+    username string
+    token    string
+}
+
+func NewOSSIndexMatcher(username, token string) *OSSIndexMatcher
+```
+
+**API:**
+| Method | Endpoint |
+|--------|---------|
+| Batch | `POST https://ossindex.sonatype.org/api/v3/component-report` |
+
+**Algorithm:**
+1. Build PURL coordinates via `pkg.EnsurePURL()` (packages without a PURL are skipped)
+2. POST in batches of 128 coordinates; basic auth when credentials are configured
+3. Look up responses by lowercased PURL (qualifiers after `?` stripped)
+4. Prefer the CVE as the vulnerability ID; `DisplayName` becomes an alias
+5. Severity from `CVSSScore`, falling back to parsing `CVSSVector`
+6. HTTP 429 surfaces a friendly rate-limit error (suggests `ossindex-user`/`ossindex-token`)
+7. Set `Source: SourceOSSIndex`
+
+### 7.5 KEVEnricher (`kev.go`)
+
+```go
+type KEVEnricher struct {
+    client  *http.Client
+    baseURL string
+}
+
+func NewKEVEnricher() *KEVEnricher
+func (k *KEVEnricher) Enrich(ctx context.Context, vulns []models.Vulnerability) error
+```
+
+**Algorithm:**
+1. Skip entirely when the input slice is empty (no network call)
+2. Fetch the CISA KEV catalog JSON
+3. Set `KnownExploited = true` on any vulnerability whose ID or alias matches a
+   KEV CVE (case-insensitive)
+4. Enrichment-only and best-effort: feed failures never alter scan findings
 
 ---
 
@@ -1185,6 +1259,7 @@ Run(ctx)
 │   ├── parsePackages(files) → parse + EnsurePURL()
 │   ├── Build AggregatedMatcher:
 │   │   ├── Always: NewOSVMatcher()
+│   │   ├── Always: NewOSSIndexMatcher(user, token)
 │   │   ├── If NVD key: NewNVDMatcher(key)
 │   │   └── If GitHub token: NewGitHubAdvisoryMatcher(token)
 │   └── matcher.Match(ctx, allPackages) → []Vulnerability

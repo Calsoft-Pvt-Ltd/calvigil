@@ -3,6 +3,7 @@ package matcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -82,29 +83,39 @@ func (m *GitHubAdvisoryMatcher) Match(ctx context.Context, packages []models.Pac
 	}
 
 	var allVulns []models.Vulnerability
+	var errs []error
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	attempted := 0
 	for eco, pkgs := range ecoPackages {
 		ghEco, ok := ghEcosystemMap[eco]
 		if !ok {
 			continue
 		}
 
+		attempted++
 		wg.Add(1)
 		go func(ghEco string, pkgs []models.Package) {
 			defer wg.Done()
 			vulns, err := m.queryEcosystem(ctx, ghEco, pkgs)
+			mu.Lock()
+			defer mu.Unlock()
 			if err != nil {
+				errs = append(errs, fmt.Errorf("ecosystem %s: %w", ghEco, err))
 				return
 			}
-			mu.Lock()
 			allVulns = append(allVulns, vulns...)
-			mu.Unlock()
 		}(ghEco, pkgs)
 	}
 	wg.Wait()
 
+	// Keep partial results; only report failure when every ecosystem query
+	// failed so the aggregator can surface it instead of silently returning
+	// an empty result set.
+	if len(errs) > 0 && len(errs) == attempted {
+		return nil, fmt.Errorf("all github advisory queries failed: %w", errors.Join(errs...))
+	}
 	return allVulns, nil
 }
 
@@ -170,12 +181,19 @@ func (m *GitHubAdvisoryMatcher) queryEcosystem(ctx context.Context, ecosystem st
 				fixedIn = v.FirstPatchedVersion.Identifier
 			}
 
+			// Severity fallback: derive from CVSS score when GitHub's
+			// severity string is missing or unrecognized.
+			severity := models.ParseSeverity(adv.Severity)
+			if severity == models.SeverityUnknown && adv.CVSSScore > 0 {
+				severity = models.ScoreToSeverity(adv.CVSSScore)
+			}
+
 			vulns = append(vulns, models.Vulnerability{
 				ID:          id,
 				Aliases:     aliases,
 				Summary:     adv.Summary,
 				Details:     adv.Description,
-				Severity:    models.ParseSeverity(adv.Severity),
+				Severity:    severity,
 				Score:       adv.CVSSScore,
 				Package:     pkg,
 				FixedIn:     fixedIn,

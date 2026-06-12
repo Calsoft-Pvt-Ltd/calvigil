@@ -1,6 +1,11 @@
 // Package fsutil provides filesystem helpers shared across scanners.
 package fsutil
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // SkippedSubDirs is the canonical list of directory names that scanners
 // skip when encountered as a subdirectory of the scan root. Scanners MUST
 // NOT apply these rules to the root of the scan itself — users who
@@ -70,4 +75,56 @@ var SkippedSubDirs = map[string]struct{}{
 func ShouldSkipSubDir(name string) bool {
 	_, ok := SkippedSubDirs[name]
 	return ok
+}
+
+// IsTestFile reports whether the given file path looks like a test file based
+// on common naming conventions across ecosystems.
+//
+//   - Go: *_test.go
+//   - Python: test_*.py, *_test.py, conftest.py
+//   - JavaScript/TypeScript: *.test.{js,ts,jsx,tsx}, *.spec.{js,ts,jsx,tsx}
+//   - Java: *Test.java, *Tests.java, *IT.java
+//   - Rust: tests in a mod tests block are in the same file (can't skip), but
+//     files under a tests/ dir are caught by IsTestDir.
+func IsTestFile(path string) bool {
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	nameNoExt := base[:len(base)-len(ext)]
+
+	switch ext {
+	case ".go":
+		return strings.HasSuffix(nameNoExt, "_test")
+	case ".py":
+		return strings.HasPrefix(nameNoExt, "test_") ||
+			strings.HasSuffix(nameNoExt, "_test") ||
+			nameNoExt == "conftest"
+	case ".js", ".ts", ".jsx", ".tsx", ".mjs":
+		return strings.HasSuffix(nameNoExt, ".test") ||
+			strings.HasSuffix(nameNoExt, ".spec") ||
+			strings.HasSuffix(nameNoExt, "_test") ||
+			strings.HasSuffix(nameNoExt, "_spec")
+	case ".java":
+		return strings.HasSuffix(nameNoExt, "Test") ||
+			strings.HasSuffix(nameNoExt, "Tests") ||
+			strings.HasSuffix(nameNoExt, "IT")
+	case ".rs":
+		return nameNoExt == "tests" || strings.HasSuffix(nameNoExt, "_test")
+	case ".rb":
+		return strings.HasSuffix(nameNoExt, "_test") ||
+			strings.HasSuffix(nameNoExt, "_spec")
+	case ".php":
+		return strings.HasSuffix(nameNoExt, "Test")
+	}
+	return false
+}
+
+// IsTestDir reports whether the given directory name is a common test directory.
+func IsTestDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "test", "tests", "__tests__", "__test__",
+		"spec", "specs", "test_data", "testing",
+		"fixtures", "mocks", "__mocks__":
+		return true
+	}
+	return false
 }

@@ -17,8 +17,9 @@ import (
 
 // OpenAIAnalyzer uses the OpenAI API to perform AI-powered code analysis.
 type OpenAIAnalyzer struct {
-	client *openai.Client
-	model  string
+	client    *openai.Client
+	model     string
+	SkipTests bool // Skip test files during scanning
 }
 
 // NewOpenAIAnalyzer creates a new AI analyzer with the given API key and model.
@@ -118,7 +119,7 @@ func extractJSONArray(text string) string {
 
 func (a *OpenAIAnalyzer) Analyze(ctx context.Context, projectPath string, verbose bool) ([]models.Vulnerability, error) {
 	// Step 1: Run pattern matching first (fast, no API cost)
-	patternMatches, err := ScanPatterns(projectPath)
+	patternMatches, err := ScanPatterns(projectPath, a.SkipTests)
 	if err != nil {
 		return nil, fmt.Errorf("pattern scan failed: %w", err)
 	}
@@ -258,6 +259,13 @@ func (a *OpenAIAnalyzer) callOpenAI(ctx context.Context, userPrompt, projectPath
 		filePath := r.File
 		if !filepath.IsAbs(filePath) {
 			filePath = filepath.Join(projectPath, filePath)
+		}
+		// Reject model-returned paths that escape the project root (defends
+		// against hallucinated or prompt-injected paths like ../../etc/passwd,
+		// since FilePath is later read to build evidence context).
+		if rel, err := filepath.Rel(projectPath, filePath); err != nil ||
+			rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
 		}
 
 		vulns = append(vulns, models.Vulnerability{

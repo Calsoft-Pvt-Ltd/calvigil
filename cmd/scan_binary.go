@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -136,7 +135,9 @@ func runScanBinary(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
 	}
 
-	ctx := context.Background()
+	// Use the command's context so Ctrl+C / SIGTERM cancels in-flight
+	// vulnerability database queries instead of hanging.
+	ctx := cmd.Context()
 	agg := matcher.NewAggregatedMatcher(matchers...)
 	agg.SetVerbose(isVerbose)
 	vulns, err := agg.Match(ctx, scanResult.Packages)

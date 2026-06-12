@@ -77,8 +77,8 @@
       "id": "matcher",
       "path": "internal/matcher/",
       "kind": "pipeline",
-      "responsibility": "Packages -> vulnerabilities via OSV/NVD/GHSA, with caching",
-      "files": ["matcher.go", "osv.go", "nvd.go", "ghsa.go"],
+      "responsibility": "Packages -> vulnerabilities via OSV/OSS Index/NVD/GHSA, canonical normalize+merge, CISA KEV enrichment, with caching",
+      "files": ["matcher.go", "canonical.go", "osv.go", "ossindex.go", "nvd.go", "ghsa.go", "kev.go"],
       "imports": ["internal/models", "internal/cache"],
       "hld_section": [8],
       "lld_section": [6]
@@ -181,7 +181,7 @@
       "package": "internal/matcher",
       "purpose": "Lookup vulnerabilities for a package set",
       "methods": ["Match(packages []models.Package) ([]models.Vulnerability, error)", "Source() string"],
-      "implementations": ["OSVMatcher", "NVDMatcher", "GitHubAdvisoryMatcher", "AggregatedMatcher"]
+      "implementations": ["OSVMatcher", "OSSIndexMatcher", "NVDMatcher", "GitHubAdvisoryMatcher", "AggregatedMatcher"]
     },
     {
       "id": "Analyzer",
@@ -362,6 +362,8 @@
     {"name": "CALVIGIL_SECRET_BACKEND", "values": ["keyring", "file"], "default": "auto-probe (keyring then file)", "purpose": "Pin secret store backend"},
     {"name": "OPENAI_API_KEY",          "purpose": "Override stored OpenAI key for current process"},
     {"name": "NVD_API_KEY",             "purpose": "Override stored NVD key for current process"},
+    {"name": "OSSINDEX_USER",           "purpose": "Sonatype OSS Index account email (optional, raises rate limits)"},
+    {"name": "OSSINDEX_TOKEN",          "purpose": "Sonatype OSS Index API token (optional, raises rate limits)"},
     {"name": "GITHUB_TOKEN",            "purpose": "Override stored GHSA token for current process"},
     {"name": "HOME",                    "purpose": "Used for ~/.calvigil/cache, ~/.calvigil-secrets.json, ~/.calvigil.yaml"}
   ],

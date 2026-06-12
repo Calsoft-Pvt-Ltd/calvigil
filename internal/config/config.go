@@ -17,20 +17,27 @@ const (
 // Secret fields (API keys, tokens) are stored via the OS credential manager
 // when available and fall back to a separate 0600 file. See secrets.go.
 type Config struct {
-	OpenAIKey   string `json:"openai_api_key,omitempty"`
-	OpenAIModel string `json:"openai_model,omitempty"`
-	NVDKey      string `json:"nvd_api_key,omitempty"`
-	GitHubToken string `json:"github_token,omitempty"`
-	OllamaURL   string `json:"ollama_url,omitempty"`
-	OllamaModel string `json:"ollama_model,omitempty"`
+	OpenAIKey     string `json:"openai_api_key,omitempty"`
+	OpenAIModel   string `json:"openai_model,omitempty"`
+	NVDKey        string `json:"nvd_api_key,omitempty"`
+	GitHubToken   string `json:"github_token,omitempty"`
+	OSSIndexUser  string `json:"ossindex_user,omitempty"`
+	OSSIndexToken string `json:"ossindex_token,omitempty"`
+	OllamaURL     string `json:"ollama_url,omitempty"`
+	OllamaModel   string `json:"ollama_model,omitempty"`
+	LMStudioURL   string `json:"lmstudio_url,omitempty"`
+	LMStudioModel string `json:"lmstudio_model,omitempty"`
 }
 
 // fileConfig is the on-disk representation. Secret fields are intentionally
 // omitted so they can only be written via the secret store.
 type fileConfig struct {
-	OpenAIModel string `json:"openai_model,omitempty"`
-	OllamaURL   string `json:"ollama_url,omitempty"`
-	OllamaModel string `json:"ollama_model,omitempty"`
+	OpenAIModel   string `json:"openai_model,omitempty"`
+	OSSIndexUser  string `json:"ossindex_user,omitempty"`
+	OllamaURL     string `json:"ollama_url,omitempty"`
+	OllamaModel   string `json:"ollama_model,omitempty"`
+	LMStudioURL   string `json:"lmstudio_url,omitempty"`
+	LMStudioModel string `json:"lmstudio_model,omitempty"`
 
 	// Legacy secret fields kept only for reading older configs so we can
 	// migrate them into the secret store on first Save(). They are never
@@ -68,6 +75,9 @@ func Load() (*Config, error) {
 			}
 			cfg.OllamaURL = fc.OllamaURL
 			cfg.OllamaModel = fc.OllamaModel
+			cfg.LMStudioURL = fc.LMStudioURL
+			cfg.LMStudioModel = fc.LMStudioModel
+			cfg.OSSIndexUser = fc.OSSIndexUser
 			cfg.OpenAIKey = fc.LegacyOpenAIKey
 			cfg.NVDKey = fc.LegacyNVDKey
 			cfg.GitHubToken = fc.LegacyGitHubToken
@@ -76,7 +86,7 @@ func Load() (*Config, error) {
 
 	// Pull secrets from the secret store; these win over any legacy
 	// plaintext values still sitting in the config file.
-	if openai, nvd, gh, serr := loadSecrets(); serr == nil {
+	if openai, nvd, gh, ossToken, serr := loadSecrets(); serr == nil {
 		if openai != "" {
 			cfg.OpenAIKey = openai
 		}
@@ -85,6 +95,9 @@ func Load() (*Config, error) {
 		}
 		if gh != "" {
 			cfg.GitHubToken = gh
+		}
+		if ossToken != "" {
+			cfg.OSSIndexToken = ossToken
 		}
 	}
 
@@ -101,11 +114,23 @@ func Load() (*Config, error) {
 	if v := os.Getenv("GITHUB_TOKEN"); v != "" {
 		cfg.GitHubToken = v
 	}
+	if v := os.Getenv("OSSINDEX_USER"); v != "" {
+		cfg.OSSIndexUser = v
+	}
+	if v := os.Getenv("OSSINDEX_TOKEN"); v != "" {
+		cfg.OSSIndexToken = v
+	}
 	if v := os.Getenv("OLLAMA_URL"); v != "" {
 		cfg.OllamaURL = v
 	}
 	if v := os.Getenv("OLLAMA_MODEL"); v != "" {
 		cfg.OllamaModel = v
+	}
+	if v := os.Getenv("LMSTUDIO_URL"); v != "" {
+		cfg.LMStudioURL = v
+	}
+	if v := os.Getenv("LMSTUDIO_MODEL"); v != "" {
+		cfg.LMStudioModel = v
 	}
 
 	return cfg, nil
@@ -124,9 +149,12 @@ func Save(cfg *Config) error {
 	}
 
 	fc := fileConfig{
-		OpenAIModel: cfg.OpenAIModel,
-		OllamaURL:   cfg.OllamaURL,
-		OllamaModel: cfg.OllamaModel,
+		OpenAIModel:   cfg.OpenAIModel,
+		OSSIndexUser:  cfg.OSSIndexUser,
+		OllamaURL:     cfg.OllamaURL,
+		OllamaModel:   cfg.OllamaModel,
+		LMStudioURL:   cfg.LMStudioURL,
+		LMStudioModel: cfg.LMStudioModel,
 	}
 	data, err := json.MarshalIndent(fc, "", "  ")
 	if err != nil {
@@ -144,6 +172,9 @@ func Save(cfg *Config) error {
 	}
 	if err := saveSecret(secretKeyGitHub, cfg.GitHubToken); err != nil {
 		return fmt.Errorf("cannot save github token: %w", err)
+	}
+	if err := saveSecret(secretKeyOSSIndex, cfg.OSSIndexToken); err != nil {
+		return fmt.Errorf("cannot save oss index token: %w", err)
 	}
 	return nil
 }
@@ -164,12 +195,20 @@ func Set(key, value string) error {
 		cfg.NVDKey = value
 	case "github-token":
 		cfg.GitHubToken = value
+	case "ossindex-user":
+		cfg.OSSIndexUser = value
+	case "ossindex-token":
+		cfg.OSSIndexToken = value
 	case "ollama-url":
 		cfg.OllamaURL = value
 	case "ollama-model":
 		cfg.OllamaModel = value
+	case "lmstudio-url":
+		cfg.LMStudioURL = value
+	case "lmstudio-model":
+		cfg.LMStudioModel = value
 	default:
-		return fmt.Errorf("unknown config key: %s (valid keys: openai-key, openai-model, nvd-key, github-token, ollama-url, ollama-model)", key)
+		return fmt.Errorf("unknown config key: %s (valid keys: openai-key, openai-model, nvd-key, github-token, ossindex-user, ossindex-token, ollama-url, ollama-model, lmstudio-url, lmstudio-model)", key)
 	}
 
 	return Save(cfg)
@@ -191,10 +230,18 @@ func Get(key string) (string, error) {
 		return maskSecret(cfg.NVDKey), nil
 	case "github-token":
 		return maskSecret(cfg.GitHubToken), nil
+	case "ossindex-user":
+		return cfg.OSSIndexUser, nil
+	case "ossindex-token":
+		return maskSecret(cfg.OSSIndexToken), nil
 	case "ollama-url":
 		return cfg.OllamaURL, nil
 	case "ollama-model":
 		return cfg.OllamaModel, nil
+	case "lmstudio-url":
+		return cfg.LMStudioURL, nil
+	case "lmstudio-model":
+		return cfg.LMStudioModel, nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}

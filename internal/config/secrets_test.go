@@ -144,7 +144,7 @@ func TestKeyringBackend_RoundTrip(t *testing.T) {
 	if err := saveSecret(secretKeyOpenAI, "kr-value"); err != nil {
 		t.Fatalf("saveSecret: %v", err)
 	}
-	openai, _, _, err := loadSecrets()
+	openai, _, _, _, err := loadSecrets()
 	if err != nil {
 		t.Fatalf("loadSecrets: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestKeyringBackend_RoundTrip(t *testing.T) {
 	if err := saveSecret(secretKeyOpenAI, ""); err != nil {
 		t.Fatalf("saveSecret empty: %v", err)
 	}
-	openai, _, _, err = loadSecrets()
+	openai, _, _, _, err = loadSecrets()
 	if err != nil {
 		t.Fatalf("loadSecrets after delete: %v", err)
 	}

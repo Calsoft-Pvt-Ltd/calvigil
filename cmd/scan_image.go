@@ -86,19 +86,10 @@ func runScanImage(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Filter by severity
+	// Filter by severity (shared helper keeps validation consistent across commands)
 	if imageOpts.severity != "" {
-		minSev := models.Severity(strings.ToUpper(imageOpts.severity))
-		minRank := minSev.Rank()
-		if minRank > 0 {
-			var filtered []models.Vulnerability
-			for _, v := range result.Vulnerabilities {
-				if v.Severity.Rank() >= minRank {
-					filtered = append(filtered, v)
-				}
-			}
-			result.Vulnerabilities = filtered
-		}
+		result.Vulnerabilities = filterVulnsBySeverity(result.Vulnerabilities,
+			models.Severity(strings.ToUpper(imageOpts.severity)))
 	}
 
 	// Report

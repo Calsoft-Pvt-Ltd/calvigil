@@ -160,6 +160,60 @@ func TestCargoLockTransitiveDeps(t *testing.T) {
 	}
 }
 
+// TestCargoLockRootNotFirst verifies root detection when the root crate is not
+// the first [[package]] entry — Cargo.lock entries are sorted alphabetically,
+// so e.g. a root crate named "zz-app" appears last.
+func TestCargoLockRootNotFirst(t *testing.T) {
+	input := "[[package]]\nname = \"serde\"\nversion = \"1.0.180\"\ndependencies = [\n \"serde_derive 1.0.180\",\n]\n\n[[package]]\nname = \"serde_derive\"\nversion = \"1.0.180\"\n\n[[package]]\nname = \"zz-app\"\nversion = \"0.1.0\"\ndependencies = [\n \"serde 1.0.180\",\n]\n"
+
+	p := &CargoLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "Cargo.lock")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2 packages (root zz-app skipped), got %d", len(pkgs))
+	}
+	for _, pkg := range pkgs {
+		switch pkg.Name {
+		case "zz-app":
+			t.Error("root package zz-app should be skipped")
+		case "serde":
+			if pkg.Indirect {
+				t.Error("serde should be direct (in root deps)")
+			}
+		case "serde_derive":
+			if !pkg.Indirect {
+				t.Error("serde_derive should be transitive")
+			}
+		}
+	}
+}
+
+// TestExtractBracketItemsMalformed guards against the slice-bounds panic on a
+// bare closing bracket and other malformed bracket lines.
+func TestExtractBracketItemsMalformed(t *testing.T) {
+	cases := map[string][]string{
+		"]":                   nil,
+		"] # trailing":        nil,
+		"\"requests>=2.28\"]": {"requests>=2.28"},
+		"[\"flask\"]":         {"flask"},
+		"":                    nil,
+	}
+	for input, want := range cases {
+		got := extractBracketItems(input)
+		if len(got) != len(want) {
+			t.Errorf("extractBracketItems(%q) = %v, want %v", input, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("extractBracketItems(%q)[%d] = %q, want %q", input, i, got[i], want[i])
+			}
+		}
+	}
+}
+
 func TestGemfileLockTransitiveDeps(t *testing.T) {
 	input := "GEM\n  remote: https://rubygems.org/\n  specs:\n    actionpack (7.0.4)\n      actionview (= 7.0.4)\n      activesupport (= 7.0.4)\n    actionview (7.0.4)\n    activesupport (7.0.4)\n    rails (7.0.4)\n      actionpack (= 7.0.4)\n\nPLATFORMS\n  ruby\n\nDEPENDENCIES\n  rails (~> 7.0)\n"
 
@@ -689,6 +743,39 @@ packages:
 	}
 	if len(pkgs) != 2 {
 		t.Fatalf("expected 2, got %d", len(pkgs))
+	}
+}
+
+func TestPnpmLockParserScopedPackages(t *testing.T) {
+	input := `lockfileVersion: 5.4
+packages:
+  /@babel/core@7.23.0:
+    resolution: {integrity: sha512-abc}
+  /express@4.18.2:
+    resolution: {integrity: sha512-xyz}
+`
+	p := &PnpmLockParser{}
+	pkgs, err := p.Parse(strings.NewReader(input), "pnpm-lock.yaml")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Fatalf("expected 2, got %d", len(pkgs))
+	}
+	found := false
+	for _, pkg := range pkgs {
+		if pkg.Name == "@babel/core" {
+			found = true
+			if pkg.Version != "7.23.0" {
+				t.Errorf("expected version 7.23.0 for @babel/core, got %q", pkg.Version)
+			}
+		}
+		if pkg.Name == "/" {
+			t.Errorf("scoped package parsed as garbage name %q", pkg.Name)
+		}
+	}
+	if !found {
+		t.Error("scoped package @babel/core not parsed")
 	}
 }
 

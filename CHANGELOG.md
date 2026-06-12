@@ -5,6 +5,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [4.6.0] — Unreleased
+
+### Added
+- **Sonatype OSS Index matcher**: New always-on vulnerability database alongside OSV.dev
+  - PURL-based component-report API covering all supported ecosystems
+  - Works anonymously; optional free account raises rate limits
+  - Config keys: `ossindex-user`, `ossindex-token`; env vars: `OSSINDEX_USER`, `OSSINDEX_TOKEN`
+- **CISA KEV enrichment**: Findings are checked against the CISA Known Exploited
+  Vulnerabilities catalog after matching
+  - Exploited findings flagged `⚠ KEV` in table output and counted in the scan summary
+  - New `known_exploited` field on vulnerability records in JSON/report output
+  - Best-effort: feed failures never alter scan results
+- **Canonical Data Model** (`internal/matcher/canonical.go`): all sources are
+  normalized into one consistent shape before reporting
+  - CVE IDs preferred as primary identifier; GHSA/ecosystem IDs demoted to aliases
+  - Cross-source merge: duplicate findings (matched by ID **or alias**) are merged
+    instead of dropped — missing severity, CVSS score, fix version, summary, and
+    references are filled in from whichever source has them
+- `--skip-tests` flag: exclude test files from reachability analysis
+
+### Fixed
+- **`UNKNOWN` severity** appearing when a source omitted a severity label:
+  - OSV: severity now derived from CVSS v3 → v4 → v2 vectors (top-level and per-affected)
+  - GitHub Advisory: falls back to numeric CVSS score when the label is missing
+  - Canonical normalization derives severity from CVSS score as a last resort
+
+---
+
+## [4.5.0] — 2026-06-12
+
+### Added
+- **LM Studio Support**: New AI provider for running local LLMs via [LM Studio](https://lmstudio.ai/)
+  - OpenAI-compatible `/v1/chat/completions` endpoint (default: `http://localhost:1234`)
+  - Full code analysis and vulnerability enrichment support (same capabilities as Ollama)
+  - CLI flags: `--provider lmstudio`, `--lmstudio-url`, `--lmstudio-model`
+  - Config keys: `lmstudio-url`, `lmstudio-model`
+  - Environment variables: `LMSTUDIO_URL`, `LMSTUDIO_MODEL`
+  - Auto-detection in `--provider auto` mode (tried after Ollama, before OpenAI)
+  - Availability check via `/v1/models` endpoint
+
+---
+
 ## [4.4.0] — 2026-05-12
 
 ### Added

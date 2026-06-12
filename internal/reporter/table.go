@@ -152,9 +152,13 @@ func printDepTable(w io.Writer, vulns []models.Vulnerability) {
 		if v.Package.Indirect {
 			depType = "Transitive"
 		}
+		id := v.ID
+		if v.KnownExploited {
+			id += " ⚠ KEV"
+		}
 		t.AppendRow(table.Row{
 			colorSeverity(v.Severity),
-			v.ID,
+			id,
 			v.Package.Name,
 			v.Package.Version,
 			depType,
@@ -236,6 +240,17 @@ func printSummary(w io.Writer, vulns []models.Vulnerability) {
 	}
 	if c := counts[models.SeverityUnknown]; c > 0 {
 		fmt.Fprintf(w, "  ⚪ Unknown:  %d\n", c)
+	}
+
+	// Highlight findings listed in the CISA Known Exploited Vulnerabilities catalog.
+	kevCount := 0
+	for _, v := range vulns {
+		if v.KnownExploited {
+			kevCount++
+		}
+	}
+	if kevCount > 0 {
+		fmt.Fprintf(w, "  ⚠️  Known exploited (CISA KEV): %d — prioritize these fixes\n", kevCount)
 	}
 
 	if len(ecoCounts) > 1 {

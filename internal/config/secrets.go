@@ -214,14 +214,15 @@ func (f *fileStore) Delete(key string) error {
 // secretKeys maps struct field names to the stable keyring key used on disk
 // and in the OS credential manager.
 const (
-	secretKeyOpenAI = "openai_api_key"
-	secretKeyNVD    = "nvd_api_key"
-	secretKeyGitHub = "github_token"
+	secretKeyOpenAI   = "openai_api_key"
+	secretKeyNVD      = "nvd_api_key"
+	secretKeyGitHub   = "github_token"
+	secretKeyOSSIndex = "ossindex_token"
 )
 
 // loadSecrets returns all known secrets from the active store. Missing
 // values are returned as empty strings; backend errors are surfaced.
-func loadSecrets() (openai, nvd, github string, err error) {
+func loadSecrets() (openai, nvd, github, ossindex string, err error) {
 	store := getStore()
 	get := func(k string) (string, error) {
 		v, err := store.Get(k)
@@ -237,6 +238,9 @@ func loadSecrets() (openai, nvd, github string, err error) {
 		return
 	}
 	if github, err = get(secretKeyGitHub); err != nil {
+		return
+	}
+	if ossindex, err = get(secretKeyOSSIndex); err != nil {
 		return
 	}
 	return

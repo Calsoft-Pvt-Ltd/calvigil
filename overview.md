@@ -20,17 +20,20 @@ Calvigil runs up to **six types of security checks**, each looking for different
 
 ### 1. Dependency Scanning (automatic)
 
-Every modern project uses third-party libraries. Calvigil reads your lockfiles (`package-lock.json`, `go.mod`, `Cargo.lock`, etc.) and checks every dependency against three vulnerability databases:
+Every modern project uses third-party libraries. Calvigil reads your lockfiles (`package-lock.json`, `go.mod`, `Cargo.lock`, etc.) and checks every dependency against four vulnerability databases:
 
 - **OSV.dev** — Google's open vulnerability database
+- **Sonatype OSS Index** — free, PURL-based component vulnerability data for all major ecosystems
 - **NVD** — The US government's National Vulnerability Database
 - **GitHub Advisory Database** — GitHub's curated security advisories
+
+Results from every database are normalized into a single canonical form (CVE IDs preferred, duplicates merged, missing severity filled in from other sources) and then checked against the **CISA Known Exploited Vulnerabilities (KEV)** catalog — anything actively exploited in the wild is flagged `⚠ KEV` so you know what to fix first.
 
 If any of your dependencies have a known CVE (security flaw), Calvigil tells you which package, which version, how severe it is, and which version to upgrade to.
 
 ### 2. AI-Powered Code Analysis (optional)
 
-Calvigil can send your source files to an AI model (OpenAI GPT-4 or a local Ollama model) to detect **OWASP Top 10** vulnerabilities directly in your code:
+Calvigil can send your source files to an AI model (OpenAI GPT-4, a local Ollama model, or LM Studio) to detect **OWASP Top 10** vulnerabilities directly in your code:
 
 - SQL injection, command injection, cross-site scripting (XSS)
 - Hardcoded secrets and API keys
@@ -232,11 +235,14 @@ This runs a standalone license scan (no API keys needed) and generates an HTML r
 # Use Ollama for fully local AI analysis
 calvigil scan --provider ollama --ollama-model codellama --skip-deps
 
+# Or use LM Studio
+calvigil scan --provider lmstudio --lmstudio-model codellama --skip-deps
+
 # Use cached vulnerability data from a previous online scan
 calvigil scan --cache-ttl 168h   # use cached data up to 7 days old
 ```
 
-Calvigil's Semgrep rules are bundled locally, Ollama runs entirely on your machine, and the vulnerability cache stores results from previous scans.
+Calvigil's Semgrep rules are bundled locally, Ollama and LM Studio run entirely on your machine, and the vulnerability cache stores results from previous scans.
 
 ---
 
@@ -270,7 +276,7 @@ HTML and PDF reports include severity breakdowns, dependency paths, and AI-enric
 
 - **No cloud service required** — Calvigil is a single binary you run locally
 - **Zero mandatory API keys** — Dependency scanning, Semgrep SAST, IaC scanning, license checking, and supply chain detection all work without any keys
-- **AI is opt-in** — Use OpenAI, use local Ollama, or skip AI entirely
-- **Works offline** — Bundled Semgrep rules + Ollama + vulnerability cache
+- **AI is opt-in** — Use OpenAI, use local Ollama, use LM Studio, or skip AI entirely
+- **Works offline** — Bundled Semgrep rules + Ollama/LM Studio + vulnerability cache
 - **Standards-compliant** — PURL, CycloneDX, SPDX, OpenVEX, SARIF
 - **Fast** — Cached scans complete in seconds; concurrent matching against multiple databases

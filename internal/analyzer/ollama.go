@@ -17,9 +17,10 @@ import (
 // OllamaAnalyzer uses a local Ollama instance for AI-powered code analysis.
 // It communicates via Ollama's OpenAI-compatible /v1/chat/completions endpoint.
 type OllamaAnalyzer struct {
-	baseURL string // e.g. "http://localhost:11434"
-	model   string // e.g. "llama3", "codellama", "mistral"
-	client  *http.Client
+	baseURL   string // e.g. "http://localhost:11434"
+	model     string // e.g. "llama3", "codellama", "mistral"
+	client    *http.Client
+	SkipTests bool // Skip test files during scanning
 }
 
 // ollamaTimeout is the maximum time to wait for a single Ollama API call.
@@ -76,7 +77,7 @@ func (o *OllamaAnalyzer) Available() bool {
 // Analyze runs pattern matching and then sends flagged code to Ollama for deep analysis.
 func (o *OllamaAnalyzer) Analyze(ctx context.Context, projectPath string, verbose bool) ([]models.Vulnerability, error) {
 	// Step 1: Run pattern matching first (fast, no API cost)
-	patternMatches, err := ScanPatterns(projectPath)
+	patternMatches, err := ScanPatterns(projectPath, o.SkipTests)
 	if err != nil {
 		return nil, fmt.Errorf("pattern scan failed: %w", err)
 	}

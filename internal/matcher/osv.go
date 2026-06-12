@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -285,7 +286,9 @@ const osvVulnURL = "https://api.osv.dev/v1/vulns/"
 
 // fetchVulnDetails retrieves full vulnerability details from OSV by ID.
 func (m *OSVMatcher) fetchVulnDetails(ctx context.Context, id string) (*osvVuln, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, osvVulnURL+id, nil)
+	// Escape the vulnerability ID so it cannot alter the request path
+	// (IDs originate from API responses, not local trusted data).
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, osvVulnURL+url.PathEscape(id), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -309,10 +312,21 @@ func (m *OSVMatcher) fetchVulnDetails(ctx context.Context, id string) (*osvVuln,
 }
 
 // parseSeverity converts OSV severity entries to our Severity type.
+// Preference order: CVSS v3 vector, CVSS v4 vector, CVSS v2 vector.
 func parseSeverity(severities []osvSeverity) models.Severity {
 	for _, s := range severities {
 		if s.Type == "CVSS_V3" {
 			return cvssVectorToSeverity(s.Score)
+		}
+	}
+	// CVSS v4 vectors: we don't compute the full v4 score, but the base
+	// metrics are close enough to v3 that the v3 calculator gives a usable
+	// severity bucket for the metrics they share.
+	for _, s := range severities {
+		if s.Type == "CVSS_V4" {
+			if sev := cvssVectorToSeverity(s.Score); sev != models.SeverityUnknown {
+				return sev
+			}
 		}
 	}
 	// Try CVSS_V2 as fallback
@@ -344,8 +358,10 @@ func parseSeverityWithFallback(vuln *osvVuln) models.Severity {
 	// Also check affected[].database_specific.severity
 	for _, aff := range vuln.Affected {
 		for _, sev := range aff.Severities {
-			if sev.Type == "CVSS_V3" {
-				return cvssVectorToSeverity(sev.Score)
+			if sev.Type == "CVSS_V3" || sev.Type == "CVSS_V4" {
+				if s := cvssVectorToSeverity(sev.Score); s != models.SeverityUnknown {
+					return s
+				}
 			}
 		}
 	}

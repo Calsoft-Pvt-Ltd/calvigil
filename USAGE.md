@@ -63,6 +63,9 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
   - [Setup](#ollama-setup)
   - [Provider Selection](#provider-selection)
   - [Configuration](#ollama-configuration)
+- [LM Studio Support](#lm-studio-support)
+  - [LM Studio Setup](#lm-studio-setup)
+  - [LM Studio Configuration](#lm-studio-configuration)
 - [Container Image Scanning](#container-image-scanning)
   - [Prerequisites](#prerequisites)
   - [Usage Examples](#image-scanning-examples)
@@ -157,7 +160,9 @@ Configuration is stored in `~/.calvigil.json`:
   "nvd_api_key": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "github_token": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "ollama_url": "http://localhost:11434",
-  "ollama_model": "llama3"
+  "ollama_model": "llama3",
+  "lmstudio_url": "http://localhost:1234",
+  "lmstudio_model": ""
 }
 ```
 
@@ -171,8 +176,12 @@ Environment variables **always take precedence** over config file values:
 | `OPENAI_MODEL` | OpenAI model name (default: `gpt-4`) |
 | `NVD_API_KEY` | NIST NVD API key for vulnerability lookups |
 | `GITHUB_TOKEN` | GitHub token for advisory database access |
+| `OSSINDEX_USER` | Sonatype OSS Index account email (optional, raises rate limits) |
+| `OSSINDEX_TOKEN` | Sonatype OSS Index API token (optional, raises rate limits) |
 | `OLLAMA_URL` | Ollama server URL (default: `http://localhost:11434`) |
 | `OLLAMA_MODEL` | Ollama model name (e.g. `llama3`, `codellama`, `mistral`) |
+| `LMSTUDIO_URL` | LM Studio server URL (default: `http://localhost:1234`) |
+| `LMSTUDIO_MODEL` | LM Studio model name |
 
 **Example — using environment variables:**
 
@@ -204,6 +213,12 @@ calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 # Optional: GitHub token for advisory database access
 # Create at: https://github.com/settings/tokens
 calvigil config set github-token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Optional: Sonatype OSS Index credentials for higher rate limits
+# (anonymous access works without any setup)
+# Register free at: https://ossindex.sonatype.org/
+calvigil config set ossindex-user you@example.com
+calvigil config set ossindex-token xxxxxxxx
 ```
 
 ### Viewing Configuration
@@ -228,8 +243,12 @@ calvigil config get nvd-key
 | `openai-model` | No | `gpt-4` | Model to use (`gpt-4`, `gpt-4-turbo`, `gpt-4o`, etc.) |
 | `nvd-key` | No | — | NVD API key for higher rate limits |
 | `github-token` | No | — | GitHub personal access token |
+| `ossindex-user` | No | — | Sonatype OSS Index account email |
+| `ossindex-token` | No | — | Sonatype OSS Index API token |
 | `ollama-url` | No | `http://localhost:11434` | Ollama server URL |
 | `ollama-model` | No | — | Ollama model name (e.g. `llama3`, `codellama`) |
+| `lmstudio-url` | No | `http://localhost:1234` | LM Studio server URL |
+| `lmstudio-model` | No | — | LM Studio model name |
 
 ---
 
@@ -260,9 +279,11 @@ calvigil scan [path] [flags]
 | `--skip-deps` | — | `false` | Skip dependency scan (code analysis only) |
 | `--skip-semgrep` | — | `false` | Skip Semgrep SAST analysis |
 | `--semgrep-rules` | — | (bundled) | Path to custom Semgrep rule directory |
-| `--provider` | — | `auto` | AI provider: `openai`, `ollama`, or `auto` |
+| `--provider` | — | `auto` | AI provider: `openai`, `ollama`, `lmstudio`, or `auto` |
 | `--ollama-url` | — | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | — | — | Ollama model name (e.g. `llama3`, `codellama`, `mistral`) |
+| `--lmstudio-url` | — | `http://localhost:1234` | LM Studio server URL |
+| `--lmstudio-model` | — | — | LM Studio model name |
 | `--check-licenses` | — | `false` | Enable license compliance checking |
 | `--verify-integrity` | — | `false` | Verify lockfile integrity hashes against package registries |
 | `--no-cache` | — | `false` | Disable vulnerability response caching |
@@ -1211,7 +1232,7 @@ The scanner detects vulnerabilities mapped to the OWASP Top 10:
 | A03: Injection | SEC-001/SEC-002 (SQL injection), SEC-003 (command injection), SEC-008 (XSS), SEC-015 (C format string), SEC-016 (PHP file inclusion) |
 | A04: Insecure Design | AI analysis of architectural patterns, SEC-013 (unsafe Rust), SEC-018 (insecure random) |
 | A05: Security Misconfiguration | SEC-010 (TLS disabled), SEC-012 (CORS wildcard), SEC-009 (HTTP), SEC-021 (JWT misconfiguration), SEC-022 (debug mode) |
-| A06: Vulnerable Components | Dependency scanning (OSV, NVD, GitHub Advisory) with direct/transitive classification, license compliance |
+| A06: Vulnerable Components | Dependency scanning (OSV, OSS Index, NVD, GitHub Advisory) with direct/transitive classification, license compliance |
 | A07: Auth Failures | AI analysis of authentication code, SEC-021 (JWT disabled) |
 | A08: Data Integrity | SEC-011 (insecure deserialization), SEC-020 (XXE) |
 | A09: Logging Failures | AI analysis of logging practices, SEC-023 (empty error handler) |
@@ -1340,16 +1361,20 @@ The `--provider` flag controls which AI backend is used:
 
 | Provider | Behavior |
 |----------|----------|
-| `auto` (default) | Uses Ollama if configured and reachable, otherwise falls back to OpenAI |
+| `auto` (default) | Uses Ollama if configured and reachable, then LM Studio, otherwise falls back to OpenAI |
 | `ollama` | Uses Ollama only; fails if Ollama is not available |
+| `lmstudio` | Uses LM Studio only; fails if LM Studio is not available |
 | `openai` | Uses OpenAI only; requires `openai-key` configured |
 
 ```bash
-# Auto-detect (default) — Ollama first, then OpenAI
+# Auto-detect (default) — Ollama first, then LM Studio, then OpenAI
 calvigil scan
 
 # Force Ollama
 calvigil scan --provider ollama --ollama-model llama3
+
+# Force LM Studio
+calvigil scan --provider lmstudio --lmstudio-model lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
 
 # Force OpenAI
 calvigil scan --provider openai
@@ -1399,6 +1424,55 @@ Use verbose mode (`-v`) to see which batches fail and why:
 ```bash
 calvigil scan -v --provider ollama --ollama-model llama3:8b /path/to/project
 ```
+
+---
+
+## LM Studio Support
+
+Run AI-powered code analysis using [LM Studio](https://lmstudio.ai/) — a desktop application for running local LLMs with an OpenAI-compatible API.
+
+### LM Studio Setup
+
+```bash
+# 1. Download and install LM Studio from https://lmstudio.ai/
+
+# 2. Download a model inside LM Studio (e.g., Meta-Llama-3-8B-Instruct-GGUF)
+
+# 3. Start the local server in LM Studio:
+#    - Go to the "Local Server" tab (or Developer tab)
+#    - Load a model and click "Start Server"
+#    - Default endpoint: http://localhost:1234/v1
+
+# 4. Configure the scanner
+calvigil config set lmstudio-model lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
+# or via environment variable:
+export LMSTUDIO_MODEL=lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
+```
+
+### LM Studio Configuration
+
+Configuration priority (highest to lowest):
+1. CLI flags (`--lmstudio-url`, `--lmstudio-model`)
+2. Environment variables (`LMSTUDIO_URL`, `LMSTUDIO_MODEL`)
+3. Config file (`~/.calvigil.json`)
+
+```bash
+# Persist LM Studio settings
+calvigil config set lmstudio-url http://localhost:1234
+calvigil config set lmstudio-model lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
+
+# Or use environment variables
+export LMSTUDIO_URL=http://localhost:1234
+export LMSTUDIO_MODEL=lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF
+
+# Run a scan with LM Studio
+calvigil scan --provider lmstudio /path/to/project
+
+# Use a custom LM Studio URL (e.g., running on another machine)
+calvigil scan --provider lmstudio --lmstudio-url http://gpu-server:1234 --lmstudio-model codellama
+```
+
+LM Studio exposes an OpenAI-compatible `/v1/chat/completions` endpoint, so it works seamlessly with Calvigil's AI analysis and enrichment pipeline. The same model size recommendations that apply to Ollama also apply to LM Studio.
 
 ---
 
@@ -1452,10 +1526,10 @@ The image scanner maps syft artifact types to vulnerability ecosystems:
 
 | Syft Type | Ecosystem | Database |
 |-----------|-----------|----------|
-| `npm` | npm | OSV, NVD, GitHub Advisory |
-| `python`, `pip`, `wheel` | PyPI | OSV, NVD, GitHub Advisory |
-| `go-module` | Go | OSV, NVD, GitHub Advisory |
-| `java-archive`, `maven` | Maven | OSV, NVD, GitHub Advisory |
+| `npm` | npm | OSV, OSS Index, NVD, GitHub Advisory |
+| `python`, `pip`, `wheel` | PyPI | OSV, OSS Index, NVD, GitHub Advisory |
+| `go-module` | Go | OSV, OSS Index, NVD, GitHub Advisory |
+| `java-archive`, `maven` | Maven | OSV, OSS Index, NVD, GitHub Advisory |
 | `gem` | RubyGems | OSV |
 | `rust-crate` | crates.io | OSV |
 | `deb` | DEB (Debian) | OSV |
@@ -1725,8 +1799,31 @@ Table output groups vulnerabilities by ecosystem with icons for easy identificat
 | Database | API Key Required | Rate Limit | Notes |
 |----------|-----------------|------------|-------|
 | **OSV.dev** | No | Unlimited | Primary source, batch API, always enabled |
+| **Sonatype OSS Index** | Optional | 128 coords/req anonymous; higher with free account | PURL-based, all ecosystems, always enabled |
 | **NVD** | Optional | 5/30s (no key), 50/30s (with key) | Set `nvd-key` for better limits |
 | **GitHub Advisory** | Optional | 60/hr (no token), 5000/hr (with token) | Set `github-token` for access |
+| **CISA KEV** | No | Unlimited | Enrichment only — flags findings that are actively exploited in the wild (`⚠ KEV`) |
+
+### Canonical Data Model
+
+Every database reports vulnerabilities differently. calvigil normalizes all
+sources into a single canonical form before reporting:
+
+- **Canonical IDs** — CVE IDs are preferred as the primary identifier; GHSA
+  and ecosystem-specific IDs (`GO-...`, `PYSEC-...`, `SONATYPE-...`) are kept
+  as aliases.
+- **Cross-source merging** — when two databases report the same vulnerability
+  (matched by ID or alias), the records are merged: missing severity, CVSS
+  score, fix version, summary, and references are filled in from whichever
+  source provides them. The first source's data always wins for fields both
+  provide.
+- **Severity fallback chain** — severity is resolved from, in order: CVSS v3
+  vector → CVSS v4 vector → CVSS v2 vector → numeric CVSS score → the
+  source's own severity label. A finding only shows `UNKNOWN` when no source
+  provides any severity signal at all.
+- **KEV enrichment** — after matching, results are checked against the CISA
+  Known Exploited Vulnerabilities catalog; matches are flagged in reports and
+  counted in the summary so you can prioritize fixes.
 
 ---
 

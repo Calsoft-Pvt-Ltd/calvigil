@@ -3,6 +3,7 @@ package matcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -101,17 +102,20 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 
 	type nvdResult struct {
 		vulns []models.Vulnerability
+		err   error
 	}
 	results := make([]nvdResult, len(uniqueNames))
 	var wg sync.WaitGroup
 
+	cancelled := false
+dispatch:
 	for i, name := range uniqueNames {
 		// Rate-limit: wait before dispatching each request (except the first).
 		if i > 0 {
 			select {
 			case <-ctx.Done():
-				wg.Wait()
-				goto collect
+				cancelled = true
+				break dispatch
 			case <-time.After(delay):
 			}
 		}
@@ -120,17 +124,27 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 		go func(idx int, n string) {
 			defer wg.Done()
 			vulns, err := m.queryPackage(ctx, n, pkgMap[n])
-			if err == nil {
-				results[idx] = nvdResult{vulns: vulns}
-			}
+			results[idx] = nvdResult{vulns: vulns, err: err}
 		}(i, name)
 	}
 	wg.Wait()
 
-collect:
 	var allVulns []models.Vulnerability
+	var errs []error
 	for _, r := range results {
 		allVulns = append(allVulns, r.vulns...)
+		if r.err != nil {
+			errs = append(errs, r.err)
+		}
+	}
+	if cancelled {
+		return allVulns, ctx.Err()
+	}
+	// Keep partial results; only report failure when every query failed so
+	// the aggregator can surface it to the user instead of silently
+	// returning an empty result set.
+	if len(errs) > 0 && len(errs) == len(uniqueNames) {
+		return nil, fmt.Errorf("all nvd queries failed: %w", errors.Join(errs...))
 	}
 	return allVulns, nil
 }

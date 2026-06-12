@@ -829,7 +829,8 @@ type PatternMatch struct {
 
 // ScanPatterns walks the project directory and runs all pattern rules against
 // source files using a worker pool for concurrent file scanning.
-func ScanPatterns(projectPath string) ([]PatternMatch, error) {
+func ScanPatterns(projectPath string, skipTests ...bool) ([]PatternMatch, error) {
+	skipTestFiles := len(skipTests) > 0 && skipTests[0]
 	const numWorkers = 8
 
 	type fileJob struct {
@@ -864,6 +865,12 @@ func ScanPatterns(projectPath string) ([]PatternMatch, error) {
 				if path != projectPath && fsutil.ShouldSkipSubDir(info.Name()) {
 					return filepath.SkipDir
 				}
+				if skipTestFiles && path != projectPath && fsutil.IsTestDir(info.Name()) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if skipTestFiles && fsutil.IsTestFile(path) {
 				return nil
 			}
 			ext := filepath.Ext(info.Name())

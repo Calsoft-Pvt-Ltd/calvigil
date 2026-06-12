@@ -186,8 +186,9 @@ type pnpmLockfile struct {
 	Packages map[string]interface{} `yaml:"packages"`
 }
 
-// pnpmKeyRegex matches keys like: /express@4.18.2 or express@4.18.2
-var pnpmKeyRegex = regexp.MustCompile(`/?([^@\s]+)@(.+)`)
+// pnpmKeyRegex matches keys like: /express@4.18.2, express@4.18.2 and
+// scoped packages such as /@babel/core@7.23.0.
+var pnpmKeyRegex = regexp.MustCompile(`^/?((?:@[^/@\s]+/)?[^@\s]+)@(.+)$`)
 
 func (p *PnpmLockParser) Parse(r io.Reader, filePath string) ([]models.Package, error) {
 	data, err := io.ReadAll(r)

@@ -77,8 +77,12 @@ func (a *AggregatedMatcher) Match(ctx context.Context, packages []models.Package
 	}
 	wg.Wait()
 
-	// Merge results in matcher order for deterministic output.
-	seen := make(map[string]bool)
+	// Merge results in matcher order for deterministic output. Duplicate
+	// records (same CVE/alias from multiple sources) are merged via the
+	// Canonical Data Model so the best available data wins — a record with
+	// severity UNKNOWN from one source gets filled in from a duplicate that
+	// carries a real severity or CVSS score.
+	seen := make(map[string]int) // ID or alias -> index in `all`
 	var all []models.Vulnerability
 
 	for _, r := range results {
@@ -97,31 +101,45 @@ func (a *AggregatedMatcher) Match(ctx context.Context, packages []models.Package
 		newCount := 0
 		dupCount := 0
 		for _, v := range r.vulns {
-			// Check primary ID and all aliases for duplicates.
-			duplicate := seen[v.ID]
-			if !duplicate {
+			Normalize(&v)
+
+			// Check primary ID and all aliases for an existing record.
+			existingIdx := -1
+			if idx, ok := seen[v.ID]; ok {
+				existingIdx = idx
+			} else {
 				for _, alias := range v.Aliases {
-					if seen[alias] {
-						duplicate = true
+					if idx, ok := seen[alias]; ok {
+						existingIdx = idx
 						break
 					}
 				}
 			}
-			if !duplicate {
-				seen[v.ID] = true
-				for _, alias := range v.Aliases {
-					seen[alias] = true
+
+			if existingIdx >= 0 {
+				// Merge the duplicate into the existing record so missing
+				// fields (severity, score, fix version, ...) get filled.
+				Merge(&all[existingIdx], v)
+				seen[all[existingIdx].ID] = existingIdx
+				for _, alias := range all[existingIdx].Aliases {
+					seen[alias] = existingIdx
 				}
-				all = append(all, v)
-				newCount++
-			} else {
 				dupCount++
+				continue
 			}
+
+			idx := len(all)
+			all = append(all, v)
+			seen[v.ID] = idx
+			for _, alias := range v.Aliases {
+				seen[alias] = idx
+			}
+			newCount++
 		}
 
 		if a.verbose {
 			if dupCount > 0 {
-				fmt.Fprintf(os.Stderr, "   %s: %d vulnerabilities found (%d new, %d duplicates) [%s]\n",
+				fmt.Fprintf(os.Stderr, "   %s: %d vulnerabilities found (%d new, %d merged) [%s]\n",
 					strings.ToUpper(r.name), len(r.vulns), newCount, dupCount, r.elapsed.Round(time.Millisecond))
 			} else {
 				fmt.Fprintf(os.Stderr, "   %s: %d vulnerabilities found [%s]\n",

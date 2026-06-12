@@ -154,13 +154,15 @@ func readPyprojectDirectDeps(dir string) map[string]bool {
 
 // extractBracketItems parses items from a TOML/PEP 621 bracket list line.
 func extractBracketItems(line string) []string {
-	start := strings.Index(line, "[")
+	start := strings.Index(line, "[") // -1 when absent: content starts at beginning of line
 	end := strings.Index(line, "]")
-	if start < 0 {
-		start = 0
-	}
 	if end < 0 {
 		end = len(line)
+	}
+	if start+1 > end {
+		// Malformed or empty: "]" appears before "[" (e.g. a bare closing
+		// bracket line). Guard prevents a slice-bounds panic.
+		return nil
 	}
 	inner := line[start+1 : end]
 	var items []string

@@ -137,7 +137,7 @@ func TestPopulateReachability_Mixed(t *testing.T) {
 		{ID: "C2", Source: models.SourceOSV, Package: models.Package{Name: "vuln/pkg"}},
 		{ID: "C3", Source: models.SourceOSV, Package: models.Package{Name: "other"}},
 	}
-	populateReachability(vulns, d, false)
+	populateReachability(vulns, d, false, false)
 	if vulns[0].Reachable == "" {
 		t.Error("pattern should have reachable")
 	}
@@ -353,7 +353,7 @@ func TestPopulateReachability_PatternMatch(t *testing.T) {
 	vulns := []models.Vulnerability{
 		{ID: "C1", Source: models.SourcePatternMatch},
 	}
-	populateReachability(vulns, t.TempDir(), false)
+	populateReachability(vulns, t.TempDir(), false, false)
 	if !strings.Contains(vulns[0].Reachable, "direct") {
 		t.Errorf("pattern match should be marked direct, got: %s", vulns[0].Reachable)
 	}
@@ -363,7 +363,7 @@ func TestPopulateReachability_AIAnalysis(t *testing.T) {
 	vulns := []models.Vulnerability{
 		{ID: "C1", Source: models.SourceAIAnalysis},
 	}
-	populateReachability(vulns, t.TempDir(), false)
+	populateReachability(vulns, t.TempDir(), false, false)
 	if !strings.Contains(vulns[0].Reachable, "direct") {
 		t.Errorf("AI analysis should be marked direct, got: %s", vulns[0].Reachable)
 	}
@@ -373,7 +373,7 @@ func TestPopulateReachability_Semgrep(t *testing.T) {
 	vulns := []models.Vulnerability{
 		{ID: "C1", Source: models.SourceSemgrep},
 	}
-	populateReachability(vulns, t.TempDir(), false)
+	populateReachability(vulns, t.TempDir(), false, false)
 	if !strings.Contains(vulns[0].Reachable, "direct") {
 		t.Errorf("semgrep should be marked direct, got: %s", vulns[0].Reachable)
 	}
@@ -383,7 +383,7 @@ func TestPopulateReachability_AlreadySet(t *testing.T) {
 	vulns := []models.Vulnerability{
 		{ID: "C1", Source: models.SourceOSV, Reachable: "already-set"},
 	}
-	populateReachability(vulns, t.TempDir(), false)
+	populateReachability(vulns, t.TempDir(), false, false)
 	if vulns[0].Reachable != "already-set" {
 		t.Errorf("should not overwrite, got: %s", vulns[0].Reachable)
 	}

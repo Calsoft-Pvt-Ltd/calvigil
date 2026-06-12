@@ -90,20 +90,31 @@ func (p *CargoLockParser) Parse(r io.Reader, filePath string) ([]models.Package,
 		pkgs = append(pkgs, cargoPkg{name: name, version: version, checksum: checksum, deps: deps})
 	}
 
-	// Pass 2 — figure out which packages are direct (depended on by the first/root package)
-	// and which are transitive.
+	// Pass 2 — determine root/workspace packages and direct dependencies.
+	// Cargo.lock entries are sorted alphabetically, so the root crate is NOT
+	// guaranteed to be the first [[package]] entry. Roots (workspace members)
+	// are identified as packages that no other package depends on.
+	dependedOn := make(map[string]bool)
+	for _, p := range pkgs {
+		for _, d := range p.deps {
+			dependedOn[d] = true
+		}
+	}
 	directNames := make(map[string]bool)
-	if len(pkgs) > 0 {
-		// The root package is typically the first [[package]] entry.
-		for _, d := range pkgs[0].deps {
-			directNames[d] = true
+	rootNames := make(map[string]bool)
+	for _, p := range pkgs {
+		if !dependedOn[p.name] {
+			rootNames[p.name] = true
+			for _, d := range p.deps {
+				directNames[d] = true
+			}
 		}
 	}
 
 	var packages []models.Package
-	for i, p := range pkgs {
-		if i == 0 {
-			continue // skip the root package itself
+	for _, p := range pkgs {
+		if rootNames[p.name] {
+			continue // skip root/workspace packages themselves
 		}
 		integ := ""
 		if p.checksum != "" {

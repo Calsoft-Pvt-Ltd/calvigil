@@ -18,22 +18,30 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 
 - **Dependency Scanning** — checks your lock files against multiple CVE databases:
   - [OSV.dev](https://osv.dev) (primary, batch API, no rate limits)
+  - [Sonatype OSS Index](https://ossindex.sonatype.org/) (PURL-based, free, all major ecosystems)
   - [NVD](https://nvd.nist.gov/) (NIST National Vulnerability Database)
   - [GitHub Advisory Database](https://github.com/advisories)
+  - [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) enrichment — findings actively exploited in the wild are flagged `⚠ KEV`
 
-- **AI-Powered Code Analysis** — uses OpenAI GPT-4 or local Ollama models to detect OWASP Top 10 vulnerabilities:
+- **Canonical Data Model** — every source is normalized into one consistent shape:
+  - CVE IDs preferred as the primary identifier (GHSA and ecosystem IDs become aliases)
+  - Duplicate findings across databases are **merged**, not dropped — missing severity, CVSS score, or fix version is filled in from whichever source has it
+  - Severity fallback chain (CVSS v3 → v4 → v2 vector → numeric score → source label) eliminates most `UNKNOWN` severities
+
+- **AI-Powered Code Analysis** — uses OpenAI GPT-4, local Ollama, or LM Studio models to detect OWASP Top 10 vulnerabilities:
   - SQL Injection, Command Injection, XSS
   - Hardcoded secrets & API keys
   - Insecure cryptography, TLS misconfigurations
   - Path traversal, insecure deserialization
   - CORS misconfiguration, and more
-  - **Provider choice**: `--provider openai`, `--provider ollama`, or `--provider auto` (default)
+  - **Provider choice**: `--provider openai`, `--provider ollama`, `--provider lmstudio`, or `--provider auto` (default)
 
-- **Local LLM Support — Ollama Integration**:
+- **Local LLM Support — Ollama & LM Studio Integration**:
   - Run AI analysis entirely offline with models like `llama3`, `codellama`, `mistral`
-  - OpenAI-compatible API with native Ollama fallback
-  - Auto-detection: if Ollama is reachable, it's preferred over OpenAI
-  - Configure via CLI flags (`--ollama-url`, `--ollama-model`) or config/env vars
+  - **Ollama**: OpenAI-compatible API with native Ollama fallback
+  - **LM Studio**: OpenAI-compatible API at `http://localhost:1234/v1`
+  - Auto-detection: if Ollama is reachable it's preferred, then LM Studio, otherwise OpenAI
+  - Configure via CLI flags (`--ollama-url`, `--ollama-model`, `--lmstudio-url`, `--lmstudio-model`) or config/env vars
 
 - **License Compliance Scanning**:
   - Detect and classify licenses from package metadata (SPDX identifiers)
@@ -77,13 +85,13 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - **Java JARs/WARs/EARs**: parses `pom.properties`, `MANIFEST.MF`, and Spring Boot uber-JAR `BOOT-INF/lib/`
   - **Python wheels/eggs**: reads `METADATA` / `PKG-INFO` for package name and version
   - Recursive directory walk with automatic file-type detection
-  - Full vulnerability matching against OSV, NVD, and GitHub Advisory
+  - Full vulnerability matching against OSV, OSS Index, NVD, and GitHub Advisory
 
 - **Container Image Scanning**:
   - Scan Docker/OCI images for known vulnerabilities
   - Powered by [syft](https://github.com/anchore/syft) for SBOM extraction
   - Supports Docker images, archives, and directories
-  - Full vulnerability matching against OSV, NVD, and GitHub Advisory
+  - Full vulnerability matching against OSV, OSS Index, NVD, and GitHub Advisory
 
 - **SAST Engine — Semgrep CE Integration** with custom rule packs:
   - 77+ bundled security rules covering OWASP Top 10 + SonarQube-aligned + language-specific + AI-generated code quality patterns
@@ -301,6 +309,13 @@ calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 # GitHub token (optional, for GitHub Advisory Database)
 calvigil config set github-token ghp_...
 # or: export GITHUB_TOKEN=...
+
+# Sonatype OSS Index credentials (optional, raises rate limits;
+# anonymous access works out of the box)
+# Register free at: https://ossindex.sonatype.org/
+calvigil config set ossindex-user you@example.com
+calvigil config set ossindex-token xxxxxxxx
+# or: export OSSINDEX_USER=... OSSINDEX_TOKEN=...
 ```
 
 ### View Configuration
