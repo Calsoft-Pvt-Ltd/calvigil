@@ -225,6 +225,9 @@ calvigil scan --severity high --format json --output high-vulns.json .
 
 ## CI/CD Integration
 
+{: .note }
+> For extensive platform-specific guides (GitHub Actions, GitLab CI, Bitbucket Pipelines, Azure DevOps, Google Cloud Build, Jenkins, CircleCI), see the dedicated [CI/CD Integration]({% link ci-cd.md %}) page.
+
 ### GitHub Actions
 
 ```yaml

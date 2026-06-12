@@ -145,5 +145,6 @@ This will:
 - [Configure API keys]({% link configuration.md %}) for NVD, GitHub Advisory, and OSS Index
 - [Enable AI code analysis]({% link ai-analysis.md %}) with OpenAI, Ollama, or LM Studio
 - [Choose an output format]({% link reporting.md %}) (JSON, SARIF, CycloneDX, HTML, PDF)
+- [Integrate into CI/CD]({% link ci-cd.md %}) — GitHub Actions, GitLab, Bitbucket, Azure DevOps, GCP, Jenkins
 - [Scan container images]({% link commands/scan-image.md %}) with `scan-image`
 - [Scan IaC files]({% link commands/scan-iac.md %}) for misconfigurations
