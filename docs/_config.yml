@@ -51,9 +51,12 @@ last_edit_time_format: "%b %e %Y at %I:%M %p"
 
 plugins:
   - jekyll-seo-tag
+  - jekyll-remote-theme
 
 exclude:
   - HLD.md
   - LLD.md
   - KNOWLEDGE_GRAPH.json
   - KNOWLEDGE_GRAPH.md
+  - Gemfile
+  - Gemfile.lock

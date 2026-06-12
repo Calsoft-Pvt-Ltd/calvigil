@@ -591,7 +591,7 @@ func TestVulnerabilitySourceField(t *testing.T) {
 	if len(result.Vulnerabilities) == 0 {
 		t.Skip("no vulnerabilities found to check source field")
 	}
-	validSources := map[string]bool{"osv": true, "nvd": true, "github-advisory": true}
+	validSources := map[string]bool{"osv": true, "nvd": true, "github-advisory": true, "oss-index": true}
 	for _, v := range result.Vulnerabilities {
 		if !validSources[v.Source] {
 			t.Errorf("vulnerability %s has unexpected source %q", v.ID, v.Source)

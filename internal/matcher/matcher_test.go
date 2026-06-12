@@ -107,19 +107,12 @@ func TestAggregatedMatcher_ErrorSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Match() should not return error, got: %v", err)
 	}
-	// Should have the error entry plus the real vuln
-	if len(result) != 2 {
-		t.Fatalf("expected 2 entries (1 error + 1 vuln), got %d", len(result))
+	// Error sources are skipped; only the real vuln from "good" should remain.
+	if len(result) != 1 {
+		t.Fatalf("expected 1 vuln (error source skipped), got %d", len(result))
 	}
-
-	foundErr := false
-	for _, v := range result {
-		if v.ID == "SCAN-ERR-bad" {
-			foundErr = true
-		}
-	}
-	if !foundErr {
-		t.Error("expected SCAN-ERR-bad entry for failed matcher")
+	if result[0].ID != "CVE-2023-001" {
+		t.Errorf("expected CVE-2023-001, got %s", result[0].ID)
 	}
 }
 

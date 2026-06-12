@@ -91,10 +91,6 @@ func (a *AggregatedMatcher) Match(ctx context.Context, packages []models.Package
 				fmt.Fprintf(os.Stderr, "   %s: error after %s — %v\n",
 					strings.ToUpper(r.name), r.elapsed.Round(time.Millisecond), r.err)
 			}
-			all = append(all, models.Vulnerability{
-				ID:      "SCAN-ERR-" + r.name,
-				Summary: "Error querying " + r.name + ": " + r.err.Error(),
-			})
 			continue
 		}
 
