@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="calvigil2.png" alt="Calvigil Logo" width="300">
+  <img src="calvigil-logo.png" alt="Calvigil Logo" width="300">
 </p>
 
 <p align="center">
