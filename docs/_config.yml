@@ -3,7 +3,7 @@ description: AI-Powered Vulnerability Scanner CLI
 baseurl: "/calvigil"
 url: "https://Calsoft-Pvt-Ltd.github.io"
 
-logo: "/calvigil/assets/images/calvigil-logo.png"
+logo: "/assets/images/calvigil-logo.png"
 
 remote_theme: just-the-docs/just-the-docs@v0.10.0
 
