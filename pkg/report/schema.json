@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://calvigil.io/schemas/report/v5/schema.json",
+  "title": "Calvigil Scan Result",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["project_path", "ecosystems", "total_packages", "vulnerabilities", "scanned_at", "duration"],
+  "properties": {
+    "project_path": { "type": "string" },
+    "ecosystems": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ecosystem" }
+    },
+    "total_packages": { "type": "integer", "minimum": 0 },
+    "packages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/package" }
+    },
+    "license_issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/license_issue" }
+    },
+    "integrity_issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/integrity_issue" }
+    },
+    "consistency_issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/consistency_issue" }
+    },
+    "vulnerabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/vulnerability" }
+    },
+    "scanned_at": { "type": "string", "format": "date-time" },
+    "duration": { "type": "integer", "minimum": 0 },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "license_only": { "type": "boolean" }
+  },
+  "$defs": {
+    "ecosystem": {
+      "type": "string",
+      "examples": ["Go", "npm", "PyPI", "Maven", "Crates", "RubyGems", "PHP", "Conan"]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "osv",
+        "nvd",
+        "github-advisory",
+        "oss-index",
+        "ai-analysis",
+        "pattern-match",
+        "semgrep",
+        "iac"
+      ]
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "version", "ecosystem", "file_path", "purl", "indirect"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "ecosystem": { "$ref": "#/$defs/ecosystem" },
+        "file_path": { "type": "string" },
+        "purl": { "type": "string" },
+        "indirect": { "type": "boolean" },
+        "license": { "type": "string" },
+        "integrity": { "type": "string" }
+      }
+    },
+    "ai_enrichment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["summary", "likely_impact", "confidence", "minimal_remediation", "suppression_rationale"],
+      "properties": {
+        "summary": { "type": "string" },
+        "likely_impact": { "type": "string" },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "ai_code_indicator": {
+          "type": "string",
+          "enum": ["LIKELY_AI", "POSSIBLY_AI", "UNLIKELY_AI"]
+        },
+        "minimal_remediation": { "type": "string" },
+        "suppression_rationale": { "type": "string" }
+      }
+    },
+    "vulnerability": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "aliases",
+        "summary",
+        "details",
+        "severity",
+        "score",
+        "package",
+        "fixed_in",
+        "references",
+        "source",
+        "file_path",
+        "start_line",
+        "end_line",
+        "snippet",
+        "dep_path",
+        "reachable",
+        "matched_rule",
+        "published_at"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "summary": { "type": "string" },
+        "details": { "type": "string" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "score": { "type": "number", "minimum": 0, "maximum": 10 },
+        "package": { "$ref": "#/$defs/package" },
+        "fixed_in": { "type": "string" },
+        "references": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source": { "$ref": "#/$defs/source" },
+        "file_path": { "type": "string" },
+        "start_line": { "type": "integer", "minimum": 0 },
+        "end_line": { "type": "integer", "minimum": 0 },
+        "snippet": { "type": "string" },
+        "dep_path": { "type": "string" },
+        "reachable": { "type": "string" },
+        "matched_rule": { "type": "string" },
+        "published_at": { "type": "string", "format": "date-time" },
+        "known_exploited": { "type": "boolean" },
+        "ai_enrichment": { "$ref": "#/$defs/ai_enrichment" }
+      }
+    },
+    "license_issue": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["package", "license", "risk", "reason"],
+      "properties": {
+        "package": { "$ref": "#/$defs/package" },
+        "license": { "type": "string" },
+        "risk": { "type": "string", "enum": ["permissive", "copyleft", "unknown"] },
+        "reason": { "type": "string" }
+      }
+    },
+    "integrity_issue": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["package", "expected", "actual", "reason"],
+      "properties": {
+        "package": { "$ref": "#/$defs/package" },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "consistency_issue": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["package", "lock_file", "manifest", "reason"],
+      "properties": {
+        "package": { "$ref": "#/$defs/package" },
+        "lock_file": { "type": "string" },
+        "manifest": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}

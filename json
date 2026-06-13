@@ -1,0 +1,17 @@
+
+🔍 Calvigil Scan Results for /Users/rchavakula.ctr/calvigil/calvigil
+   Scanned 14 packages across 1 ecosystems in 0s
+
+📦 Dependency Vulnerabilities (1 found)
+
+  🐹 Go (1)
+
+╭──────────┬──────────────┬──────────────────┬─────────┬────────────┬──────────┬──────────────────────────────────────────────────────────────╮
+│ SEVERITY │ ID           │ PACKAGE          │ VERSION │ TYPE       │ FIXED IN │ SUMMARY                                                      │
+├──────────┼──────────────┼──────────────────┼─────────┼────────────┼──────────┼──────────────────────────────────────────────────────────────┤
+│ UNKNOWN  │ GO-2026-5024 │ golang.org/x/sys │ v0.30.0 │ Transitive │ 0.44.0   │ Invoking integer overflow in NewNTUnicodeString in golang... │
+╰──────────┴──────────────┴──────────────────┴─────────┴────────────┴──────────┴──────────────────────────────────────────────────────────────╯
+
+Summary: 1 total vulnerabilities
+  ⚪ Unknown:  1
+
