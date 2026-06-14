@@ -18,9 +18,9 @@ const (
 )
 
 // OSSIndexMatcher queries the Sonatype OSS Index vulnerability database.
-// OSS Index is a free, PURL-based service covering all major ecosystems
+// OSS Index is a PURL-based service covering all major ecosystems
 // (npm, PyPI, Maven, Go, crates.io, RubyGems, Packagist, Conan, ...).
-// Authentication is optional; providing credentials raises rate limits.
+// The scanner only wires this matcher when credentials are configured.
 type OSSIndexMatcher struct {
 	client   *http.Client
 	baseURL  string
@@ -28,8 +28,8 @@ type OSSIndexMatcher struct {
 	token    string // optional: OSS Index API token
 }
 
-// NewOSSIndexMatcher creates a new OSS Index matcher. username and token are
-// optional; anonymous requests are allowed at a lower rate limit.
+// NewOSSIndexMatcher creates a new OSS Index matcher. The scanner passes
+// credentials only when both username and token are configured.
 func NewOSSIndexMatcher(username, token string) *OSSIndexMatcher {
 	return &OSSIndexMatcher{
 		client:   sharedHTTPClient,
@@ -110,24 +110,25 @@ func (m *OSSIndexMatcher) queryBatch(ctx context.Context, coordinates []string, 
 		return nil, fmt.Errorf("marshal oss index request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL, bytes.NewReader(body))
+	useAuth := m.username != "" && m.token != ""
+	resp, err := m.doRequest(ctx, body, useAuth)
 	if err != nil {
-		return nil, fmt.Errorf("create oss index request: %w", err)
+		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	if m.username != "" && m.token != "" {
-		req.SetBasicAuth(m.username, m.token)
-	}
-
-	resp, err := m.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("oss index api request failed: %w", err)
+	if resp.StatusCode == http.StatusUnauthorized && useAuth {
+		resp.Body.Close()
+		resp, err = m.doRequest(ctx, body, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return nil, fmt.Errorf("oss index rate limit exceeded (configure credentials for higher limits)")
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("oss index authentication failed (check ossindex-user/ossindex-token, or clear them to skip OSS Index)")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("oss index api returned status %d", resp.StatusCode)
@@ -161,6 +162,24 @@ func (m *OSSIndexMatcher) queryBatch(ctx context.Context, coordinates []string, 
 	}
 
 	return vulns, nil
+}
+
+func (m *OSSIndexMatcher) doRequest(ctx context.Context, body []byte, useAuth bool) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create oss index request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if useAuth {
+		req.SetBasicAuth(m.username, m.token)
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("oss index api request failed: %w", err)
+	}
+	return resp, nil
 }
 
 // ossVulnToModel converts an OSS Index vulnerability into the canonical model.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/config"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/detector"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
 )
@@ -55,6 +56,38 @@ func TestFilterBySeverity_Nil(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("nil: got %d, want 0", len(got))
 	}
+}
+
+func TestDependencyMatchersSkipsOSSIndexWithoutCredentials(t *testing.T) {
+	s := &Scanner{
+		opts: models.ScanOptions{},
+		cfg:  &config.Config{},
+	}
+
+	got := matcherNames(s.dependencyMatchers())
+	if strings.Join(got, ",") != "osv" {
+		t.Fatalf("matchers = %v, want only osv", got)
+	}
+}
+
+func TestDependencyMatchersIncludesOSSIndexWithCredentials(t *testing.T) {
+	s := &Scanner{
+		opts: models.ScanOptions{},
+		cfg:  &config.Config{OSSIndexUser: "user@example.com", OSSIndexToken: "token"},
+	}
+
+	got := matcherNames(s.dependencyMatchers())
+	if strings.Join(got, ",") != "osv,oss-index" {
+		t.Fatalf("matchers = %v, want osv and oss-index", got)
+	}
+}
+
+func matcherNames(matchers []matcher.Matcher) []string {
+	names := make([]string, 0, len(matchers))
+	for _, m := range matchers {
+		names = append(names, m.Name())
+	}
+	return names
 }
 
 func TestPopulateDepPaths_Basic(t *testing.T) {

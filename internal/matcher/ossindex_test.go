@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
@@ -158,6 +159,73 @@ func TestOSSIndexMatcher_SendsBasicAuth(t *testing.T) {
 	}
 	if !gotAuth {
 		t.Error("basic auth credentials were not sent")
+	}
+}
+
+func TestOSSIndexMatcher_RetriesAnonymousAfterBadCredentials(t *testing.T) {
+	requests := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			if _, _, ok := r.BasicAuth(); !ok {
+				t.Fatal("first request should use configured credentials")
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if _, _, ok := r.BasicAuth(); ok {
+			t.Fatal("retry should be anonymous")
+		}
+
+		var req ossIndexRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		json.NewEncoder(w).Encode([]ossIndexComponent{{
+			Coordinates: req.Coordinates[0],
+			Vulnerabilities: []ossIndexVuln{{
+				CVE:       "CVE-2026-401",
+				Title:     "Recovered via anonymous OSS Index request",
+				CVSSScore: 7.2,
+			}},
+		}})
+	}))
+	defer ts.Close()
+
+	m := NewOSSIndexMatcher("bad@example.com", "stale-token")
+	m.baseURL = ts.URL
+
+	vulns, err := m.Match(context.Background(), []models.Package{
+		{Name: "lodash", Version: "4.17.20", Ecosystem: models.EcosystemNpm},
+	})
+	if err != nil {
+		t.Fatalf("Match() error: %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want authenticated attempt plus anonymous retry", requests)
+	}
+	if len(vulns) != 1 || vulns[0].ID != "CVE-2026-401" {
+		t.Fatalf("unexpected vulns: %+v", vulns)
+	}
+}
+
+func TestOSSIndexMatcher_UnauthorizedWithoutFallbackIsActionable(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	m := NewOSSIndexMatcher("", "")
+	m.baseURL = ts.URL
+
+	_, err := m.Match(context.Background(), []models.Package{
+		{Name: "lodash", Version: "4.17.20", Ecosystem: models.EcosystemNpm},
+	})
+	if err == nil {
+		t.Fatal("expected unauthorized error")
+	}
+	if !strings.Contains(err.Error(), "clear them to skip OSS Index") {
+		t.Fatalf("error = %q, want actionable credential guidance", err.Error())
 	}
 }
 

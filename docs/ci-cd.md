@@ -551,4 +551,4 @@ repos:
 | `OPENAI_API_KEY` | Only for AI scans | AI code analysis |
 
 {: .note }
-> OSV.dev and Sonatype OSS Index work with **zero secrets configured** — a minimal pipeline needs no setup beyond installing the binary.
+> OSV.dev works with **zero secrets configured**. Configure `OSSINDEX_USER` and `OSSINDEX_TOKEN` only when you have existing/migrated Sonatype OSS Index credentials.

@@ -24,8 +24,8 @@ var configSetCmd = &cobra.Command{
   openai-model   OpenAI model to use (default: gpt-4)
   nvd-key        NVD API key for vulnerability lookups
   github-token   GitHub token for advisory database access
-  ossindex-user  Sonatype OSS Index account email (optional, raises rate limits)
-  ossindex-token Sonatype OSS Index API token (optional, raises rate limits)`,
+  ossindex-user  Sonatype OSS Index account email (optional existing/migrated token)
+  ossindex-token Sonatype OSS Index API token (optional existing/migrated token)`,
 	Example: `  calvigil config set openai-key sk-...
   calvigil config set openai-model gpt-4-turbo
   calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`,

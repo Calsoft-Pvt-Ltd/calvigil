@@ -387,7 +387,7 @@ calvigil
 2. Load config (`config.Load()`)
 3. Build matcher list:
    - Always: `matcher.NewOSVMatcher()`
-   - Always: `matcher.NewOSSIndexMatcher(user, token)` (anonymous when no creds)
+   - If OSS Index user and token: `matcher.NewOSSIndexMatcher(user, token)`
    - If NVD key: `matcher.NewNVDMatcher(key)`
    - If GitHub token: `matcher.NewGitHubAdvisoryMatcher(token)`
 4. Create `image.NewScanner(imageRef, verbose, matchers)`
@@ -2311,4 +2311,3 @@ func filterVulnsBySeverity(vulns []models.Vulnerability, min models.Severity) []
 ```
 
 The `0600` mode applies uniformly to every output format (JSON/SARIF/CycloneDX/OpenVEX/HTML/PDF) because reports may embed AI-enriched evidence (snippets of source, secrets-likely strings, exploit chains). This is a project-wide invariant — every new reporter must route through `writeReport`.
-

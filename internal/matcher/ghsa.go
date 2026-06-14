@@ -60,6 +60,23 @@ type ghVersion struct {
 	Identifier string `json:"identifier"`
 }
 
+func (v *ghVersion) UnmarshalJSON(data []byte) error {
+	var identifier string
+	if err := json.Unmarshal(data, &identifier); err == nil {
+		v.Identifier = identifier
+		return nil
+	}
+
+	var obj struct {
+		Identifier string `json:"identifier"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	v.Identifier = obj.Identifier
+	return nil
+}
+
 // ghEcosystemMap converts our ecosystems to GitHub's ecosystem names.
 var ghEcosystemMap = map[models.Ecosystem]string{
 	models.EcosystemGo:      "go",

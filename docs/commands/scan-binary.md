@@ -81,7 +81,7 @@ calvigil scan-binary --format json --output binary-vulns.json ./bin/server
 2. **Recursive walk** — Scans directories recursively, detecting all supported binary files
 3. **Dependency extraction** — Reads embedded metadata specific to each binary type
 4. **PURL generation** — Creates Package URLs for each extracted dependency
-5. **Vulnerability matching** — Full pipeline: OSV, OSS Index, NVD, GitHub Advisory
+5. **Vulnerability matching** — OSV plus configured NVD/GitHub Advisory sources
 6. **KEV enrichment** — Flags actively exploited CVEs
 
 {: .tip }

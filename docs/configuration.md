@@ -92,8 +92,8 @@ calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 # Create at: https://github.com/settings/tokens
 calvigil config set github-token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# Optional: Sonatype OSS Index (raises rate limits; anonymous works fine)
-# Register free at: https://ossindex.sonatype.org/
+# Optional: Sonatype OSS Index (existing/migrated token)
+# If OSS Index returns 401, clear stale credentials to skip this source.
 calvigil config set ossindex-user you@example.com
 calvigil config set ossindex-token xxxxxxxx
 ```

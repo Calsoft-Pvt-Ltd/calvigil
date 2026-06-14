@@ -25,7 +25,7 @@ An open-source security scanner for **Go**, **Java**, **Python**, **Node.js**, *
 
 | Feature | Description |
 |:--------|:------------|
-| **Dependency Scanning** | Checks lock files against OSV.dev, Sonatype OSS Index, NVD, and GitHub Advisory databases |
+| **Dependency Scanning** | Checks lock files against OSV.dev plus configured Sonatype OSS Index, NVD, and GitHub Advisory databases |
 | **Canonical Data Model** | Normalizes all sources — merges duplicates, fills missing severity, eliminates UNKNOWN |
 | **CISA KEV Enrichment** | Flags vulnerabilities actively exploited in the wild with `⚠ KEV` |
 | **AI Code Analysis** | OpenAI GPT-4, Ollama, or LM Studio detect OWASP Top 10 vulnerabilities in your code |
@@ -68,7 +68,7 @@ calvigil queries **four** vulnerability databases and enriches results with one 
 | Database | Always On | Notes |
 |:---------|:---------:|:------|
 | [OSV.dev](https://osv.dev) | ✅ | Batch API, no limits, primary source |
-| [Sonatype OSS Index](https://ossindex.sonatype.org/) | ✅ | PURL-based, free, optional account for higher limits |
+| [Sonatype OSS Index](https://ossindex.sonatype.org/) | Optional | PURL-based, requires existing/migrated credentials |
 | [NVD](https://nvd.nist.gov/) | Optional | Requires API key for best rate limits |
 | [GitHub Advisory](https://github.com/advisories) | Optional | Requires GitHub token |
 | [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) | ✅ | Enrichment — flags exploited-in-the-wild CVEs |

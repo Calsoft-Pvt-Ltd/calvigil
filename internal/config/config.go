@@ -45,6 +45,7 @@ type fileConfig struct {
 	LegacyOpenAIKey   string `json:"openai_api_key,omitempty"`
 	LegacyNVDKey      string `json:"nvd_api_key,omitempty"`
 	LegacyGitHubToken string `json:"github_token,omitempty"`
+	LegacyOSSIndex    string `json:"ossindex_token,omitempty"`
 }
 
 // configFilePath returns the path to the config file in the user's home directory.
@@ -81,6 +82,7 @@ func Load() (*Config, error) {
 			cfg.OpenAIKey = fc.LegacyOpenAIKey
 			cfg.NVDKey = fc.LegacyNVDKey
 			cfg.GitHubToken = fc.LegacyGitHubToken
+			cfg.OSSIndexToken = fc.LegacyOSSIndex
 		}
 	}
 

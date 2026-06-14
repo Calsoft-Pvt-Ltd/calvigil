@@ -24,13 +24,13 @@ How calvigil queries, normalizes, and merges vulnerability data from multiple so
 | Database | Always On | Auth | Rate Limit | Role |
 |:---------|:---------:|:-----|:-----------|:-----|
 | **[OSV.dev](https://osv.dev)** | ✅ | None | Unlimited | Primary — batch queries, covers all ecosystems |
-| **[Sonatype OSS Index](https://ossindex.sonatype.org/)** | ✅ | Optional (basic auth) | 128 coords/request (anonymous); higher with free account | Primary — PURL-based, all ecosystems |
+| **[Sonatype OSS Index](https://ossindex.sonatype.org/)** | ❌ | Basic auth with existing/migrated token | 128 coords/request | Optional — PURL-based, all ecosystems |
 | **[NVD](https://nvd.nist.gov/)** | ❌ | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — CVSS enrichment |
 | **[GitHub Advisory](https://github.com/advisories)** | ❌ | Optional PAT | 60/hr (no token), 5000/hr (with token) | Supplementary — GHSA cross-references |
 | **[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** | ✅ | None | Unlimited | Enrichment — flags actively exploited CVEs |
 
 {: .note }
-> **OSV.dev** and **Sonatype OSS Index** are always enabled and require no configuration. You get vulnerability scanning out of the box with zero setup.
+> **OSV.dev** is always enabled and requires no configuration. **Sonatype OSS Index** is enabled only when `OSSINDEX_USER` and `OSSINDEX_TOKEN` are configured.
 
 ---
 
@@ -122,7 +122,7 @@ KEV enrichment is designed to never degrade scan results:
 - **API:** `POST https://ossindex.sonatype.org/api/v3/component-report`
 - **Batch size:** 128 coordinates per request
 - **Matching:** By PURL (Package URL)
-- **Auth:** Optional basic auth (email + token) for higher rate limits
+- **Auth:** Basic auth (email + existing/migrated token). CalVigil skips OSS Index when credentials are missing; stale credentials that return 401 are retried once anonymously and then reported as a credential issue if Sonatype still rejects the request.
 - **Severity:** From `CVSSScore` field, with fallback to `CVSSVector` parsing
 - **ID preference:** CVE IDs when available; `DisplayName` becomes an alias
 
@@ -146,7 +146,7 @@ KEV enrichment is designed to never degrade scan results:
 
 ### Minimum Setup (Zero Config)
 
-OSV.dev and OSS Index work immediately with no setup:
+OSV.dev works immediately with no setup; OSS Index is enabled only when credentials are configured:
 
 ```bash
 calvigil scan .   # Already queries 2 databases + KEV
@@ -161,7 +161,7 @@ calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 # Enable GitHub Advisory
 calvigil config set github-token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# Optional: higher OSS Index rate limits
+# Optional: higher OSS Index rate limits with an existing/migrated token
 calvigil config set ossindex-user you@example.com
 calvigil config set ossindex-token xxxxxxxx
 ```

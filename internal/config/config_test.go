@@ -28,10 +28,7 @@ func TestMaskSecret(t *testing.T) {
 }
 
 func TestLoadDefaults(t *testing.T) {
-	// Clear env vars that could interfere
-	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
-		t.Setenv(key, "")
-	}
+	clearConfigEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -47,6 +44,8 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("OPENAI_MODEL", "gpt-3.5-turbo")
 	t.Setenv("NVD_API_KEY", "nvd-key")
 	t.Setenv("GITHUB_TOKEN", "gh-token")
+	t.Setenv("OSSINDEX_USER", "oss@example.com")
+	t.Setenv("OSSINDEX_TOKEN", "oss-token")
 	t.Setenv("OLLAMA_URL", "http://localhost:11434")
 	t.Setenv("OLLAMA_MODEL", "llama3")
 
@@ -66,6 +65,12 @@ func TestLoadEnvOverrides(t *testing.T) {
 	if cfg.GitHubToken != "gh-token" {
 		t.Errorf("GitHubToken = %q, want gh-token", cfg.GitHubToken)
 	}
+	if cfg.OSSIndexUser != "oss@example.com" {
+		t.Errorf("OSSIndexUser = %q, want oss@example.com", cfg.OSSIndexUser)
+	}
+	if cfg.OSSIndexToken != "oss-token" {
+		t.Errorf("OSSIndexToken = %q, want oss-token", cfg.OSSIndexToken)
+	}
 	if cfg.OllamaURL != "http://localhost:11434" {
 		t.Errorf("OllamaURL = %q, want http://localhost:11434", cfg.OllamaURL)
 	}
@@ -77,19 +82,20 @@ func TestLoadEnvOverrides(t *testing.T) {
 func TestSaveAndLoad(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-
-	// Clear env so they don't override file values
-	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
-		t.Setenv(key, "")
-	}
+	t.Setenv("CALVIGIL_SECRET_BACKEND", "file")
+	resetStoreForTests()
+	t.Cleanup(resetStoreForTests)
+	clearConfigEnv(t)
 
 	original := &Config{
-		OpenAIKey:   "sk-test-key-12345",
-		OpenAIModel: "gpt-4-turbo",
-		NVDKey:      "nvd-key-abcde",
-		GitHubToken: "ghp_testtoken",
-		OllamaURL:   "http://localhost:11434",
-		OllamaModel: "llama3",
+		OpenAIKey:     "sk-test-key-12345",
+		OpenAIModel:   "gpt-4-turbo",
+		NVDKey:        "nvd-key-abcde",
+		GitHubToken:   "ghp_testtoken",
+		OSSIndexUser:  "oss@example.com",
+		OSSIndexToken: "oss-token-abcde",
+		OllamaURL:     "http://localhost:11434",
+		OllamaModel:   "llama3",
 	}
 
 	if err := Save(original); err != nil {
@@ -123,22 +129,59 @@ func TestSaveAndLoad(t *testing.T) {
 	if loaded.GitHubToken != original.GitHubToken {
 		t.Errorf("GitHubToken = %q, want %q", loaded.GitHubToken, original.GitHubToken)
 	}
+	if loaded.OSSIndexUser != original.OSSIndexUser {
+		t.Errorf("OSSIndexUser = %q, want %q", loaded.OSSIndexUser, original.OSSIndexUser)
+	}
+	if loaded.OSSIndexToken != original.OSSIndexToken {
+		t.Errorf("OSSIndexToken = %q, want %q", loaded.OSSIndexToken, original.OSSIndexToken)
+	}
+}
+
+func TestLoadLegacyOSSIndexTokenFromConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CALVIGIL_SECRET_BACKEND", "file")
+	resetStoreForTests()
+	t.Cleanup(resetStoreForTests)
+	clearConfigEnv(t)
+
+	cfgFile := filepath.Join(tmpDir, configFileName)
+	if err := os.WriteFile(cfgFile, []byte(`{
+		"ossindex_user": "legacy@example.com",
+		"ossindex_token": "legacy-token"
+	}`), 0o600); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.OSSIndexUser != "legacy@example.com" {
+		t.Fatalf("OSSIndexUser = %q, want legacy@example.com", cfg.OSSIndexUser)
+	}
+	if cfg.OSSIndexToken != "legacy-token" {
+		t.Fatalf("OSSIndexToken = %q, want legacy-token", cfg.OSSIndexToken)
+	}
 }
 
 func TestSetAndGet(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
-		t.Setenv(key, "")
-	}
+	t.Setenv("CALVIGIL_SECRET_BACKEND", "file")
+	resetStoreForTests()
+	t.Cleanup(resetStoreForTests)
+	clearConfigEnv(t)
 
 	keys := map[string]string{
-		"openai-key":   "sk-newkey",
-		"openai-model": "gpt-4o",
-		"nvd-key":      "nvd-new",
-		"github-token": "ghp-new",
-		"ollama-url":   "http://host:11434",
-		"ollama-model": "codellama",
+		"openai-key":     "sk-newkey",
+		"openai-model":   "gpt-4o",
+		"nvd-key":        "nvd-new",
+		"github-token":   "ghp-new",
+		"ossindex-user":  "oss@example.com",
+		"ossindex-token": "oss-new-token",
+		"ollama-url":     "http://host:11434",
+		"ollama-model":   "codellama",
 	}
 
 	for key, value := range keys {
@@ -163,6 +206,20 @@ func TestSetAndGet(t *testing.T) {
 	if val != "http://host:11434" {
 		t.Errorf("Get(ollama-url) = %q, want http://host:11434", val)
 	}
+	val, err = Get("ossindex-user")
+	if err != nil {
+		t.Fatalf("Get(ossindex-user) error: %v", err)
+	}
+	if val != "oss@example.com" {
+		t.Errorf("Get(ossindex-user) = %q, want oss@example.com", val)
+	}
+	val, err = Get("ossindex-token")
+	if err != nil {
+		t.Fatalf("Get(ossindex-token) error: %v", err)
+	}
+	if val != "****oken" {
+		t.Errorf("Get(ossindex-token) = %q, want ****oken", val)
+	}
 }
 
 func TestSetInvalidKey(t *testing.T) {
@@ -185,14 +242,17 @@ func TestGetInvalidKey(t *testing.T) {
 func TestGet_AllSecretKeys(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
-		t.Setenv(key, "")
-	}
+	t.Setenv("CALVIGIL_SECRET_BACKEND", "file")
+	resetStoreForTests()
+	t.Cleanup(resetStoreForTests)
+	clearConfigEnv(t)
 
 	// Set all keys first
 	_ = Set("openai-key", "sk-testkey12345678")
 	_ = Set("nvd-key", "nvd-testkey12345678")
 	_ = Set("github-token", "ghp_testtoken12345678")
+	_ = Set("ossindex-user", "oss@example.com")
+	_ = Set("ossindex-token", "oss-testtoken12345678")
 	_ = Set("ollama-url", "http://localhost:11434")
 	_ = Set("ollama-model", "llama3")
 	_ = Set("openai-model", "gpt-4-turbo")
@@ -220,6 +280,13 @@ func TestGet_AllSecretKeys(t *testing.T) {
 	}
 	if val != "****5678" {
 		t.Errorf("Get(github-token) = %q, want ****5678", val)
+	}
+	val, err = Get("ossindex-token")
+	if err != nil {
+		t.Fatalf("Get(ossindex-token) error: %v", err)
+	}
+	if val != "****5678" {
+		t.Errorf("Get(ossindex-token) = %q, want ****5678", val)
 	}
 
 	// Non-secret keys
@@ -251,9 +318,10 @@ func TestGet_AllSecretKeys(t *testing.T) {
 func TestGet_EmptySecrets(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	for _, key := range []string{"OPENAI_API_KEY", "OPENAI_MODEL", "NVD_API_KEY", "GITHUB_TOKEN", "OLLAMA_URL", "OLLAMA_MODEL"} {
-		t.Setenv(key, "")
-	}
+	t.Setenv("CALVIGIL_SECRET_BACKEND", "file")
+	resetStoreForTests()
+	t.Cleanup(resetStoreForTests)
+	clearConfigEnv(t)
 
 	val, err := Get("openai-key")
 	if err != nil {
@@ -277,6 +345,13 @@ func TestGet_EmptySecrets(t *testing.T) {
 	}
 	if val != "****" {
 		t.Errorf("Get(github-token) with empty = %q, want ****", val)
+	}
+	val, err = Get("ossindex-token")
+	if err != nil {
+		t.Fatalf("Get(ossindex-token) error: %v", err)
+	}
+	if val != "****" {
+		t.Errorf("Get(ossindex-token) with empty = %q, want ****", val)
 	}
 }
 

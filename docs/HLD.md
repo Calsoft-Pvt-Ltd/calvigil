@@ -151,7 +151,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | Database | API Endpoint | Auth | Rate Limit | Role |
 |----------|-------------|------|------------|------|
 | **OSV.dev** | `POST /v1/querybatch` | None | Unrestricted | Primary — batch queries, no API key needed |
-| **Sonatype OSS Index** | `POST /api/v3/component-report` | Optional basic auth | 128 coords/request; higher with free account | Primary — PURL-based, all ecosystems |
+| **Sonatype OSS Index** | `POST /api/v3/component-report` | Existing/migrated token | 128 coords/request | Optional — PURL-based, all ecosystems |
 | **NVD** | `GET /rest/json/cves/2.0` | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — CVSS enrichment |
 | **GitHub Advisory** | `GET /advisories` | Optional PAT | Standard GitHub limits | Supplementary — GHSA cross-references |
 | **CISA KEV** | `GET known_exploited_vulnerabilities.json` | None | Unrestricted | Enrichment — flags actively exploited CVEs (`KnownExploited`) |

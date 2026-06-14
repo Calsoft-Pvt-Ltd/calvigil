@@ -106,7 +106,7 @@ calvigil scan /path/to/your/project
 This will:
 1. Detect project ecosystems (Go, Python, Node.js, etc.)
 2. Parse all dependency lock files
-3. Query OSV.dev and Sonatype OSS Index for vulnerabilities
+3. Query OSV.dev, plus Sonatype OSS Index when credentials are configured
 4. Check CISA KEV for actively exploited CVEs
 5. Print a table of findings
 

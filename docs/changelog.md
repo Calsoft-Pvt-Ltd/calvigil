@@ -16,9 +16,9 @@ All notable changes to calvigil are documented here.
 
 ### Added
 
-- **Sonatype OSS Index matcher**: New always-on vulnerability database alongside OSV.dev
+- **Sonatype OSS Index matcher**: Optional vulnerability database alongside OSV.dev
   - PURL-based component-report API covering all supported ecosystems
-  - Works anonymously; optional free account raises rate limits
+  - Enabled when `ossindex-user` and `ossindex-token` are configured
   - Config keys: `ossindex-user`, `ossindex-token`; env vars: `OSSINDEX_USER`, `OSSINDEX_TOKEN`
 - **CISA KEV enrichment**: Findings are checked against the CISA Known Exploited
   Vulnerabilities catalog after matching

@@ -56,7 +56,7 @@ calvigil scan [flags] <path>
 ### Basic Dependency Scan
 
 ```bash
-# No API keys needed — uses OSV.dev + OSS Index
+# No API keys needed — uses OSV.dev
 calvigil scan .
 ```
 

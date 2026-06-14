@@ -18,7 +18,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 
 - **Dependency Scanning** — checks your lock files against multiple CVE databases:
   - [OSV.dev](https://osv.dev) (primary, batch API, no rate limits)
-  - [Sonatype OSS Index](https://ossindex.sonatype.org/) (PURL-based, free, all major ecosystems)
+  - [Sonatype OSS Index](https://ossindex.sonatype.org/) (PURL-based, optional with existing/migrated credentials)
   - [NVD](https://nvd.nist.gov/) (NIST National Vulnerability Database)
   - [GitHub Advisory Database](https://github.com/advisories)
   - [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) enrichment — findings actively exploited in the wild are flagged `⚠ KEV`
@@ -85,13 +85,13 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - **Java JARs/WARs/EARs**: parses `pom.properties`, `MANIFEST.MF`, and Spring Boot uber-JAR `BOOT-INF/lib/`
   - **Python wheels/eggs**: reads `METADATA` / `PKG-INFO` for package name and version
   - Recursive directory walk with automatic file-type detection
-  - Full vulnerability matching against OSV, OSS Index, NVD, and GitHub Advisory
+  - Full vulnerability matching against OSV, plus configured OSS Index, NVD, and GitHub Advisory sources
 
 - **Container Image Scanning**:
   - Scan Docker/OCI images for known vulnerabilities
   - Powered by [syft](https://github.com/anchore/syft) for SBOM extraction
   - Supports Docker images, archives, and directories
-  - Full vulnerability matching against OSV, OSS Index, NVD, and GitHub Advisory
+  - Full vulnerability matching against OSV, plus configured OSS Index, NVD, and GitHub Advisory sources
 
 - **SAST Engine — Semgrep CE Integration** with custom rule packs:
   - 77+ bundled security rules covering OWASP Top 10 + SonarQube-aligned + language-specific + AI-generated code quality patterns
@@ -310,9 +310,8 @@ calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 calvigil config set github-token ghp_...
 # or: export GITHUB_TOKEN=...
 
-# Sonatype OSS Index credentials (optional, raises rate limits;
-# anonymous access works out of the box)
-# Register free at: https://ossindex.sonatype.org/
+# Sonatype OSS Index credentials (optional existing/migrated token)
+# If you see 401s, clear stale OSS Index credentials to skip this source.
 calvigil config set ossindex-user you@example.com
 calvigil config set ossindex-token xxxxxxxx
 # or: export OSSINDEX_USER=... OSSINDEX_TOKEN=...

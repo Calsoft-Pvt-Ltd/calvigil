@@ -91,7 +91,7 @@ calvigil scan-image --severity critical node:20-alpine
 1. **SBOM extraction** — Syft analyzes the image layers and produces a software bill of materials
 2. **Ecosystem mapping** — Package types (deb, rpm, apk, npm, pip, etc.) are mapped to calvigil ecosystems
 3. **PURL generation** — Each package gets a Package URL for precise database lookups
-4. **Vulnerability matching** — Same aggregated matcher pipeline as `scan` (OSV, OSS Index, NVD, GitHub Advisory)
+4. **Vulnerability matching** — Aggregated matcher pipeline (OSV plus configured NVD/GitHub Advisory sources)
 5. **Canonical normalization** — Results are normalized and merged across databases
 6. **KEV enrichment** — Actively exploited CVEs are flagged
 
@@ -101,10 +101,10 @@ calvigil scan-image --severity critical node:20-alpine
 
 | Package Type | Ecosystem | Database Coverage |
 |:-------------|:----------|:-----------------|
-| `npm` | npm | OSV, OSS Index, NVD, GitHub Advisory |
-| `python`, `pip`, `wheel` | PyPI | OSV, OSS Index, NVD, GitHub Advisory |
-| `go-module` | Go | OSV, OSS Index, NVD, GitHub Advisory |
-| `java-archive`, `maven` | Maven | OSV, OSS Index, NVD, GitHub Advisory |
+| `npm` | npm | OSV plus configured NVD/GitHub Advisory sources |
+| `python`, `pip`, `wheel` | PyPI | OSV plus configured NVD/GitHub Advisory sources |
+| `go-module` | Go | OSV plus configured NVD/GitHub Advisory sources |
+| `java-archive`, `maven` | Maven | OSV plus configured NVD/GitHub Advisory sources |
 | `deb` | Debian | OSV |
 | `rpm` | RPM | OSV |
 | `apk` | Alpine | OSV |

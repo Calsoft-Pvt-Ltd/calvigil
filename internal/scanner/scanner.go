@@ -270,23 +270,7 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 		fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
 	}
 
-	// Build matchers
-	matchers := []matcher.Matcher{
-		matcher.NewOSVMatcher(),
-		matcher.NewOSSIndexMatcher(s.cfg.OSSIndexUser, s.cfg.OSSIndexToken),
-	}
-
-	if s.cfg.NVDKey != "" {
-		matchers = append(matchers, matcher.NewNVDMatcher(s.cfg.NVDKey))
-	} else if s.opts.Verbose {
-		fmt.Fprintf(os.Stderr, "   Skipping NVD (no API key configured)\n")
-	}
-
-	if s.cfg.GitHubToken != "" {
-		matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(s.cfg.GitHubToken))
-	} else if s.opts.Verbose {
-		fmt.Fprintf(os.Stderr, "   Skipping GitHub Advisory (no token configured)\n")
-	}
+	matchers := s.dependencyMatchers()
 
 	aggregated := matcher.NewAggregatedMatcher(matchers...)
 	aggregated.SetVerbose(s.opts.Verbose)
@@ -339,6 +323,32 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 	}
 
 	return vulns, allPackages, errs
+}
+
+func (s *Scanner) dependencyMatchers() []matcher.Matcher {
+	matchers := []matcher.Matcher{
+		matcher.NewOSVMatcher(),
+	}
+
+	if s.cfg.OSSIndexUser != "" && s.cfg.OSSIndexToken != "" {
+		matchers = append(matchers, matcher.NewOSSIndexMatcher(s.cfg.OSSIndexUser, s.cfg.OSSIndexToken))
+	} else if s.opts.Verbose {
+		fmt.Fprintf(os.Stderr, "   Skipping OSS Index (credentials not configured)\n")
+	}
+
+	if s.cfg.NVDKey != "" {
+		matchers = append(matchers, matcher.NewNVDMatcher(s.cfg.NVDKey))
+	} else if s.opts.Verbose {
+		fmt.Fprintf(os.Stderr, "   Skipping NVD (no API key configured)\n")
+	}
+
+	if s.cfg.GitHubToken != "" {
+		matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(s.cfg.GitHubToken))
+	} else if s.opts.Verbose {
+		fmt.Fprintf(os.Stderr, "   Skipping GitHub Advisory (no token configured)\n")
+	}
+
+	return matchers
 }
 
 // scanSourceCode runs pattern matching and AI analysis on source files.

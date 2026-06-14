@@ -193,7 +193,9 @@ func clearConfigEnv(t *testing.T) {
 	for _, k := range []string{
 		"OPENAI_API_KEY", "OPENAI_MODEL",
 		"NVD_API_KEY", "GITHUB_TOKEN",
+		"OSSINDEX_USER", "OSSINDEX_TOKEN",
 		"OLLAMA_URL", "OLLAMA_MODEL",
+		"LMSTUDIO_URL", "LMSTUDIO_MODEL",
 	} {
 		t.Setenv(k, "")
 	}
