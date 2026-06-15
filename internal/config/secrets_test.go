@@ -56,11 +56,12 @@ func TestSave_DoesNotWriteSecretsToConfigFile(t *testing.T) {
 	clearConfigEnv(t)
 
 	cfg := &Config{
-		OpenAIKey:   "sk-should-not-leak",
-		NVDKey:      "nvd-should-not-leak",
-		GitHubToken: "ghp_should_not_leak",
-		OpenAIModel: "gpt-4",
-		OllamaURL:   "http://localhost:11434",
+		OpenAIKey:     "sk-should-not-leak",
+		NVDKey:        "nvd-should-not-leak",
+		GitHubToken:   "ghp_should_not_leak",
+		EnterpriseKey: "cvgk_should_not_leak",
+		OpenAIModel:   "gpt-4",
+		OllamaURL:     "http://localhost:11434",
 	}
 	if err := Save(cfg); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -71,7 +72,7 @@ func TestSave_DoesNotWriteSecretsToConfigFile(t *testing.T) {
 		t.Fatalf("read config: %v", err)
 	}
 	body := string(data)
-	for _, secret := range []string{"sk-should-not-leak", "nvd-should-not-leak", "ghp_should_not_leak"} {
+	for _, secret := range []string{"sk-should-not-leak", "nvd-should-not-leak", "ghp_should_not_leak", "cvgk_should_not_leak"} {
 		if strings.Contains(body, secret) {
 			t.Errorf("config file leaks secret %q: %s", secret, body)
 		}
@@ -88,6 +89,9 @@ func TestSave_DoesNotWriteSecretsToConfigFile(t *testing.T) {
 	}
 	if m[secretKeyOpenAI] != "sk-should-not-leak" {
 		t.Errorf("secret store missing openai key, got %q", m[secretKeyOpenAI])
+	}
+	if m[secretKeyEnterprise] != "cvgk_should_not_leak" {
+		t.Errorf("secret store missing enterprise key, got %q", m[secretKeyEnterprise])
 	}
 }
 
@@ -144,7 +148,7 @@ func TestKeyringBackend_RoundTrip(t *testing.T) {
 	if err := saveSecret(secretKeyOpenAI, "kr-value"); err != nil {
 		t.Fatalf("saveSecret: %v", err)
 	}
-	openai, _, _, _, err := loadSecrets()
+	openai, _, _, _, _, err := loadSecrets()
 	if err != nil {
 		t.Fatalf("loadSecrets: %v", err)
 	}
@@ -156,7 +160,7 @@ func TestKeyringBackend_RoundTrip(t *testing.T) {
 	if err := saveSecret(secretKeyOpenAI, ""); err != nil {
 		t.Fatalf("saveSecret empty: %v", err)
 	}
-	openai, _, _, _, err = loadSecrets()
+	openai, _, _, _, _, err = loadSecrets()
 	if err != nil {
 		t.Fatalf("loadSecrets after delete: %v", err)
 	}
@@ -196,6 +200,7 @@ func clearConfigEnv(t *testing.T) {
 		"OSSINDEX_USER", "OSSINDEX_TOKEN",
 		"OLLAMA_URL", "OLLAMA_MODEL",
 		"LMSTUDIO_URL", "LMSTUDIO_MODEL",
+		"CALVIGIL_ENTERPRISE_URL", "CALVIGIL_ENTERPRISE_API_KEY", "CALVIGIL_API_KEY",
 	} {
 		t.Setenv(k, "")
 	}

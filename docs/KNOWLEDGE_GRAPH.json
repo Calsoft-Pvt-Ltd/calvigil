@@ -18,7 +18,7 @@
       "path": "cmd/",
       "kind": "cli",
       "responsibility": "Cobra commands, flag parsing, output orchestration",
-      "files": ["root.go", "scan.go", "scan_image.go", "scan_license.go", "scan_binary.go", "scan_iac.go", "config.go", "version.go", "helpers.go"],
+      "files": ["root.go", "scan.go", "scan_image.go", "scan_license.go", "scan_binary.go", "scan_iac.go", "push.go", "config.go", "version.go", "helpers.go"],
       "imports": ["internal/scanner", "internal/image", "internal/binary", "internal/iac", "internal/reporter", "internal/config", "internal/models"],
       "hld_section": [5, 12],
       "lld_section": [1, 22]
@@ -388,6 +388,7 @@
     {"name": "scan-binary",  "args": "<path>",   "uses": ["binary", "matcher"], "outputs": "ScanResult"},
     {"name": "scan-iac",     "args": "<path>",   "uses": ["iac"],          "outputs": "ScanResult (from ToVulnerabilities)"},
     {"name": "scan-license", "args": "[path]",   "uses": ["detector", "parser", "license"], "outputs": "ScanResult"},
+    {"name": "push",         "args": "<report.json>", "uses": ["config", "http"], "outputs": "Enterprise scan ingestion response"},
     {"name": "config",       "args": "set|get",  "uses": ["config", "secrets"], "outputs": "stdout"},
     {"name": "version",      "args": "",         "uses": [],               "outputs": "stdout"}
   ]

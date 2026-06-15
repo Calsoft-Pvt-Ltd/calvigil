@@ -109,6 +109,50 @@ jobs:
 
 Findings appear in the repository's **Security → Code scanning** tab and as PR annotations.
 
+### Push results to Calvigil Enterprise
+
+Use `calvigil push` when you want Enterprise dashboards, audit logs, scan diffs,
+and policy gates:
+
+```yaml
+name: Calvigil Enterprise
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scan-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install calvigil
+        run: |
+          curl -Lo calvigil.tar.gz https://github.com/Calsoft-Pvt-Ltd/calvigil/releases/latest/download/calvigil-linux-amd64.tar.gz
+          tar xzf calvigil.tar.gz && sudo mv calvigil /usr/local/bin/
+
+      - name: Scan
+        run: calvigil scan . --skip-ai --format json --output calvigil.json
+
+      - name: Push to Calvigil Enterprise
+        env:
+          CALVIGIL_ENTERPRISE_URL: ${{ vars.CALVIGIL_ENTERPRISE_URL }}
+          CALVIGIL_API_KEY: ${{ secrets.CALVIGIL_API_KEY }}
+        run: |
+          calvigil push calvigil.json \
+            --project "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
+            --commit "${{ github.sha }}" \
+            --idempotency-key "${{ github.run_id }}-${{ github.sha }}" \
+            --environment prod \
+            --fail-on-policy
+```
+
+`--fail-on-policy` evaluates the Enterprise policy first. If the policy fails,
+the command exits non-zero and does not store the scan or consume scan quota.
+
 ### Nightly full scan with AI analysis
 
 ```yaml

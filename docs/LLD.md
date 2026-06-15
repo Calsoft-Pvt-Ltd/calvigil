@@ -51,6 +51,7 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   ├── scan_binary.go               # `scan-binary <path>` command (Go binaries / JARs / wheels)
 │   ├── scan_iac.go                  # `scan-iac <path>` command (Terraform / K8s / Dockerfile / etc.)
 │   ├── helpers.go                   # writeReport(), filterVulnsBySeverity(), output-file 0600 perms
+│   ├── push.go                      # `push <report.json>` Enterprise upload
 │   ├── config.go                    # `config set/get` commands
 │   └── version.go                   # `version` command
 ├── internal/
@@ -332,7 +333,7 @@ func (p *Package) EnsurePURL()   // Populates PURL field if empty
 var rootCmd = &cobra.Command{Use: "calvigil", ...}
 
 func Execute()           // Entry point called from main.go
-func init()              // Registers subcommands: scan, scanImage, configCmd, versionCmd
+func init()              // Registers subcommands: scan, scanImage, pushCmd, configCmd, versionCmd
                          // Global flag: --verbose/-v (bool)
 ```
 
@@ -344,6 +345,7 @@ calvigil
 ├── scan-license [path]      # License compliance scan (standalone)
 ├── scan-binary <path>       # Binary/SCA scan
 ├── scan-iac <path>          # IaC misconfiguration scan
+├── push <report.json>       # Push JSON report to Calvigil Enterprise
 ├── config
 │   ├── set <key> <value>    # Set configuration key
 │   └── get <key>            # Get configuration value
@@ -430,6 +432,8 @@ calvigil
 | `ollama-model` | `OLLAMA_MODEL` | Ollama model name |
 | `lmstudio-url` | `LMSTUDIO_URL` | LM Studio server URL |
 | `lmstudio-model` | `LMSTUDIO_MODEL` | LM Studio model name |
+| `enterprise-url` | `CALVIGIL_ENTERPRISE_URL` | Calvigil Enterprise URL for `calvigil push` |
+| `enterprise-key` | `CALVIGIL_API_KEY` / `CALVIGIL_ENTERPRISE_API_KEY` | Calvigil Enterprise API key for `calvigil push` |
 
 ### 3.6 `cmd/version.go`
 
@@ -447,12 +451,16 @@ var version = "dev"   // Overridden at build time via LDFLAGS
 
 ```go
 type Config struct {
-    OpenAIKey   string `json:"openai_key,omitempty"`
-    OpenAIModel string `json:"openai_model,omitempty"`
-    NVDKey      string `json:"nvd_key,omitempty"`
-    GitHubToken string `json:"github_token,omitempty"`
-    OllamaURL   string `json:"ollama_url,omitempty"`
-    OllamaModel string `json:"ollama_model,omitempty"`
+    OpenAIKey     string `json:"openai_api_key,omitempty"` // secret store only
+    OpenAIModel   string `json:"openai_model,omitempty"`
+    NVDKey        string `json:"nvd_api_key,omitempty"` // secret store only
+    GitHubToken   string `json:"github_token,omitempty"` // secret store only
+    OSSIndexUser  string `json:"ossindex_user,omitempty"`
+    OSSIndexToken string `json:"ossindex_token,omitempty"` // secret store only
+    OllamaURL     string `json:"ollama_url,omitempty"`
+    OllamaModel   string `json:"ollama_model,omitempty"`
+    EnterpriseURL string `json:"enterprise_url,omitempty"`
+    EnterpriseKey string `json:"enterprise_api_key,omitempty"` // secret store only
 }
 ```
 
@@ -2181,7 +2189,8 @@ The probe avoids paying the runtime cost on every call and ensures cleanly headl
 {
   "openai_api_key": "sk-...",
   "nvd_api_key":    "...",
-  "github_token":   "ghp_..."
+  "github_token":   "ghp_...",
+  "enterprise_api_key": "cvgk_..."
 }
 ```
 

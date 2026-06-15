@@ -12,6 +12,20 @@ All notable changes to calvigil are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`calvigil push`**: Upload an existing JSON scan report to Calvigil Enterprise.
+  - Supports Enterprise URL/API key via flags, config, or environment variables.
+  - Supports CI metadata: project, ref, commit, environment, CLI version, and idempotency key.
+  - `--fail-on-policy` evaluates the Enterprise policy gate before storing and exits non-zero without consuming quota on policy failure.
+  - `--evaluate-only` checks policy without storing the scan.
+- Enterprise config keys: `enterprise-url`, `enterprise-key`; env vars:
+  `CALVIGIL_ENTERPRISE_URL`, `CALVIGIL_API_KEY`, and `CALVIGIL_ENTERPRISE_API_KEY`.
+
+---
+
 ## [5.0.0] — 2026-06-12
 
 ### Added

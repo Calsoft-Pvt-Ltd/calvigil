@@ -56,7 +56,7 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 
 | Package                     | Files                                                                                               | Responsibility | HLD § | LLD § |
 |-----------------------------|-----------------------------------------------------------------------------------------------------|----------------|-------|-------|
-| `cmd/`                      | [root.go](../cmd/root.go), [scan.go](../cmd/scan.go), [scan_image.go](../cmd/scan_image.go), [scan_license.go](../cmd/scan_license.go), [scan_binary.go](../cmd/scan_binary.go), [scan_iac.go](../cmd/scan_iac.go), [config.go](../cmd/config.go), [version.go](../cmd/version.go), [helpers.go](../cmd/helpers.go) | CLI surface (Cobra), flag parsing, output orchestration | 5, 12 | 1, 22 |
+| `cmd/`                      | [root.go](../cmd/root.go), [scan.go](../cmd/scan.go), [scan_image.go](../cmd/scan_image.go), [scan_license.go](../cmd/scan_license.go), [scan_binary.go](../cmd/scan_binary.go), [scan_iac.go](../cmd/scan_iac.go), [push.go](../cmd/push.go), [config.go](../cmd/config.go), [version.go](../cmd/version.go), [helpers.go](../cmd/helpers.go) | CLI surface (Cobra), flag parsing, output orchestration | 5, 12 | 1, 22 |
 | `internal/models/`          | [vulnerability.go](../internal/models/vulnerability.go), [purl.go](../internal/models/purl.go)      | Domain types (leaf) | 4 | 2 |
 | `internal/config/`          | [config.go](../internal/config/config.go), [secrets.go](../internal/config/secrets.go)              | YAML config + pluggable secret store | 12 | 3, 20 |
 | `internal/detector/`        | [detector.go](../internal/detector/detector.go)                                                     | Filesystem walk, ecosystem identification | 6 | 4 |
@@ -182,6 +182,7 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 [scan-binary]   path → binary.Scan (Go/JAR/wheel) → matcher.Match (cache) → reporter
 [scan-iac]      path → iac.Scan (25 rules) → iac.ToVulnerabilities → reporter
 [scan-license]  path → detector → parser → license.CheckPackages → reporter
+[push]          report.json → Enterprise /api/v1/scans:evaluate? → /api/v1/scans
 [config]        key/value → config.Set → secretStore.Set (keyring|file)
 ```
 

@@ -13,7 +13,8 @@ var configCmd = &cobra.Command{
 	Long: `Manage configuration values like API keys.
 
 Configuration is stored in ~/.calvigil.json.
-Environment variables (OPENAI_API_KEY, NVD_API_KEY, GITHUB_TOKEN, OSSINDEX_USER, OSSINDEX_TOKEN) take precedence.`,
+Environment variables (OPENAI_API_KEY, NVD_API_KEY, GITHUB_TOKEN, OSSINDEX_USER, OSSINDEX_TOKEN,
+CALVIGIL_ENTERPRISE_URL, CALVIGIL_API_KEY) take precedence.`,
 }
 
 var configSetCmd = &cobra.Command{
@@ -25,10 +26,14 @@ var configSetCmd = &cobra.Command{
   nvd-key        NVD API key for vulnerability lookups
   github-token   GitHub token for advisory database access
   ossindex-user  Sonatype OSS Index account email (optional existing/migrated token)
-  ossindex-token Sonatype OSS Index API token (optional existing/migrated token)`,
+  ossindex-token Sonatype OSS Index API token (optional existing/migrated token)
+  enterprise-url Calvigil Enterprise API/web origin, for example https://calvigil.example.com
+  enterprise-key Calvigil Enterprise API key used by calvigil push`,
 	Example: `  calvigil config set openai-key sk-...
   calvigil config set openai-model gpt-4-turbo
-  calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`,
+  calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  calvigil config set enterprise-url https://calvigil.example.com
+  calvigil config set enterprise-key cvgk_...`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := config.Set(args[0], args[1]); err != nil {

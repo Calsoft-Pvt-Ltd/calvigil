@@ -76,7 +76,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 
 ```
      ┌───────────┐
-     │  CLI Cmd   │  (cobra commands: scan, scan-image, config, version)
+     │  CLI Cmd   │  (cobra commands: scan, scan-image, push, config, version)
      └─────┬─────┘
            │
      ┌─────▼──────┐

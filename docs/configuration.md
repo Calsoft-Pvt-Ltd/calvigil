@@ -25,20 +25,18 @@ Configuration is stored in `~/.calvigil.json`:
 
 ```json
 {
-  "openai_api_key": "sk-proj-...",
   "openai_model": "gpt-4",
-  "nvd_api_key": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "github_token": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "ossindex_user": "you@example.com",
   "ollama_url": "http://localhost:11434",
   "ollama_model": "llama3",
   "lmstudio_url": "http://localhost:1234",
-  "lmstudio_model": ""
+  "lmstudio_model": "",
+  "enterprise_url": "https://calvigil.example.com"
 }
 ```
 
 {: .note }
-> Secrets (`openai-key`, `nvd-key`, `github-token`, `ossindex-token`) are stored in your OS keyring when available (macOS Keychain, Windows Credential Manager, Linux Secret Service). When keyring isn't available (CI, containers), they fall back to `~/.calvigil-secrets.json` (mode `0600`).
+> Secrets (`openai-key`, `nvd-key`, `github-token`, `ossindex-token`, `enterprise-key`) are stored in your OS keyring when available (macOS Keychain, Windows Credential Manager, Linux Secret Service). When keyring isn't available (CI, containers), they fall back to `~/.calvigil-secrets.json` (mode `0600`).
 
 ---
 
@@ -58,6 +56,14 @@ Environment variables **always take precedence** over config file values:
 | `OLLAMA_MODEL` | Ollama model name (e.g. `llama3`, `codellama`) |
 | `LMSTUDIO_URL` | LM Studio server URL (default: `http://localhost:1234`) |
 | `LMSTUDIO_MODEL` | LM Studio model name |
+| `CALVIGIL_ENTERPRISE_URL` | Calvigil Enterprise URL for `calvigil push` |
+| `CALVIGIL_API_KEY` | Calvigil Enterprise API key for `calvigil push` |
+| `CALVIGIL_ENTERPRISE_API_KEY` | Alternate Enterprise API key variable |
+| `CALVIGIL_PROJECT` | Project name metadata for `calvigil push` |
+| `CALVIGIL_REF` | Git ref metadata for `calvigil push` |
+| `CALVIGIL_COMMIT` | Git commit metadata for `calvigil push` |
+| `CALVIGIL_ENVIRONMENT` | Policy environment metadata for `calvigil push` |
+| `CALVIGIL_IDEMPOTENCY_KEY` | Idempotency key for safe `calvigil push` retries |
 
 **Example — using environment variables:**
 
@@ -96,6 +102,10 @@ calvigil config set github-token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # If OSS Index returns 401, clear stale credentials to skip this source.
 calvigil config set ossindex-user you@example.com
 calvigil config set ossindex-token xxxxxxxx
+
+# Optional: Calvigil Enterprise upload
+calvigil config set enterprise-url https://calvigil.example.com
+calvigil config set enterprise-key cvgk_...
 ```
 
 ---
@@ -112,6 +122,9 @@ calvigil config get openai-model
 
 calvigil config get nvd-key
 # Output: ****xxxx
+
+calvigil config get enterprise-key
+# Output: ****abcd
 ```
 
 ---
@@ -130,6 +143,8 @@ calvigil config get nvd-key
 | `ollama-model` | No | — | Ollama model name (e.g. `llama3`, `codellama`) |
 | `lmstudio-url` | No | `http://localhost:1234` | LM Studio server URL |
 | `lmstudio-model` | No | — | LM Studio model name |
+| `enterprise-url` | For push | — | Calvigil Enterprise URL |
+| `enterprise-key` | For push | — | Calvigil Enterprise API key (`cvgk_...`) |
 
 ---
 

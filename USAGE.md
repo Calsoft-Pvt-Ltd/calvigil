@@ -19,6 +19,7 @@ A comprehensive reference for all commands, flags, configuration, and usage exam
   - [scan-iac](#scan-iac)
   - [scan-image](#scan-image)
   - [scan-license](#scan-license)
+  - [push](#push)
   - [config set](#config-set)
   - [config get](#config-get)
   - [version](#version)
@@ -155,14 +156,13 @@ Configuration is stored in `~/.calvigil.json`:
 
 ```json
 {
-  "openai_api_key": "sk-proj-...",
   "openai_model": "gpt-4",
-  "nvd_api_key": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "github_token": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "ossindex_user": "you@example.com",
   "ollama_url": "http://localhost:11434",
   "ollama_model": "llama3",
   "lmstudio_url": "http://localhost:1234",
-  "lmstudio_model": ""
+  "lmstudio_model": "",
+  "enterprise_url": "https://calvigil.example.com"
 }
 ```
 
@@ -182,6 +182,14 @@ Environment variables **always take precedence** over config file values:
 | `OLLAMA_MODEL` | Ollama model name (e.g. `llama3`, `codellama`, `mistral`) |
 | `LMSTUDIO_URL` | LM Studio server URL (default: `http://localhost:1234`) |
 | `LMSTUDIO_MODEL` | LM Studio model name |
+| `CALVIGIL_ENTERPRISE_URL` | Calvigil Enterprise URL for `calvigil push` |
+| `CALVIGIL_API_KEY` | Calvigil Enterprise API key for `calvigil push` |
+| `CALVIGIL_ENTERPRISE_API_KEY` | Alternate Enterprise API key variable |
+| `CALVIGIL_PROJECT` | Project metadata for `calvigil push` |
+| `CALVIGIL_REF` | Git ref metadata for `calvigil push` |
+| `CALVIGIL_COMMIT` | Git commit metadata for `calvigil push` |
+| `CALVIGIL_ENVIRONMENT` | Policy environment for `calvigil push` |
+| `CALVIGIL_IDEMPOTENCY_KEY` | Safe retry key for `calvigil push` |
 
 **Example — using environment variables:**
 
@@ -219,6 +227,10 @@ calvigil config set github-token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # Register free at: https://ossindex.sonatype.org/
 calvigil config set ossindex-user you@example.com
 calvigil config set ossindex-token xxxxxxxx
+
+# Optional: Calvigil Enterprise upload
+calvigil config set enterprise-url https://calvigil.example.com
+calvigil config set enterprise-key cvgk_...
 ```
 
 ### Viewing Configuration
@@ -233,6 +245,9 @@ calvigil config get openai-model
 
 calvigil config get nvd-key
 # Output: ****xxxx
+
+calvigil config get enterprise-key
+# Output: ****abcd
 ```
 
 ### All Config Keys
@@ -249,6 +264,8 @@ calvigil config get nvd-key
 | `ollama-model` | No | — | Ollama model name (e.g. `llama3`, `codellama`) |
 | `lmstudio-url` | No | `http://localhost:1234` | LM Studio server URL |
 | `lmstudio-model` | No | — | LM Studio model name |
+| `enterprise-url` | For push | — | Calvigil Enterprise URL |
+| `enterprise-key` | For push | — | Calvigil Enterprise API key (`cvgk_...`) |
 
 ---
 
@@ -385,6 +402,50 @@ calvigil scan-license --format pdf --output licenses.pdf
 
 ---
 
+### `push`
+
+Push an existing Calvigil JSON report to Calvigil Enterprise.
+
+```
+calvigil push <report.json> [flags]
+```
+
+Generate the report first, then upload it:
+
+```bash
+calvigil scan . --skip-ai --format json --output calvigil.json
+calvigil push calvigil.json \
+  --project payments-service \
+  --ref main \
+  --commit "$(git rev-parse HEAD)" \
+  --idempotency-key "payments-$(git rev-parse HEAD)" \
+  --fail-on-policy
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--server-url` | config/env | Calvigil Enterprise URL |
+| `--api-key` | config/env | Enterprise API key. Prefer `CALVIGIL_API_KEY` in CI |
+| `--project` | env | Project name override |
+| `--ref` | env | Git ref |
+| `--commit` | env | Git commit SHA |
+| `--environment` | env | Policy environment such as `dev`, `staging`, or `prod` |
+| `--idempotency-key` | env | Safe retry key. Duplicate pushes return the original scan |
+| `--fail-on-policy` | `false` | Evaluate policy first and exit non-zero without storing if it fails |
+| `--evaluate-only` | `false` | Evaluate policy without storing the scan |
+| `--timeout` | `30s` | HTTP timeout |
+
+**Environment:**
+
+```bash
+export CALVIGIL_ENTERPRISE_URL="https://calvigil.example.com"
+export CALVIGIL_API_KEY="cvgk_..."
+```
+
+---
+
 ### `scan-binary`
 
 Scan compiled binaries and archives for embedded dependency vulnerabilities.
@@ -452,6 +513,8 @@ calvigil config set nvd-key xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 calvigil config set github-token ghp_xxxxxxxxxxxx
 calvigil config set ollama-url http://localhost:11434
 calvigil config set ollama-model llama3
+calvigil config set enterprise-url https://calvigil.example.com
+calvigil config set enterprise-key cvgk_...
 ```
 
 ---

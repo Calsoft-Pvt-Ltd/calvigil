@@ -27,6 +27,8 @@ type Config struct {
 	OllamaModel   string `json:"ollama_model,omitempty"`
 	LMStudioURL   string `json:"lmstudio_url,omitempty"`
 	LMStudioModel string `json:"lmstudio_model,omitempty"`
+	EnterpriseURL string `json:"enterprise_url,omitempty"`
+	EnterpriseKey string `json:"enterprise_api_key,omitempty"`
 }
 
 // fileConfig is the on-disk representation. Secret fields are intentionally
@@ -38,6 +40,7 @@ type fileConfig struct {
 	OllamaModel   string `json:"ollama_model,omitempty"`
 	LMStudioURL   string `json:"lmstudio_url,omitempty"`
 	LMStudioModel string `json:"lmstudio_model,omitempty"`
+	EnterpriseURL string `json:"enterprise_url,omitempty"`
 
 	// Legacy secret fields kept only for reading older configs so we can
 	// migrate them into the secret store on first Save(). They are never
@@ -46,6 +49,7 @@ type fileConfig struct {
 	LegacyNVDKey      string `json:"nvd_api_key,omitempty"`
 	LegacyGitHubToken string `json:"github_token,omitempty"`
 	LegacyOSSIndex    string `json:"ossindex_token,omitempty"`
+	LegacyEnterprise  string `json:"enterprise_api_key,omitempty"`
 }
 
 // configFilePath returns the path to the config file in the user's home directory.
@@ -78,17 +82,19 @@ func Load() (*Config, error) {
 			cfg.OllamaModel = fc.OllamaModel
 			cfg.LMStudioURL = fc.LMStudioURL
 			cfg.LMStudioModel = fc.LMStudioModel
+			cfg.EnterpriseURL = fc.EnterpriseURL
 			cfg.OSSIndexUser = fc.OSSIndexUser
 			cfg.OpenAIKey = fc.LegacyOpenAIKey
 			cfg.NVDKey = fc.LegacyNVDKey
 			cfg.GitHubToken = fc.LegacyGitHubToken
 			cfg.OSSIndexToken = fc.LegacyOSSIndex
+			cfg.EnterpriseKey = fc.LegacyEnterprise
 		}
 	}
 
 	// Pull secrets from the secret store; these win over any legacy
 	// plaintext values still sitting in the config file.
-	if openai, nvd, gh, ossToken, serr := loadSecrets(); serr == nil {
+	if openai, nvd, gh, ossToken, enterpriseKey, serr := loadSecrets(); serr == nil {
 		if openai != "" {
 			cfg.OpenAIKey = openai
 		}
@@ -100,6 +106,9 @@ func Load() (*Config, error) {
 		}
 		if ossToken != "" {
 			cfg.OSSIndexToken = ossToken
+		}
+		if enterpriseKey != "" {
+			cfg.EnterpriseKey = enterpriseKey
 		}
 	}
 
@@ -134,6 +143,15 @@ func Load() (*Config, error) {
 	if v := os.Getenv("LMSTUDIO_MODEL"); v != "" {
 		cfg.LMStudioModel = v
 	}
+	if v := os.Getenv("CALVIGIL_ENTERPRISE_URL"); v != "" {
+		cfg.EnterpriseURL = v
+	}
+	if v := os.Getenv("CALVIGIL_ENTERPRISE_API_KEY"); v != "" {
+		cfg.EnterpriseKey = v
+	}
+	if v := os.Getenv("CALVIGIL_API_KEY"); v != "" {
+		cfg.EnterpriseKey = v
+	}
 
 	return cfg, nil
 }
@@ -157,6 +175,7 @@ func Save(cfg *Config) error {
 		OllamaModel:   cfg.OllamaModel,
 		LMStudioURL:   cfg.LMStudioURL,
 		LMStudioModel: cfg.LMStudioModel,
+		EnterpriseURL: cfg.EnterpriseURL,
 	}
 	data, err := json.MarshalIndent(fc, "", "  ")
 	if err != nil {
@@ -177,6 +196,9 @@ func Save(cfg *Config) error {
 	}
 	if err := saveSecret(secretKeyOSSIndex, cfg.OSSIndexToken); err != nil {
 		return fmt.Errorf("cannot save oss index token: %w", err)
+	}
+	if err := saveSecret(secretKeyEnterprise, cfg.EnterpriseKey); err != nil {
+		return fmt.Errorf("cannot save enterprise api key: %w", err)
 	}
 	return nil
 }
@@ -209,8 +231,12 @@ func Set(key, value string) error {
 		cfg.LMStudioURL = value
 	case "lmstudio-model":
 		cfg.LMStudioModel = value
+	case "enterprise-url":
+		cfg.EnterpriseURL = value
+	case "enterprise-key":
+		cfg.EnterpriseKey = value
 	default:
-		return fmt.Errorf("unknown config key: %s (valid keys: openai-key, openai-model, nvd-key, github-token, ossindex-user, ossindex-token, ollama-url, ollama-model, lmstudio-url, lmstudio-model)", key)
+		return fmt.Errorf("unknown config key: %s (valid keys: openai-key, openai-model, nvd-key, github-token, ossindex-user, ossindex-token, ollama-url, ollama-model, lmstudio-url, lmstudio-model, enterprise-url, enterprise-key)", key)
 	}
 
 	return Save(cfg)
@@ -244,6 +270,10 @@ func Get(key string) (string, error) {
 		return cfg.LMStudioURL, nil
 	case "lmstudio-model":
 		return cfg.LMStudioModel, nil
+	case "enterprise-url":
+		return cfg.EnterpriseURL, nil
+	case "enterprise-key":
+		return maskSecret(cfg.EnterpriseKey), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}

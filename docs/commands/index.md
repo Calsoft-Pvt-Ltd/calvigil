@@ -8,7 +8,7 @@ has_children: true
 # Commands Reference
 {: .no_toc }
 
-calvigil provides five scanning commands plus configuration management.
+calvigil provides five scanning commands, Enterprise upload, and configuration management.
 {: .fs-5 .fw-300 }
 
 ---
@@ -22,6 +22,7 @@ calvigil provides five scanning commands plus configuration management.
 | [`scan-binary`]({% link commands/scan-binary.md %}) | Binary/SCA scanning (Go, JAR, Python wheel) |
 | [`scan-iac`]({% link commands/scan-iac.md %}) | Infrastructure-as-Code misconfiguration scanning |
 | [`scan-license`]({% link commands/scan-license.md %}) | License compliance analysis |
+| [`push`]({% link commands/push.md %}) | Upload an existing JSON report to Calvigil Enterprise |
 | `config set` | Persist a configuration key |
 | `config get` | View a configuration key (secrets masked) |
 | `version` | Print version and Go runtime info |

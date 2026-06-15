@@ -48,6 +48,8 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("OSSINDEX_TOKEN", "oss-token")
 	t.Setenv("OLLAMA_URL", "http://localhost:11434")
 	t.Setenv("OLLAMA_MODEL", "llama3")
+	t.Setenv("CALVIGIL_ENTERPRISE_URL", "https://enterprise.example.com")
+	t.Setenv("CALVIGIL_API_KEY", "cvgk_env")
 
 	cfg, err := Load()
 	if err != nil {
@@ -77,6 +79,12 @@ func TestLoadEnvOverrides(t *testing.T) {
 	if cfg.OllamaModel != "llama3" {
 		t.Errorf("OllamaModel = %q, want llama3", cfg.OllamaModel)
 	}
+	if cfg.EnterpriseURL != "https://enterprise.example.com" {
+		t.Errorf("EnterpriseURL = %q, want https://enterprise.example.com", cfg.EnterpriseURL)
+	}
+	if cfg.EnterpriseKey != "cvgk_env" {
+		t.Errorf("EnterpriseKey = %q, want cvgk_env", cfg.EnterpriseKey)
+	}
 }
 
 func TestSaveAndLoad(t *testing.T) {
@@ -96,6 +104,8 @@ func TestSaveAndLoad(t *testing.T) {
 		OSSIndexToken: "oss-token-abcde",
 		OllamaURL:     "http://localhost:11434",
 		OllamaModel:   "llama3",
+		EnterpriseURL: "https://enterprise.example.com",
+		EnterpriseKey: "cvgk_config_secret",
 	}
 
 	if err := Save(original); err != nil {
@@ -134,6 +144,12 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 	if loaded.OSSIndexToken != original.OSSIndexToken {
 		t.Errorf("OSSIndexToken = %q, want %q", loaded.OSSIndexToken, original.OSSIndexToken)
+	}
+	if loaded.EnterpriseURL != original.EnterpriseURL {
+		t.Errorf("EnterpriseURL = %q, want %q", loaded.EnterpriseURL, original.EnterpriseURL)
+	}
+	if loaded.EnterpriseKey != original.EnterpriseKey {
+		t.Errorf("EnterpriseKey = %q, want %q", loaded.EnterpriseKey, original.EnterpriseKey)
 	}
 }
 
@@ -182,6 +198,8 @@ func TestSetAndGet(t *testing.T) {
 		"ossindex-token": "oss-new-token",
 		"ollama-url":     "http://host:11434",
 		"ollama-model":   "codellama",
+		"enterprise-url": "https://enterprise.example.com",
+		"enterprise-key": "cvgk_secret_token",
 	}
 
 	for key, value := range keys {
@@ -219,6 +237,20 @@ func TestSetAndGet(t *testing.T) {
 	}
 	if val != "****oken" {
 		t.Errorf("Get(ossindex-token) = %q, want ****oken", val)
+	}
+	val, err = Get("enterprise-url")
+	if err != nil {
+		t.Fatalf("Get(enterprise-url) error: %v", err)
+	}
+	if val != "https://enterprise.example.com" {
+		t.Errorf("Get(enterprise-url) = %q, want https://enterprise.example.com", val)
+	}
+	val, err = Get("enterprise-key")
+	if err != nil {
+		t.Fatalf("Get(enterprise-key) error: %v", err)
+	}
+	if val != "****oken" {
+		t.Errorf("Get(enterprise-key) = %q, want ****oken", val)
 	}
 }
 

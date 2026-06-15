@@ -228,6 +228,12 @@ calvigil scan-image python:3.12-slim --format json
 # Output as JSON
 calvigil scan --format json
 
+# Push a JSON report to Calvigil Enterprise
+calvigil scan --skip-ai --format json --output calvigil.json
+export CALVIGIL_ENTERPRISE_URL="https://calvigil.example.com"
+export CALVIGIL_API_KEY="cvgk_..."
+calvigil push calvigil.json --project payments-service --ref main --fail-on-policy
+
 # Output as SARIF (for GitHub Code Scanning, VS Code, etc.)
 calvigil scan --format sarif --output results.sarif
 
@@ -315,6 +321,11 @@ calvigil config set github-token ghp_...
 calvigil config set ossindex-user you@example.com
 calvigil config set ossindex-token xxxxxxxx
 # or: export OSSINDEX_USER=... OSSINDEX_TOKEN=...
+
+# Calvigil Enterprise push
+calvigil config set enterprise-url https://calvigil.example.com
+calvigil config set enterprise-key cvgk_...
+# or: export CALVIGIL_ENTERPRISE_URL=... CALVIGIL_API_KEY=...
 ```
 
 ### View Configuration
@@ -331,9 +342,10 @@ behalf of the user.
 
 ### Secret storage (API keys)
 
-- API keys (`openai-api-key`, `ollama-api-key`, etc.) are **never written
-  to `~/.calvigil.yaml`**. They are stored in the OS credential manager
-  via [`go-keyring`](https://github.com/zalando/go-keyring):
+- API keys (`openai-key`, `nvd-key`, `github-token`, `ossindex-token`,
+  `enterprise-key`) are **never written to `~/.calvigil.json`**. They are
+  stored in the OS credential manager via
+  [`go-keyring`](https://github.com/zalando/go-keyring):
   - macOS → Keychain
   - Windows → Credential Manager
   - Linux desktop → Secret Service (GNOME Keyring / KWallet)
@@ -437,6 +449,7 @@ Available Commands:
   scan-iac     Scan Infrastructure-as-Code files for security misconfigurations
   scan-image   Scan a container image for vulnerabilities
   scan-license Scan project dependencies for license compliance
+  push         Push a JSON scan report to Calvigil Enterprise
   config       Manage scanner configuration
   version     Print the version
   help        Help about any command
@@ -480,6 +493,17 @@ Scan-License Flags:
   -o, --output string           Write output to file (default: stdout)
       --risk string             Filter by risk level: copyleft, unknown (default: show all)
   -v, --verbose                 Enable verbose output
+
+Push Flags:
+      --server-url string       Calvigil Enterprise URL (env: CALVIGIL_ENTERPRISE_URL)
+      --api-key string          Calvigil Enterprise API key (env: CALVIGIL_API_KEY)
+      --project string          Project name override
+      --ref string              Git ref
+      --commit string           Git commit SHA
+      --environment string      Policy environment, for example dev, staging, prod
+      --idempotency-key string  Safe retry key (env: CALVIGIL_IDEMPOTENCY_KEY)
+      --fail-on-policy          Evaluate policy first and fail without storing on violations
+      --evaluate-only           Evaluate policy without storing the scan
 ```
 
 ## How It Works
