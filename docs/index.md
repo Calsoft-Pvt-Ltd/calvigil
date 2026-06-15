@@ -18,6 +18,7 @@ An open-source security scanner for **Go**, **Java**, **Python**, **Node.js**, *
 
 [Get Started]({% link getting-started.md %}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/Calsoft-Pvt-Ltd/calvigil){: .btn .fs-5 .mb-4 .mb-md-0 }
+[Manual Test Suite]({% link MANUAL_TEST_SUITE.md %}){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
@@ -58,6 +59,10 @@ calvigil scan-iac ./terraform/
 # JSON output for CI/CD
 calvigil scan --format json --output results.json .
 ```
+
+## Manual Validation
+
+The release-readiness walkthrough lives in the [Manual Test Suite]({% link MANUAL_TEST_SUITE.md %}). It gives step-by-step checks for CLI discovery, configuration and secret handling, every scanner command, all output formats, Enterprise upload, CI gates, and security regressions.
 
 ---
 

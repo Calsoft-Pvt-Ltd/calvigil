@@ -134,6 +134,10 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 
 - **Multiple Output Formats**: Terminal table, JSON, SARIF v2.1.0, CycloneDX v1.5, SPDX 2.3, OpenVEX v0.2.0, HTML, PDF
 
+## Manual Test Suite
+
+Release and user-acceptance validation is documented in the [Manual Test Suite](docs/MANUAL_TEST_SUITE.md). It covers every CLI command, configuration path, scanner mode, output format, Enterprise push workflow, and security regression check with step-by-step expected results.
+
 ## Installation
 
 ### Pre-built Binaries
