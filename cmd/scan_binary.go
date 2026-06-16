@@ -144,6 +144,7 @@ func runScanBinary(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: matcher error: %v\n", err)
 	}
+	enrichDependencyCVSS(ctx, cfg, vulns, isVerbose)
 
 	if isVerbose {
 		fmt.Fprintf(os.Stderr, "   Found %d vulnerabilities\n\n", len(vulns))

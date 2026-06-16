@@ -22,6 +22,8 @@ import (
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
 )
 
+const dependencyCacheSource = "aggregated-v2"
+
 // Scanner orchestrates the full vulnerability scanning pipeline.
 type Scanner struct {
 	opts     models.ScanOptions
@@ -277,7 +279,13 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 
 	// Check cache before querying
 	if s.cache != nil {
-		if cached, ok := s.cache.Get("aggregated", allPackages); ok {
+		if cached, ok := s.cache.Get(dependencyCacheSource, allPackages); ok {
+			enrichment := s.enrichDependencyCVSS(ctx, cached)
+			if enrichment.Enriched > 0 {
+				if cacheErr := s.cache.Put(dependencyCacheSource, allPackages, cached); cacheErr != nil && s.opts.Verbose {
+					fmt.Fprintf(os.Stderr, "   Cache write warning: %v\n", cacheErr)
+				}
+			}
 			if s.opts.Verbose {
 				fmt.Fprintf(os.Stderr, "   Using cached results (%d vulnerabilities)\n\n", len(cached))
 			}
@@ -288,6 +296,10 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 	vulns, err := aggregated.Match(ctx, allPackages)
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("vulnerability matching error: %v", err))
+	}
+
+	if len(vulns) > 0 {
+		s.enrichDependencyCVSS(ctx, vulns)
 	}
 
 	// Enrich with the CISA Known Exploited Vulnerabilities catalog. This is
@@ -313,7 +325,7 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 
 	// Store in cache
 	if s.cache != nil && len(vulns) > 0 {
-		if cacheErr := s.cache.Put("aggregated", allPackages, vulns); cacheErr != nil && s.opts.Verbose {
+		if cacheErr := s.cache.Put(dependencyCacheSource, allPackages, vulns); cacheErr != nil && s.opts.Verbose {
 			fmt.Fprintf(os.Stderr, "   Cache write warning: %v\n", cacheErr)
 		}
 	}
@@ -323,6 +335,31 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 	}
 
 	return vulns, allPackages, errs
+}
+
+func (s *Scanner) enrichDependencyCVSS(ctx context.Context, vulns []models.Vulnerability) matcher.NVDEnrichmentResult {
+	nvd := matcher.NewNVDMatcher(s.cfg.NVDKey)
+	result, err := nvd.EnrichCVSSByCVE(ctx, vulns)
+	if err != nil {
+		if s.opts.Verbose {
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment skipped: %v\n", err)
+		}
+		return result
+	}
+	if s.opts.Verbose {
+		switch {
+		case result.Enriched > 0:
+			if result.Batches > 1 {
+				fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: filled %d finding(s) across %d batch request(s)\n",
+					result.Enriched, result.Batches)
+			} else {
+				fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: filled %d finding(s)\n", result.Enriched)
+			}
+		case result.Requested > 0:
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found\n")
+		}
+	}
+	return result
 }
 
 func (s *Scanner) dependencyMatchers() []matcher.Matcher {
@@ -339,7 +376,7 @@ func (s *Scanner) dependencyMatchers() []matcher.Matcher {
 	if s.cfg.NVDKey != "" {
 		matchers = append(matchers, matcher.NewNVDMatcher(s.cfg.NVDKey))
 	} else if s.opts.Verbose {
-		fmt.Fprintf(os.Stderr, "   Skipping NVD (no API key configured)\n")
+		fmt.Fprintf(os.Stderr, "   Skipping NVD package search (no API key configured; exact CVE CVSS enrichment remains best-effort)\n")
 	}
 
 	if s.cfg.GitHubToken != "" {

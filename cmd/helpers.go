@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/config"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
 )
@@ -41,4 +44,32 @@ func filterVulnsBySeverity(vulns []models.Vulnerability, min models.Severity) []
 		}
 	}
 	return filtered
+}
+
+func enrichDependencyCVSS(ctx context.Context, cfg *config.Config, vulns []models.Vulnerability, verbose bool) {
+	if len(vulns) == 0 {
+		return
+	}
+	nvd := matcher.NewNVDMatcher(cfg.NVDKey)
+	result, err := nvd.EnrichCVSSByCVE(ctx, vulns)
+	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment skipped: %v\n", err)
+		}
+		return
+	}
+	if !verbose {
+		return
+	}
+	switch {
+	case result.Enriched > 0:
+		if result.Batches > 1 {
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: filled %d finding(s) across %d batch request(s)\n",
+				result.Enriched, result.Batches)
+		} else {
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: filled %d finding(s)\n", result.Enriched)
+		}
+	case result.Requested > 0:
+		fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found\n")
+	}
 }

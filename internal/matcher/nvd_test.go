@@ -127,3 +127,208 @@ func TestNVDMatcher_Match_LimitsTo20(t *testing.T) {
 	cancel() // immediately cancel so no real HTTP calls happen
 	_, _ = m.Match(ctx, pkgs)
 }
+
+func TestNVDMatcher_EnrichCVSSByCVE_FillsOSVGoAdvisoryScore(t *testing.T) {
+	resp := nvdResponse{
+		Vulnerabilities: []nvdVulnWrapper{
+			{
+				CVE: nvdCVE{
+					ID:        "CVE-2025-47911",
+					Published: "2026-02-05T00:00:00.000",
+					Descriptions: []nvdDescription{
+						{Lang: "en", Value: "golang.org/x/net/html quadratic parsing complexity"},
+					},
+					Metrics: nvdMetrics{
+						CvssMetricV31: []nvdCvssMetric{
+							{
+								CvssData: nvdCvssData{
+									BaseScore:    5.3,
+									BaseSeverity: "MEDIUM",
+								},
+							},
+						},
+					},
+					References: []nvdReference{
+						{URL: "https://nvd.nist.gov/vuln/detail/CVE-2025-47911"},
+					},
+				},
+			},
+		},
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("cveIds"); got != "CVE-2025-47911" {
+			t.Errorf("cveIds query = %q, want CVE-2025-47911", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	m := &NVDMatcher{
+		client:         ts.Client(),
+		baseURL:        ts.URL,
+		rateLimitDelay: 0,
+	}
+
+	vulns := []models.Vulnerability{
+		{
+			ID:       "CVE-2025-47911",
+			Aliases:  []string{"GO-2026-4440"},
+			Severity: models.SeverityUnknown,
+			Package: models.Package{
+				Name:      "golang.org/x/net",
+				Version:   "v0.34.0",
+				Ecosystem: models.EcosystemGo,
+			},
+			Source: models.SourceOSV,
+		},
+	}
+
+	result, err := m.EnrichCVSSByCVE(context.Background(), vulns)
+	if err != nil {
+		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
+	}
+	if result.Enriched != 1 {
+		t.Fatalf("enriched = %d, want 1", result.Enriched)
+	}
+	if vulns[0].Score != 5.3 {
+		t.Errorf("score = %v, want 5.3", vulns[0].Score)
+	}
+	if vulns[0].Severity != models.SeverityMedium {
+		t.Errorf("severity = %q, want MEDIUM", vulns[0].Severity)
+	}
+	if vulns[0].Source != models.SourceOSV {
+		t.Errorf("source = %q, want OSV to remain the owning match source", vulns[0].Source)
+	}
+	if len(vulns[0].References) != 1 {
+		t.Errorf("references = %v, want NVD reference merged", vulns[0].References)
+	}
+}
+
+func TestNVDMatcher_EnrichCVSSByCVE_UsesCVEAlias(t *testing.T) {
+	resp := nvdResponse{
+		Vulnerabilities: []nvdVulnWrapper{
+			{
+				CVE: nvdCVE{
+					ID: "CVE-2026-0001",
+					Metrics: nvdMetrics{
+						CvssMetricV31: []nvdCvssMetric{
+							{CvssData: nvdCvssData{BaseScore: 7.1, BaseSeverity: "HIGH"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	m := &NVDMatcher{client: ts.Client(), baseURL: ts.URL, rateLimitDelay: 0}
+	vulns := []models.Vulnerability{{
+		ID:       "GO-2026-0001",
+		Aliases:  []string{"CVE-2026-0001"},
+		Severity: models.SeverityUnknown,
+		Source:   models.SourceOSV,
+	}}
+
+	result, err := m.EnrichCVSSByCVE(context.Background(), vulns)
+	if err != nil {
+		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
+	}
+	if result.Enriched != 1 {
+		t.Fatalf("enriched = %d, want 1", result.Enriched)
+	}
+	if vulns[0].Score != 7.1 {
+		t.Errorf("score = %v, want 7.1", vulns[0].Score)
+	}
+	if vulns[0].Severity != models.SeverityHigh {
+		t.Errorf("severity = %q, want HIGH", vulns[0].Severity)
+	}
+}
+
+func TestNVDMatcher_EnrichCVSSByCVE_SkipsCompleteFindings(t *testing.T) {
+	called := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	m := &NVDMatcher{client: ts.Client(), baseURL: ts.URL, rateLimitDelay: 0}
+	vulns := []models.Vulnerability{{
+		ID:       "CVE-2026-0002",
+		Severity: models.SeverityHigh,
+		Score:    8.2,
+		Source:   models.SourceOSV,
+	}}
+
+	result, err := m.EnrichCVSSByCVE(context.Background(), vulns)
+	if err != nil {
+		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
+	}
+	if result.Requested != 0 || result.Enriched != 0 {
+		t.Fatalf("result = %+v, want no enrichment work", result)
+	}
+	if called {
+		t.Fatal("NVD server was called for a finding that already had score and severity")
+	}
+}
+
+func TestNVDMatcher_EnrichCVSSByCVE_BatchesUpTo100IDs(t *testing.T) {
+	var calls int
+	var batchSizes []int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		ids := strings.Split(r.URL.Query().Get("cveIds"), ",")
+		batchSizes = append(batchSizes, len(ids))
+
+		resp := nvdResponse{}
+		for _, id := range ids {
+			resp.Vulnerabilities = append(resp.Vulnerabilities, nvdVulnWrapper{
+				CVE: nvdCVE{
+					ID: id,
+					Metrics: nvdMetrics{
+						CvssMetricV31: []nvdCvssMetric{
+							{CvssData: nvdCvssData{BaseScore: 5.3, BaseSeverity: "MEDIUM"}},
+						},
+					},
+				},
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	m := &NVDMatcher{client: ts.Client(), baseURL: ts.URL, rateLimitDelay: 0}
+	vulns := make([]models.Vulnerability, 101)
+	for i := range vulns {
+		vulns[i] = models.Vulnerability{
+			ID:       fmt.Sprintf("CVE-2026-%04d", i+1),
+			Severity: models.SeverityUnknown,
+			Source:   models.SourceOSV,
+		}
+	}
+
+	result, err := m.EnrichCVSSByCVE(context.Background(), vulns)
+	if err != nil {
+		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("NVD calls = %d, want 2 batched calls", calls)
+	}
+	if len(batchSizes) != 2 || batchSizes[0] != 100 || batchSizes[1] != 1 {
+		t.Fatalf("batch sizes = %v, want [100 1]", batchSizes)
+	}
+	if result.Requested != 101 || result.Batches != 2 || result.Enriched != 101 {
+		t.Fatalf("result = %+v, want requested=101 batches=2 enriched=101", result)
+	}
+	if vulns[100].Score != 5.3 || vulns[100].Severity != models.SeverityMedium {
+		t.Fatalf("last vuln = score %v severity %q, want 5.3 MEDIUM", vulns[100].Score, vulns[100].Severity)
+	}
+}
