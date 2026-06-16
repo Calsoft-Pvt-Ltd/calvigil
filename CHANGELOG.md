@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [5.1.0] — 2026-06-16
 
 ### Added
 - **`calvigil push`**: Upload an existing JSON scan report to Calvigil Enterprise.
@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `--evaluate-only` checks policy without storing the scan.
 - Enterprise config keys: `enterprise-url`, `enterprise-key`; env vars:
   `CALVIGIL_ENTERPRISE_URL`, `CALVIGIL_API_KEY`, and `CALVIGIL_ENTERPRISE_API_KEY`.
+- Implemented CVSS enrichment for vulnerabilities using NVD API.
 
 ---
 
