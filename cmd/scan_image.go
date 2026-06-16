@@ -85,6 +85,7 @@ func runScanImage(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	enrichDependencyCVSS(cmd.Context(), cfg, result.Vulnerabilities, verbose)
 
 	// Filter by severity (shared helper keeps validation consistent across commands)
 	if imageOpts.severity != "" {

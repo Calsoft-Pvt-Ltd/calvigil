@@ -155,15 +155,16 @@ fixtures.
 | ID | Source | Steps | Expected result |
 |:---|:-------|:------|:----------------|
 | OSS-SRC-001 | OSV | Run a dependency scan with no optional credentials. | OSV queries execute because no credential is required. |
-| OSS-SRC-002 | NVD skipped | Unset `NVD_API_KEY` and config `nvd-key`; run verbose scan. | Log states NVD is skipped due to missing API key. |
-| OSS-SRC-003 | NVD configured | Set `NVD_API_KEY` or `nvd-key`; run verbose scan. | NVD matcher is attempted; rate-limit errors are handled gracefully. |
+| OSS-SRC-002 | NVD package search skipped | Unset `NVD_API_KEY` and config `nvd-key`; run verbose scan. | Log states NVD package search is skipped, while exact CVE CVSS enrichment remains best-effort. |
+| OSS-SRC-003 | NVD configured | Set `NVD_API_KEY` or `nvd-key`; run verbose scan. | NVD package search is attempted; rate-limit errors are handled gracefully. |
 | OSS-SRC-004 | GitHub Advisory skipped | Unset `GITHUB_TOKEN`; run verbose scan. | Log states GitHub Advisory is skipped. |
 | OSS-SRC-005 | GitHub Advisory configured | Set `GITHUB_TOKEN`; run scan. | GitHub Advisory data is decoded without type errors. |
 | OSS-SRC-006 | OSS Index skipped | Unset `OSSINDEX_USER` and `OSSINDEX_TOKEN`; run verbose scan. | Log states OSS Index is skipped. |
 | OSS-SRC-007 | OSS Index configured | Set Sonatype credentials; run scan. | 401 responses produce an actionable credential error; valid credentials query successfully. |
 | OSS-SRC-008 | Canonical merge | Scan a fixture with overlapping CVE/GHSA results from multiple sources. | Duplicate records merge into one canonical vulnerability with aliases. |
 | OSS-SRC-009 | Severity fallback | Inspect JSON for findings with score/vector data. | Severity is normalized to CRITICAL/HIGH/MEDIUM/LOW where possible. |
-| OSS-SRC-010 | CISA KEV enrichment | Scan data containing a known exploited CVE, or use a controlled fixture. | Finding has `known_exploited` set and is visible in table/HTML output. |
+| OSS-SRC-010 | NVD CVE batch enrichment | Scan a project that reports OSV CVE findings with missing scores, for example vulnerable Go modules. | Verbose output reports `NVD CVSS enrichment`; JSON findings have NVD-filled `score` and severity while preserving the original match source. |
+| OSS-SRC-011 | CISA KEV enrichment | Scan data containing a known exploited CVE, or use a controlled fixture. | Finding has `known_exploited` set and is visible in table/HTML output. |
 
 ## AI Code Analysis
 

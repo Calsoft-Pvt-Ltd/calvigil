@@ -26,6 +26,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 - **Canonical Data Model** — every source is normalized into one consistent shape:
   - CVE IDs preferred as the primary identifier (GHSA and ecosystem IDs become aliases)
   - Duplicate findings across databases are **merged**, not dropped — missing severity, CVSS score, or fix version is filled in from whichever source has it
+  - NVD exact-CVE enrichment uses batched `cveIds` lookups to fill missing CVSS scores on already-matched findings, including OSV Go advisories that alias CVEs
   - Severity fallback chain (CVSS v3 → v4 → v2 vector → numeric score → source label) eliminates most `UNKNOWN` severities
 
 - **AI-Powered Code Analysis** — uses OpenAI GPT-4, local Ollama, or LM Studio models to detect OWASP Top 10 vulnerabilities:

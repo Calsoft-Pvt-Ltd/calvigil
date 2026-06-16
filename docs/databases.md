@@ -25,7 +25,7 @@ How calvigil queries, normalizes, and merges vulnerability data from multiple so
 |:---------|:---------:|:-----|:-----------|:-----|
 | **[OSV.dev](https://osv.dev)** | ✅ | None | Unlimited | Primary — batch queries, covers all ecosystems |
 | **[Sonatype OSS Index](https://ossindex.sonatype.org/)** | ❌ | Basic auth with existing/migrated token | 128 coords/request | Optional — PURL-based, all ecosystems |
-| **[NVD](https://nvd.nist.gov/)** | ❌ | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — CVSS enrichment |
+| **[NVD](https://nvd.nist.gov/)** | ❌ | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Optional keyword search; best-effort batched CVSS enrichment |
 | **[GitHub Advisory](https://github.com/advisories)** | ❌ | Optional PAT | 60/hr (no token), 5000/hr (with token) | Supplementary — GHSA cross-references |
 | **[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** | ✅ | None | Unlimited | Enrichment — flags actively exploited CVEs |
 
@@ -129,7 +129,8 @@ KEV enrichment is designed to never degrade scan results:
 ### NVD (National Vulnerability Database)
 
 - **API:** `GET https://services.nvd.nist.gov/rest/json/cves/2.0`
-- **Matching:** By keyword (package name + version)
+- **Package matching:** By keyword (package name + version), capped to keep scans responsive
+- **CVSS enrichment:** Exact CVE lookup uses the `cveIds` batch parameter with up to 100 CVE IDs per request. This fills missing `score` and `severity` on findings that OSV/other sources already matched, without creating new findings.
 - **Rate limiting:** 5 requests/30s without key, 50 requests/30s with key
 - **API key:** Free — register at [nvd.nist.gov/developers](https://nvd.nist.gov/developers/request-an-api-key)
 
@@ -178,7 +179,7 @@ calvigil scan -v .
 🔎 Querying vulnerability databases...
    [OSV] Found 3 vulnerabilities
    [OSS-INDEX] Found 2 vulnerabilities
-   Skipping NVD (no API key configured)
+   Skipping NVD package search (no API key configured; exact CVE CVSS enrichment remains best-effort)
    Skipping GitHub Advisory (no token configured)
    Normalized and merged: 4 unique vulnerabilities (1 merged from multiple sources)
    [KEV] 1 vulnerability is known exploited

@@ -152,11 +152,11 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 |----------|-------------|------|------------|------|
 | **OSV.dev** | `POST /v1/querybatch` | None | Unrestricted | Primary — batch queries, no API key needed |
 | **Sonatype OSS Index** | `POST /api/v3/component-report` | Existing/migrated token | 128 coords/request | Optional — PURL-based, all ecosystems |
-| **NVD** | `GET /rest/json/cves/2.0` | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — CVSS enrichment |
+| **NVD** | `GET /rest/json/cves/2.0` | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — keyword search plus batched exact-CVE CVSS enrichment |
 | **GitHub Advisory** | `GET /advisories` | Optional PAT | Standard GitHub limits | Supplementary — GHSA cross-references |
 | **CISA KEV** | `GET known_exploited_vulnerabilities.json` | None | Unrestricted | Enrichment — flags actively exploited CVEs (`KnownExploited`) |
 
-All matcher results pass through the **Canonical Data Model** (`internal/matcher/canonical.go`): IDs are normalized (CVE preferred, GHSA/ecosystem IDs become aliases), severity is derived from CVSS vectors/scores when a source omits it, and duplicate findings across databases are merged by ID or alias — missing fields are filled in from whichever source provides them.
+All matcher results pass through the **Canonical Data Model** (`internal/matcher/canonical.go`): IDs are normalized (CVE preferred, GHSA/ecosystem IDs become aliases), severity is derived from CVSS vectors/scores when a source omits it, and duplicate findings across databases are merged by ID or alias — missing fields are filled in from whichever source provides them. After matching, findings with CVE IDs but missing CVSS data are enriched from NVD using batched `cveIds` requests of up to 100 IDs each.
 
 ### 5.2 AI Providers
 

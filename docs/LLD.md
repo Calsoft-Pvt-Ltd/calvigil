@@ -797,29 +797,34 @@ affected.ranges.events.fixed → Vulnerability.FixedIn
 
 ```go
 type NVDMatcher struct {
-    client *http.Client
-    apiKey string
+    client         *http.Client
+    apiKey         string
+    baseURL        string
+    rateLimitDelay time.Duration
 }
 
 func NewNVDMatcher(apiKey string) *NVDMatcher
+func (m *NVDMatcher) EnrichCVSSByCVE(ctx context.Context, vulns []models.Vulnerability) (NVDEnrichmentResult, error)
 ```
 
 **API:**
 | Method | Endpoint |
 |--------|---------|
 | Search | `GET https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=<pkg>&resultsPerPage=10` |
+| Exact CVE enrichment | `GET https://services.nvd.nist.gov/rest/json/cves/2.0?cveIds=<CVE-1>,<CVE-2>,...` |
 
 **Rate Limiting:**
 - Without API key: 5 requests per 30 seconds (6-second delay between requests)
-- With API key: 50 requests per 30 seconds (0.6-second delay)
-- **Max 20 queries per scan** (hard cap to prevent long scans)
+- With API key: 50 requests per 30 seconds (~650 ms delay between requests)
+- Package keyword search is capped at 20 unique package names per scan to prevent long scans
+- Exact CVE CVSS enrichment is chunked into batches of up to 100 CVE IDs per request
 
 **Algorithm:**
-1. For each package (up to 20): send keyword search to NVD
-2. Apply rate limiting delay between requests
-3. Parse CVSSv3.1 metrics: `baseScore` and `baseSeverity`
-4. Filter results: only include CVEs where package name appears in description
-5. Map to `Vulnerability` with `Source: SourceNVD`
+1. For package search, send keyword queries for up to 20 unique package names and map returned CVEs with `Source: SourceNVD`.
+2. After source aggregation, collect CVE IDs from findings that have missing `score` or `UNKNOWN`/empty severity.
+3. Query NVD by batched `cveIds` chunks of up to 100 IDs.
+4. Parse CVSS metrics in priority order: v3.1, v3.0, v4.0, then v2.
+5. Fill only missing fields (`score`, `severity`, summary, published date, references) on already-matched findings; do not create new findings or overwrite the original match source.
 
 ### 7.3 GitHubAdvisoryMatcher (`ghsa.go`)
 

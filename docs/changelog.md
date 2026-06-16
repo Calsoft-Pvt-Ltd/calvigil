@@ -23,6 +23,10 @@ All notable changes to calvigil are documented here.
   - `--evaluate-only` checks policy without storing the scan.
 - Enterprise config keys: `enterprise-url`, `enterprise-key`; env vars:
   `CALVIGIL_ENTERPRISE_URL`, `CALVIGIL_API_KEY`, and `CALVIGIL_ENTERPRISE_API_KEY`.
+- NVD CVSS enrichment for already-matched CVEs:
+  - Uses the NVD `cveIds` batch parameter with up to 100 IDs per request.
+  - Fills missing `score` and `severity` on OSV/other-source findings while preserving the original match source.
+  - Fixes Go advisory cases where an OSV `GO-*` record aliases a CVE but does not include CVSS data.
 
 ---
 
