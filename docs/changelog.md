@@ -12,7 +12,7 @@ All notable changes to calvigil are documented here.
 
 ---
 
-## [Unreleased]
+## [5.1.0] — 2026-06-16
 
 ### Added
 
