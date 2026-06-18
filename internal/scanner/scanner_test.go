@@ -3,6 +3,7 @@ package scanner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,10 +11,20 @@ import (
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/config"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/detector"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/license"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
 )
+
+func init() {
+	license.SetResolverForTesting(func(_ context.Context, pkg models.Package) string {
+		if pkg.License != "" {
+			return pkg.License
+		}
+		return "Apache-2.0"
+	})
+}
 
 func TestFilterBySeverity_Critical(t *testing.T) {
 	vulns := makeVulns()
@@ -813,6 +824,19 @@ require golang.org/x/text v0.14.0
 	}
 	if !strings.Contains(string(data), "project_path") {
 		t.Error("expected JSON report")
+	}
+	var result models.ScanResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if len(result.Packages) != 1 {
+		t.Fatalf("packages = %d, want 1", len(result.Packages))
+	}
+	if result.Packages[0].License != "Apache-2.0" {
+		t.Fatalf("package license = %q, want Apache-2.0", result.Packages[0].License)
+	}
+	if len(result.LicenseIssues) != 0 {
+		t.Fatalf("license issues should require --check-licenses, got %d", len(result.LicenseIssues))
 	}
 }
 

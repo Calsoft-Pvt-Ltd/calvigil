@@ -19,6 +19,7 @@ var scanCmd = &cobra.Command{
 
 This command performs two types of analysis:
   - Dependency scanning: checks your lock files against CVE databases (OSV, NVD, GitHub Advisory)
+  - Package inventory enrichment: resolves missing dependency licenses from package registries
   - AI code analysis: uses OpenAI GPT-4 or a local Ollama model to detect OWASP Top 10 patterns
 
 Use --provider to choose the AI backend: openai, ollama, lmstudio, or auto (default).

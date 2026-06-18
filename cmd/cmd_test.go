@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,9 +11,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/license"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
 )
+
+func init() {
+	license.SetResolverForTesting(func(_ context.Context, pkg models.Package) string {
+		if pkg.License != "" {
+			return pkg.License
+		}
+		return "Apache-2.0"
+	})
+}
 
 func TestWriteReport_Stdout(t *testing.T) {
 	rep := reporter.ForFormat("json")
@@ -333,6 +345,19 @@ func TestRunScanLicense_WithGoMod(t *testing.T) {
 	data, _ := os.ReadFile(outFile)
 	if !strings.Contains(string(data), "project_path") {
 		t.Error("expected JSON report")
+	}
+	var result models.ScanResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if len(result.Packages) != 1 {
+		t.Fatalf("packages = %d, want 1", len(result.Packages))
+	}
+	if result.Packages[0].PURL == "" {
+		t.Fatal("expected scan-license JSON package to include PURL")
+	}
+	if result.Packages[0].License != "Apache-2.0" {
+		t.Fatalf("package license = %q, want Apache-2.0", result.Packages[0].License)
 	}
 }
 

@@ -150,6 +150,10 @@ func runScanLicense(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	for i := range allPackages {
+		allPackages[i].EnsurePURL()
+	}
+
 	// Step 3: Resolve licenses from package registries
 	if verbose {
 		fmt.Fprintf(os.Stderr, "Resolving licenses from package registries...\n")

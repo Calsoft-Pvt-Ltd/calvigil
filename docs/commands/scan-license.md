@@ -55,6 +55,8 @@ calvigil classifies every dependency license into one of three categories:
 3. **SPDX classification** — Maps license strings to SPDX identifiers
 4. **Risk categorization** — Groups into permissive/copyleft/unknown
 
+Regular `calvigil scan --format json` also performs best-effort package license enrichment before reporting. `scan-license` is the focused workflow for license-only reports and compliance issue review.
+
 ---
 
 ## Examples

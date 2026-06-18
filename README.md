@@ -48,6 +48,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Detect and classify licenses from package metadata (SPDX identifiers)
   - **Standalone `scan-license` command** — lightweight, no API keys or vuln DBs required
   - **License resolver** queries deps.dev, PyPI, npm, and RubyGems registries for missing license data
+  - Regular JSON scans enrich package inventory licenses before reporting or Enterprise push
   - **SPDX compound expression support**: handles `OR` (most permissive), `AND` (most restrictive), and `WITH` (exception) clauses
   - Comprehensive SPDX license database (~480 permissive + ~130 copyleft identifiers)
   - Flags copyleft licenses (GPL, AGPL, LGPL, MPL) that may require source disclosure
@@ -529,7 +530,7 @@ Push Flags:
 ```
 
 1. **Detect**: Walks the project directory to find dependency manifest files (go.mod, pom.xml, package-lock.json, Cargo.lock, Gemfile.lock, composer.lock, conan.lock, etc.)
-2. **Parse & PURL**: Extracts package names and versions, classifies direct vs transitive dependencies, generates Package URLs (PURLs) per the [PURL spec](https://github.com/package-url/purl-spec)
+2. **Parse, PURL & License**: Extracts package names and versions, classifies direct vs transitive dependencies, generates Package URLs (PURLs), and best-effort enriches missing package licenses
 3. **Match**: Queries OSV, NVD, and GitHub Advisory databases for known CVEs
 4. **Analyze**: Runs regex pattern matching + AI analysis (OpenAI or Ollama) on source code
 5. **Semgrep SAST**: Runs Semgrep CE with bundled or custom rule packs for static analysis

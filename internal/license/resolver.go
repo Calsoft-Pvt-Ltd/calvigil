@@ -18,6 +18,23 @@ var httpClient = &http.Client{
 	Timeout: 10 * time.Second,
 }
 
+var resolveOneFunc = resolveOne
+
+// SetResolverForTesting replaces the per-package resolver and returns a restore
+// function. It keeps command/scanner tests hermetic without changing production
+// behavior.
+func SetResolverForTesting(fn func(context.Context, models.Package) string) func() {
+	previous := resolveOneFunc
+	if fn == nil {
+		resolveOneFunc = resolveOne
+	} else {
+		resolveOneFunc = fn
+	}
+	return func() {
+		resolveOneFunc = previous
+	}
+}
+
 // ResolvePackages enriches packages that are missing license information
 // by querying the appropriate package registry for each ecosystem.
 // It modifies the packages slice in place.
@@ -52,7 +69,7 @@ func ResolvePackages(ctx context.Context, packages []models.Package, verbose boo
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			lic := resolveOne(ctx, packages[i])
+			lic := resolveOneFunc(ctx, packages[i])
 			if lic != "" {
 				mu.Lock()
 				packages[i].License = lic
@@ -63,6 +80,10 @@ func ResolvePackages(ctx context.Context, packages []models.Package, verbose boo
 	}
 
 	wg.Wait()
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "   Resolved %d/%d missing package licenses\n", resolved, len(missing))
+	}
 }
 
 // resolveOne queries the appropriate registry for a single package's license.
@@ -85,11 +106,8 @@ func resolveOne(ctx context.Context, pkg models.Package) string {
 	}
 }
 
-// resolveGo queries the Go module proxy for license information.
-// The Go proxy doesn't directly expose license data, so we use the
-// pkg.go.dev license API.
+// resolveGo queries deps.dev for Go module license information.
 func resolveGo(ctx context.Context, name, version string) string {
-	// pkg.go.dev exposes license info via its frontend API
 	url := fmt.Sprintf("https://api.deps.dev/v3alpha/systems/go/packages/%s/versions/%s",
 		urlPathEscape(name), urlPathEscape(version))
 

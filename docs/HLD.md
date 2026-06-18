@@ -170,12 +170,12 @@ All matcher results pass through the **Canonical Data Model** (`internal/matcher
 
 | Registry | API Endpoint | Ecosystems |
 |----------|-------------|------------|
-| **deps.dev** | `GET /v3alpha/systems/{go,maven,cargo}/packages/{name}` | Go, Maven, Rust |
+| **deps.dev** | `GET /v3alpha/systems/{go,maven,cargo}/packages/{name}` and version endpoints | Go, Maven, Rust |
 | **PyPI** | `GET /pypi/{name}/json` | Python |
 | **npm** | `GET /{name}/{version}` | Node.js |
 | **RubyGems** | `GET /api/v1/gems/{name}.json` | Ruby |
 
-License resolution runs in parallel (bounded at 10 goroutines) and enriches packages missing license metadata from lockfiles.
+License resolution runs in parallel (bounded at 10 goroutines) and enriches packages missing license metadata from lockfiles. Regular scan JSON uses this best-effort enrichment for package inventory data; `--check-licenses` and `scan-license` additionally classify licenses and emit compliance issues.
 
 ### 5.4 External Tools
 

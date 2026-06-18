@@ -97,6 +97,9 @@ func (s *Scanner) Run(ctx context.Context) error {
 	if !s.opts.SkipDeps {
 		depVulns, allPackages, errs := s.scanDependencies(ctx, files)
 		result.TotalPackages = len(allPackages)
+		if len(allPackages) > 0 {
+			license.ResolvePackages(ctx, allPackages, s.opts.Verbose)
+		}
 		result.Packages = allPackages
 		allVulns = append(allVulns, depVulns...)
 		result.Errors = append(result.Errors, errs...)
@@ -106,9 +109,6 @@ func (s *Scanner) Run(ctx context.Context) error {
 			if s.opts.Verbose {
 				fmt.Fprintf(os.Stderr, "Checking license compliance...\n")
 			}
-			// Resolve licenses from package registries for packages missing license info
-			license.ResolvePackages(ctx, allPackages, s.opts.Verbose)
-			result.Packages = allPackages // update with resolved licenses
 
 			issues := license.CheckPackages(allPackages)
 			result.LicenseIssues = issues

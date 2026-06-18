@@ -338,6 +338,8 @@ calvigil scan-image <image> [flags]
 
 Scan project dependencies for license compliance. No API keys or vulnerability databases required.
 
+Regular `calvigil scan --format json` reports now also perform best-effort license enrichment for package inventory data, so downstream SBOM and Enterprise inventory views receive declared licenses when registries provide them. Use `--check-licenses` or this standalone command when you also want compliance issues for copyleft and unknown licenses.
+
 This command:
 1. Detects project ecosystems and parses dependency manifests
 2. Resolves missing license information from package registries (deps.dev, PyPI, npm, RubyGems)

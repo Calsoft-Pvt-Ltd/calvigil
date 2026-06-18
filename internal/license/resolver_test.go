@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -434,6 +435,43 @@ func TestResolveGo_Mock(t *testing.T) {
 			t.Errorf("resolveGo = %q, want BSD-3-Clause", lic)
 		}
 	})
+}
+
+func TestResolvePackages_GoReportedModules(t *testing.T) {
+	seen := map[string]bool{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		escapedPath := r.URL.EscapedPath()
+		switch {
+		case strings.Contains(escapedPath, "github.com%2Fmodern-go%2Freflect2"):
+			seen["reflect2"] = true
+		case strings.Contains(escapedPath, "gopkg.in%2Fini.v1"):
+			seen["ini"] = true
+		default:
+			t.Fatalf("unexpected deps.dev path: %s", escapedPath)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"licenses": []string{"Apache-2.0"},
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		packages := []models.Package{
+			{Name: "github.com/modern-go/reflect2", Version: "v1.0.2", Ecosystem: models.EcosystemGo},
+			{Name: "gopkg.in/ini.v1", Version: "v1.67.0", Ecosystem: models.EcosystemGo},
+		}
+		ResolvePackages(context.Background(), packages, false)
+		for _, pkg := range packages {
+			if pkg.License != "Apache-2.0" {
+				t.Fatalf("%s license = %q, want Apache-2.0", pkg.Name, pkg.License)
+			}
+		}
+	})
+
+	if !seen["reflect2"] || !seen["ini"] {
+		t.Fatalf("expected both reported Go module paths to be queried, seen=%v", seen)
+	}
 }
 
 func TestResolveMaven_Mock(t *testing.T) {
