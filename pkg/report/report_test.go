@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -76,6 +77,64 @@ func TestHelpers(t *testing.T) {
 	}
 	if got := ScoreToSeverity(9.5); got != SeverityCritical {
 		t.Errorf("ScoreToSeverity(9.5) = %q, want CRITICAL", got)
+	}
+}
+
+func TestDecodeScanResultRejectsExportArtifacts(t *testing.T) {
+	openVEX := []byte(`{
+	  "@context": "https://openvex.dev/ns/v0.2.0",
+	  "@id": "https://calvigil/vex/test",
+	  "author": "calvigil",
+	  "timestamp": "2026-06-18T10:00:00Z",
+	  "version": 1,
+	  "statements": []
+	}`)
+	if _, err := DecodeScanResult(openVEX); err == nil {
+		t.Fatal("expected OpenVEX export to be rejected")
+	} else if !errors.Is(err, ErrInvalidScanReport) || !strings.Contains(err.Error(), "OpenVEX") {
+		t.Fatalf("unexpected OpenVEX error: %v", err)
+	}
+
+	cycloneDX := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.5","components":[]}`)
+	if _, err := DecodeScanResult(cycloneDX); err == nil {
+		t.Fatal("expected CycloneDX export to be rejected")
+	} else if !strings.Contains(err.Error(), "CycloneDX") {
+		t.Fatalf("unexpected CycloneDX error: %v", err)
+	}
+}
+
+func TestDecodeScanResultRejectsEmptyReportShape(t *testing.T) {
+	empty := []byte(`{
+	  "project_path": "/tmp/empty",
+	  "ecosystems": [],
+	  "total_packages": 0,
+	  "vulnerabilities": [],
+	  "scanned_at": "2026-06-18T10:00:00Z",
+	  "duration": 1
+	}`)
+	if _, err := DecodeScanResult(empty); err == nil {
+		t.Fatal("expected empty report to be rejected")
+	} else if !errors.Is(err, ErrInvalidScanReport) || !strings.Contains(err.Error(), "no packages") {
+		t.Fatalf("unexpected empty report error: %v", err)
+	}
+}
+
+func TestDecodeScanResultAcceptsCleanPackageInventory(t *testing.T) {
+	raw := []byte(`{
+	  "project_path": "/tmp/clean",
+	  "ecosystems": ["npm"],
+	  "total_packages": 1,
+	  "packages": [{"name":"react","version":"19.0.0","ecosystem":"npm","file_path":"package-lock.json","purl":"pkg:npm/react@19.0.0","indirect":false}],
+	  "vulnerabilities": [],
+	  "scanned_at": "2026-06-18T10:00:00Z",
+	  "duration": 1
+	}`)
+	got, err := DecodeScanResult(raw)
+	if err != nil {
+		t.Fatalf("DecodeScanResult clean inventory: %v", err)
+	}
+	if got.ProjectPath != "/tmp/clean" || got.TotalPackages != 1 || len(got.Packages) != 1 {
+		t.Fatalf("decoded report mismatch: %+v", got)
 	}
 }
 

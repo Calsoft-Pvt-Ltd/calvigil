@@ -183,8 +183,7 @@ func readPushReport(path string) ([]byte, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("report %q is empty", path)
 	}
-	var decoded report.ScanResult
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	if _, err := report.DecodeScanResult(raw); err != nil {
 		return nil, fmt.Errorf("report %q is not valid Calvigil JSON: %w", path, err)
 	}
 	return raw, nil

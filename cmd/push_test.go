@@ -219,6 +219,46 @@ func TestReadPushReportRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestReadPushReportRejectsOpenVEXExport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "calvigil.openvex.json")
+	body := []byte(`{
+	  "@context": "https://openvex.dev/ns/v0.2.0",
+	  "@id": "https://calvigil/vex/test",
+	  "author": "calvigil",
+	  "timestamp": "2026-06-18T10:00:00Z",
+	  "version": 1,
+	  "statements": []
+	}`)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	_, err := readPushReport(path)
+	if err == nil {
+		t.Fatal("expected OpenVEX export rejection")
+	}
+	if !strings.Contains(err.Error(), "OpenVEX") || !strings.Contains(err.Error(), "--format json") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReadPushReportRejectsEmptyReport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty-calvigil.json")
+	body := []byte(`{
+	  "project_path": "/tmp/empty",
+	  "ecosystems": [],
+	  "total_packages": 0,
+	  "vulnerabilities": [],
+	  "scanned_at": "2026-06-18T10:00:00Z",
+	  "duration": 1
+	}`)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if _, err := readPushReport(path); err == nil {
+		t.Fatal("expected empty report rejection")
+	}
+}
+
 func resetPushOptionsForTest(t *testing.T) {
 	t.Helper()
 	pushOpts = pushOptions{Timeout: 30 * time.Second}

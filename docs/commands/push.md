@@ -27,6 +27,10 @@ calvigil scan . --skip-ai --format json --output calvigil.json
 calvigil push calvigil.json
 ```
 
+Only the canonical `--format json` scan report is accepted. Export artifacts
+such as OpenVEX, CycloneDX, SPDX, SARIF, HTML, or PDF are intentionally rejected
+so Enterprise cannot ingest empty or wrong-shaped scan data.
+
 ---
 
 ## Configuration

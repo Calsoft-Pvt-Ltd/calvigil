@@ -251,6 +251,9 @@ calvigil scan --format spdx --output sbom.spdx.json
 # Output as OpenVEX
 calvigil scan --format openvex --output vex.json
 
+# Note: calvigil push accepts only --format json reports.
+# OpenVEX/SBOM/SARIF/HTML/PDF files are export artifacts, not ingest payloads.
+
 # Executive-friendly HTML report
 calvigil scan --format html --output report.html
 
