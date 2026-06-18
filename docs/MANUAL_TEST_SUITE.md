@@ -163,8 +163,9 @@ fixtures.
 | OSS-SRC-007 | OSS Index configured | Set Sonatype credentials; run scan. | 401 responses produce an actionable credential error; valid credentials query successfully. |
 | OSS-SRC-008 | Canonical merge | Scan a fixture with overlapping CVE/GHSA results from multiple sources. | Duplicate records merge into one canonical vulnerability with aliases. |
 | OSS-SRC-009 | Severity fallback | Inspect JSON for findings with score/vector data. | Severity is normalized to CRITICAL/HIGH/MEDIUM/LOW where possible. |
-| OSS-SRC-010 | NVD CVE batch enrichment | Scan a project that reports OSV CVE findings with missing scores, for example vulnerable Go modules. | Verbose output reports `NVD CVSS enrichment`; JSON findings have NVD-filled `score` and severity while preserving the original match source. |
-| OSS-SRC-011 | CISA KEV enrichment | Scan data containing a known exploited CVE, or use a controlled fixture. | Finding has `known_exploited` set and is visible in table/HTML output. |
+| OSS-SRC-010 | OSV alias severity enrichment | Scan a Go project with a `GO-*` advisory that aliases a CVE with CVSS data, for example `CVE-2025-47911`. | JSON shows the canonical CVE with OSV as source and populated `score`/severity even if NVD is unavailable. |
+| OSS-SRC-011 | NVD CVE batch enrichment | Scan a project that reports OSV CVE findings with missing scores, for example vulnerable Go modules. | Verbose output reports `NVD CVSS enrichment`; JSON findings have NVD-filled `score` and severity while preserving the original match source. Slow NVD responses can wait up to 45s per request within a bounded 2-minute enrichment budget; output may include cache/retry/unavailable detail while keeping partial successes. |
+| OSS-SRC-012 | CISA KEV enrichment | Scan data containing a known exploited CVE, or use a controlled fixture. | Finding has `known_exploited` set and is visible in table/HTML output. |
 
 ## AI Code Analysis
 

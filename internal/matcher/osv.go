@@ -225,6 +225,7 @@ func (m *OSVMatcher) queryBatch(ctx context.Context, packages []models.Package) 
 			defer func() { <-sem }()
 			vuln, err := m.fetchVulnDetails(ctx, id)
 			if err == nil {
+				m.enrichVulnDetailsFromAliases(ctx, vuln)
 				mu.Lock()
 				detailCache[id] = vuln
 				mu.Unlock()
@@ -238,48 +239,47 @@ func (m *OSVMatcher) queryBatch(ctx context.Context, packages []models.Package) 
 	for _, vp := range toFetch {
 		fullVuln, ok := detailCache[vp.batchVuln.ID]
 		if !ok {
-			// Fall back to minimal data from batch response
-			vulns = append(vulns, models.Vulnerability{
-				ID:      vp.batchVuln.ID,
-				Aliases: vp.batchVuln.Aliases,
-				Summary: vp.batchVuln.Summary,
-				Package: vp.pkg,
-				Source:  models.SourceOSV,
-			})
+			// Fall back to whatever the batch response provided. The OSV
+			// batch endpoint is often ID-only, but when it includes severity
+			// or affected ranges we should not discard that usable signal.
+			vulns = append(vulns, osvVulnToVulnerability(vp.batchVuln, vp.pkg))
 			continue
 		}
 
-		vuln := models.Vulnerability{
-			ID:          fullVuln.ID,
-			Aliases:     fullVuln.Aliases,
-			Summary:     fullVuln.Summary,
-			Details:     fullVuln.Details,
-			Severity:    parseSeverityWithFallback(fullVuln),
-			Package:     vp.pkg,
-			Source:      models.SourceOSV,
-			PublishedAt: fullVuln.Published,
-		}
-
-		vuln.Score = extractCVSSScore(fullVuln.Severity)
-
-		for _, affected := range fullVuln.Affected {
-			for _, r := range affected.Ranges {
-				for _, event := range r.Events {
-					if event.Fixed != "" {
-						vuln.FixedIn = event.Fixed
-					}
-				}
-			}
-		}
-
-		for _, ref := range fullVuln.References {
-			vuln.References = append(vuln.References, ref.URL)
-		}
-
-		vulns = append(vulns, vuln)
+		vulns = append(vulns, osvVulnToVulnerability(*fullVuln, vp.pkg))
 	}
 
 	return vulns, nil
+}
+
+func osvVulnToVulnerability(v osvVuln, pkg models.Package) models.Vulnerability {
+	vuln := models.Vulnerability{
+		ID:          v.ID,
+		Aliases:     v.Aliases,
+		Summary:     v.Summary,
+		Details:     v.Details,
+		Severity:    parseSeverityWithFallback(&v),
+		Score:       extractCVSSScoreWithFallback(&v),
+		Package:     pkg,
+		Source:      models.SourceOSV,
+		PublishedAt: v.Published,
+	}
+
+	for _, affected := range v.Affected {
+		for _, r := range affected.Ranges {
+			for _, event := range r.Events {
+				if event.Fixed != "" {
+					vuln.FixedIn = event.Fixed
+				}
+			}
+		}
+	}
+
+	for _, ref := range v.References {
+		vuln.References = append(vuln.References, ref.URL)
+	}
+
+	return vuln
 }
 
 const osvVulnURL = "https://api.osv.dev/v1/vulns/"
@@ -309,6 +309,75 @@ func (m *OSVMatcher) fetchVulnDetails(ctx context.Context, id string) (*osvVuln,
 	}
 
 	return &vuln, nil
+}
+
+func (m *OSVMatcher) enrichVulnDetailsFromAliases(ctx context.Context, vuln *osvVuln) {
+	if vuln == nil {
+		return
+	}
+	if parseSeverityWithFallback(vuln) != models.SeverityUnknown && extractCVSSScoreWithFallback(vuln) > 0 {
+		return
+	}
+
+	for _, alias := range vuln.Aliases {
+		if !strings.HasPrefix(strings.ToUpper(alias), "CVE-") || strings.EqualFold(alias, vuln.ID) {
+			continue
+		}
+		aliasVuln, err := m.fetchVulnDetails(ctx, alias)
+		if err != nil {
+			continue
+		}
+		mergeOSVAliasDetails(vuln, aliasVuln)
+		if parseSeverityWithFallback(vuln) != models.SeverityUnknown && extractCVSSScoreWithFallback(vuln) > 0 {
+			return
+		}
+	}
+}
+
+func mergeOSVAliasDetails(dst, src *osvVuln) {
+	if dst == nil || src == nil {
+		return
+	}
+
+	if len(src.Severity) > 0 && (parseSeverityWithFallback(dst) == models.SeverityUnknown || extractCVSSScoreWithFallback(dst) == 0) {
+		seenSeverity := make(map[string]bool, len(dst.Severity))
+		for _, severity := range dst.Severity {
+			seenSeverity[severity.Type+"|"+severity.Score] = true
+		}
+		for _, severity := range src.Severity {
+			key := severity.Type + "|" + severity.Score
+			if seenSeverity[key] {
+				continue
+			}
+			dst.Severity = append(dst.Severity, severity)
+			seenSeverity[key] = true
+		}
+	}
+
+	seenAliases := make(map[string]bool, len(dst.Aliases)+2)
+	seenAliases[dst.ID] = true
+	for _, alias := range dst.Aliases {
+		seenAliases[alias] = true
+	}
+	for _, alias := range append([]string{src.ID}, src.Aliases...) {
+		if alias == "" || seenAliases[alias] {
+			continue
+		}
+		dst.Aliases = append(dst.Aliases, alias)
+		seenAliases[alias] = true
+	}
+
+	seenRefs := make(map[string]bool, len(dst.References))
+	for _, ref := range dst.References {
+		seenRefs[ref.URL] = true
+	}
+	for _, ref := range src.References {
+		if ref.URL == "" || seenRefs[ref.URL] {
+			continue
+		}
+		dst.References = append(dst.References, ref)
+		seenRefs[ref.URL] = true
+	}
 }
 
 // parseSeverity converts OSV severity entries to our Severity type.
@@ -374,6 +443,18 @@ func extractCVSSScore(severities []osvSeverity) float64 {
 	for _, s := range severities {
 		if s.Type == "CVSS_V3" {
 			return computeCVSS3BaseScore(s.Score)
+		}
+	}
+	return 0
+}
+
+func extractCVSSScoreWithFallback(vuln *osvVuln) float64 {
+	if score := extractCVSSScore(vuln.Severity); score > 0 {
+		return score
+	}
+	for _, affected := range vuln.Affected {
+		if score := extractCVSSScore(affected.Severities); score > 0 {
+			return score
 		}
 	}
 	return 0

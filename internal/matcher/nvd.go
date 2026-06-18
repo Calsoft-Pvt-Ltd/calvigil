@@ -5,17 +5,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/cache"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
 const nvdBaseURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-const nvdCVEEnrichmentBatchSize = 100
+const nvdCVEEnrichmentBatchSize = 10
+const nvdCVEEnrichmentSplitThreshold = 5
+const nvdCVEEnrichmentMaxAttempts = 2
+const nvdCVEEnrichmentTimeout = 60 * time.Second
+const nvdCVEEnrichmentBudget = 3 * time.Minute
+const nvdUserAgent = "calvigil/dev (+https://github.com/Calsoft-Pvt-Ltd/calvigil)"
+const nvdCVECacheSource = "nvd-cve-enrichment-v1"
+const nvdCVECacheTTL = 24 * time.Hour
+
+var nvdHTTPClient = &http.Client{
+	Timeout:   nvdCVEEnrichmentTimeout,
+	Transport: sharedHTTPTransport,
+}
 
 // NVDMatcher queries the NIST National Vulnerability Database.
 type NVDMatcher struct {
@@ -23,25 +38,44 @@ type NVDMatcher struct {
 	apiKey         string
 	baseURL        string
 	rateLimitDelay time.Duration
+	cveCache       *cache.Cache
+	cveTimeout     time.Duration
 }
 
 // NewNVDMatcher creates a new NVD matcher. apiKey is optional but recommended for higher rate limits.
 func NewNVDMatcher(apiKey string) *NVDMatcher {
 	return &NVDMatcher{
-		client:         sharedHTTPClient,
+		client:         nvdHTTPClient,
 		apiKey:         apiKey,
 		baseURL:        nvdBaseURL,
 		rateLimitDelay: nvdRequestDelay(apiKey),
+		cveCache:       cache.New("", nvdCVECacheTTL),
+		cveTimeout:     nvdCVEEnrichmentTimeout,
 	}
 }
 
 func (m *NVDMatcher) Name() string { return "nvd" }
+
+// SetCacheEnabled controls the local CVE enrichment cache. Scanners call this
+// to honor --no-cache while keeping NVD resilience enabled by default.
+func (m *NVDMatcher) SetCacheEnabled(enabled bool) {
+	if !enabled {
+		m.cveCache = nil
+		return
+	}
+	if m.cveCache == nil {
+		m.cveCache = cache.New("", nvdCVECacheTTL)
+	}
+}
 
 // NVDEnrichmentResult summarizes a best-effort CVSS enrichment pass.
 type NVDEnrichmentResult struct {
 	Requested int
 	Enriched  int
 	Batches   int
+	CacheHits int
+	Failed    int
+	Retries   int
 }
 
 type nvdResponse struct {
@@ -73,6 +107,8 @@ type nvdMetrics struct {
 }
 
 type nvdCvssMetric struct {
+	Source       string      `json:"source"`
+	Type         string      `json:"type"`
 	CvssData     nvdCvssData `json:"cvssData"`
 	BaseSeverity string      `json:"baseSeverity"`
 }
@@ -175,9 +211,7 @@ func (m *NVDMatcher) queryPackage(ctx context.Context, keyword string, pkg model
 		return nil, err
 	}
 
-	if m.apiKey != "" {
-		req.Header.Set("apiKey", m.apiKey)
-	}
+	setNVDHeaders(req, m.apiKey)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -213,27 +247,39 @@ func (m *NVDMatcher) EnrichCVSSByCVE(ctx context.Context, vulns []models.Vulnera
 	if len(cveIDs) == 0 {
 		return result, nil
 	}
+	workCtx, cancel := nvdEnrichmentContext(ctx)
+	defer cancel()
 
 	records := make(map[string]models.Vulnerability, len(cveIDs))
-	var errs []error
-	chunks := chunkStrings(cveIDs, nvdCVEEnrichmentBatchSize)
-	result.Batches = len(chunks)
-	for i, chunk := range chunks {
-		if i > 0 && m.rateLimitDelay > 0 {
-			select {
-			case <-ctx.Done():
-				return result, ctx.Err()
-			case <-time.After(m.rateLimitDelay):
-			}
-		}
-
-		batchRecords, err := m.queryCVEs(ctx, chunk)
-		if err != nil {
-			errs = append(errs, err)
+	var missing []string
+	for _, cveID := range cveIDs {
+		if cached, ok := m.getCachedCVE(cveID); ok {
+			records[cveID] = cached
+			result.CacheHits++
 			continue
 		}
+		missing = append(missing, cveID)
+	}
+
+	var errs []error
+	chunks := chunkStrings(missing, nvdCVEEnrichmentBatchSize)
+	firstRequest := true
+	for _, chunk := range chunks {
+		if err := workCtx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
+		batchRecords, batchErrs := m.queryCVEsAdaptive(workCtx, chunk, &result, &firstRequest)
 		for cveID, v := range batchRecords {
 			records[cveID] = v
+			m.putCachedCVE(cveID, v)
+		}
+		errs = append(errs, batchErrs...)
+	}
+
+	for _, cveID := range cveIDs {
+		if _, ok := records[cveID]; !ok {
+			result.Failed++
 		}
 	}
 
@@ -256,22 +302,106 @@ func (m *NVDMatcher) EnrichCVSSByCVE(ctx context.Context, vulns []models.Vulnera
 	return result, nil
 }
 
+func nvdEnrichmentContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= nvdCVEEnrichmentBudget {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, nvdCVEEnrichmentBudget)
+}
+
+func (m *NVDMatcher) queryCVEsAdaptive(ctx context.Context, cveIDs []string, result *NVDEnrichmentResult, firstRequest *bool) (map[string]models.Vulnerability, []error) {
+	records := make(map[string]models.Vulnerability, len(cveIDs))
+	if len(cveIDs) == 0 {
+		return records, nil
+	}
+
+	attempts := 1
+	if len(cveIDs) <= nvdCVEEnrichmentSplitThreshold {
+		attempts = nvdCVEEnrichmentMaxAttempts
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := m.waitForCVERequest(ctx, firstRequest); err != nil {
+			return records, []error{err}
+		}
+
+		result.Batches++
+		batchRecords, err := m.queryCVEs(ctx, cveIDs)
+		if err != nil {
+			lastErr = err
+			if !isTransientNVDError(err) || errors.Is(ctx.Err(), context.Canceled) {
+				break
+			}
+			if attempt < attempts {
+				result.Retries++
+				if waitErr := waitNVDBackoff(ctx, err, attempt); waitErr != nil {
+					return records, []error{waitErr}
+				}
+			}
+			continue
+		}
+		for cveID, v := range batchRecords {
+			records[cveID] = v
+		}
+		return records, nil
+	}
+
+	if lastErr == nil {
+		return records, nil
+	}
+	if len(cveIDs) > nvdCVEEnrichmentSplitThreshold && isTransientNVDError(lastErr) {
+		if waitErr := waitNVDBackoff(ctx, lastErr, 1); waitErr != nil {
+			return records, []error{waitErr}
+		}
+		mid := len(cveIDs) / 2
+		leftRecords, leftErrs := m.queryCVEsAdaptive(ctx, cveIDs[:mid], result, firstRequest)
+		rightRecords, rightErrs := m.queryCVEsAdaptive(ctx, cveIDs[mid:], result, firstRequest)
+		for cveID, v := range leftRecords {
+			records[cveID] = v
+		}
+		for cveID, v := range rightRecords {
+			records[cveID] = v
+		}
+		return records, append(leftErrs, rightErrs...)
+	}
+
+	return records, []error{lastErr}
+}
+
+func (m *NVDMatcher) waitForCVERequest(ctx context.Context, firstRequest *bool) error {
+	if firstRequest != nil && *firstRequest {
+		*firstRequest = false
+		return nil
+	}
+	if m.rateLimitDelay <= 0 {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(m.rateLimitDelay):
+		return nil
+	}
+}
+
 func (m *NVDMatcher) queryCVEs(ctx context.Context, cveIDs []string) (map[string]models.Vulnerability, error) {
 	records := make(map[string]models.Vulnerability, len(cveIDs))
 	if len(cveIDs) == 0 {
 		return records, nil
 	}
 
+	reqCtx, cancel := m.cveRequestContext(ctx)
+	defer cancel()
+
 	params := url.Values{}
 	params.Set("cveIds", strings.Join(cveIDs, ","))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.endpoint()+"?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, m.endpoint()+"?"+params.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
-	if m.apiKey != "" {
-		req.Header.Set("apiKey", m.apiKey)
-	}
+	setNVDHeaders(req, m.apiKey)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -280,7 +410,11 @@ func (m *NVDMatcher) queryCVEs(ctx context.Context, cveIDs []string) (map[string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("nvd cve lookup for %d id(s) returned status %d", len(cveIDs), resp.StatusCode)
+		return nil, &nvdStatusError{
+			status:     resp.StatusCode,
+			ids:        len(cveIDs),
+			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		}
 	}
 
 	var nvdResp nvdResponse
@@ -298,6 +432,115 @@ func (m *NVDMatcher) queryCVEs(ctx context.Context, cveIDs []string) (map[string
 	}
 
 	return records, nil
+}
+
+func setNVDHeaders(req *http.Request, apiKey string) {
+	req.Header.Set("User-Agent", nvdUserAgent)
+	req.Header.Set("Accept", "application/json")
+	if apiKey != "" {
+		req.Header.Set("apiKey", apiKey)
+	}
+}
+
+func (m *NVDMatcher) cveRequestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := m.cveTimeout
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= timeout {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+type nvdStatusError struct {
+	status     int
+	ids        int
+	retryAfter time.Duration
+}
+
+func (e *nvdStatusError) Error() string {
+	return fmt.Sprintf("nvd cve lookup for %d id(s) returned status %d", e.ids, e.status)
+}
+
+func isTransientNVDError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	var statusErr *nvdStatusError
+	if errors.As(err, &statusErr) {
+		switch statusErr.status {
+		case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return true
+		default:
+			return false
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+func waitNVDBackoff(ctx context.Context, err error, attempt int) error {
+	delay := time.Duration(250*(1<<(attempt-1))) * time.Millisecond
+	var statusErr *nvdStatusError
+	if errors.As(err, &statusErr) && statusErr.retryAfter > 0 {
+		delay = statusErr.retryAfter
+	}
+	if delay > 2*time.Second {
+		delay = 2 * time.Second
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
+}
+
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		return time.Until(when)
+	}
+	return 0
+}
+
+func (m *NVDMatcher) getCachedCVE(cveID string) (models.Vulnerability, bool) {
+	if m.cveCache == nil {
+		return models.Vulnerability{}, false
+	}
+	vulns, ok := m.cveCache.Get(nvdCVECacheSource, nvdCVECachePackages(cveID))
+	if !ok || len(vulns) == 0 {
+		return models.Vulnerability{}, false
+	}
+	return vulns[0], true
+}
+
+func (m *NVDMatcher) putCachedCVE(cveID string, vuln models.Vulnerability) {
+	if m.cveCache == nil || cveID == "" {
+		return
+	}
+	_ = m.cveCache.Put(nvdCVECacheSource, nvdCVECachePackages(cveID), []models.Vulnerability{vuln})
+}
+
+func nvdCVECachePackages(cveID string) []models.Package {
+	return []models.Package{{
+		Name:      cveID,
+		Version:   "2.0",
+		Ecosystem: models.Ecosystem("NVD"),
+	}}
 }
 
 func (m *NVDMatcher) endpoint() string {
@@ -353,21 +596,62 @@ func bestNVDCVSS(metrics nvdMetrics) (float64, models.Severity) {
 		metrics.CvssMetricV40,
 		metrics.CvssMetricV2,
 	} {
-		for _, metric := range candidates {
-			score := metric.CvssData.BaseScore
-			severity := models.ParseSeverity(metric.CvssData.BaseSeverity)
-			if severity == models.SeverityUnknown {
-				severity = models.ParseSeverity(metric.BaseSeverity)
-			}
-			if severity == models.SeverityUnknown && score > 0 {
-				severity = models.ScoreToSeverity(score)
-			}
-			if score > 0 || severity != models.SeverityUnknown {
-				return score, severity
-			}
+		if score, severity, ok := bestNVDCVSSCandidate(candidates); ok {
+			return score, severity
 		}
 	}
 	return 0, models.SeverityUnknown
+}
+
+func bestNVDCVSSCandidate(candidates []nvdCvssMetric) (float64, models.Severity, bool) {
+	bestRank := -1
+	bestScore := 0.0
+	bestSeverity := models.SeverityUnknown
+
+	for _, metric := range candidates {
+		score, severity, ok := metricCVSS(metric)
+		if !ok {
+			continue
+		}
+		rank := nvdMetricSourceRank(metric)
+		if rank > bestRank {
+			bestRank = rank
+			bestScore = score
+			bestSeverity = severity
+		}
+	}
+
+	if bestRank < 0 {
+		return 0, models.SeverityUnknown, false
+	}
+	return bestScore, bestSeverity, true
+}
+
+func metricCVSS(metric nvdCvssMetric) (float64, models.Severity, bool) {
+	score := metric.CvssData.BaseScore
+	severity := models.ParseSeverity(metric.CvssData.BaseSeverity)
+	if severity == models.SeverityUnknown {
+		severity = models.ParseSeverity(metric.BaseSeverity)
+	}
+	if severity == models.SeverityUnknown && score > 0 {
+		severity = models.ScoreToSeverity(score)
+	}
+	return score, severity, score > 0 || severity != models.SeverityUnknown
+}
+
+func nvdMetricSourceRank(metric nvdCvssMetric) int {
+	source := strings.ToLower(strings.TrimSpace(metric.Source))
+	metricType := strings.ToLower(strings.TrimSpace(metric.Type))
+	switch {
+	case metricType == "primary" || source == "nvd@nist.gov":
+		return 3
+	case strings.Contains(source, "cisa") || strings.Contains(source, "adp"):
+		return 2
+	case metricType == "secondary":
+		return 1
+	default:
+		return 0
+	}
 }
 
 func cveIDsNeedingNVDCVSS(vulns []models.Vulnerability) []string {

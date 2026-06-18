@@ -778,8 +778,9 @@ func NewOSVMatcher() *OSVMatcher
 5. Parse severity from:
    - `severity[].score` (CVSS vector) → parse base score
    - `database_specific.severity` (fallback)
-6. Extract fixed version from `affected[].ranges[].events[].fixed`
-7. Map to `Vulnerability` struct with `Source: SourceOSV`
+6. If an ecosystem-specific record such as `GO-*` has no CVSS data but aliases a CVE, fetch the CVE alias record and merge its CVSS severity/score before canonical normalization
+7. Extract fixed version from `affected[].ranges[].events[].fixed`
+8. Map to `Vulnerability` struct with `Source: SourceOSV`
 
 **Response Mapping:**
 ```
@@ -817,13 +818,13 @@ func (m *NVDMatcher) EnrichCVSSByCVE(ctx context.Context, vulns []models.Vulnera
 - Without API key: 5 requests per 30 seconds (6-second delay between requests)
 - With API key: 50 requests per 30 seconds (~650 ms delay between requests)
 - Package keyword search is capped at 20 unique package names per scan to prevent long scans
-- Exact CVE CVSS enrichment is chunked into batches of up to 100 CVE IDs per request
+- Exact CVE CVSS enrichment uses resilient 10-ID batches, a 60s NVD request timeout, a bounded 3-minute enrichment budget, transient-error backoff, timed-out batch splitting, partial-result preservation, a CalVigil User-Agent, source-aware CVSS selection, and a 24h local CVE cache
 
 **Algorithm:**
 1. For package search, send keyword queries for up to 20 unique package names and map returned CVEs with `Source: SourceNVD`.
 2. After source aggregation, collect CVE IDs from findings that have missing `score` or `UNKNOWN`/empty severity.
-3. Query NVD by batched `cveIds` chunks of up to 100 IDs.
-4. Parse CVSS metrics in priority order: v3.1, v3.0, v4.0, then v2.
+3. Query NVD by batched `cveIds` chunks of 10 IDs with a 60s NVD request timeout; on timeout or transient NVD failure, retry/back off and split the batch before preserving any partial successes.
+4. Parse CVSS metrics in priority order: v3.1, v3.0, v4.0, then v2. Within each CVSS version, prefer NVD/NIST primary metrics; if primary scoring is absent or N/A, fall back to contributed secondary metrics such as CISA-ADP.
 5. Fill only missing fields (`score`, `severity`, summary, published date, references) on already-matched findings; do not create new findings or overwrite the original match source.
 
 ### 7.3 GitHubAdvisoryMatcher (`ghsa.go`)

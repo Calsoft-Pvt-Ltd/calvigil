@@ -75,6 +75,19 @@ func TestExtractCVSSScore_CVSS3(t *testing.T) {
 	}
 }
 
+func TestExtractCVSSScore_GoQuadraticHTML(t *testing.T) {
+	sev := []osvSeverity{
+		{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"},
+	}
+	score := extractCVSSScore(sev)
+	if score != 5.3 {
+		t.Errorf("extractCVSSScore = %f, want 5.3", score)
+	}
+	if got := parseSeverity(sev); got != models.SeverityMedium {
+		t.Errorf("parseSeverity = %v, want MEDIUM", got)
+	}
+}
+
 func TestExtractCVSSScore_Empty(t *testing.T) {
 	score := extractCVSSScore(nil)
 	if score != 0 {
@@ -267,8 +280,110 @@ func TestOSVMatcher_Match_WithMockServer(t *testing.T) {
 	if v.Score < 9.0 {
 		t.Errorf("Score = %f, want >= 9.0", v.Score)
 	}
+	if v.Severity != models.SeverityCritical {
+		t.Errorf("Severity = %v, want CRITICAL", v.Severity)
+	}
 	if len(v.References) != 1 {
 		t.Errorf("expected 1 reference, got %d", len(v.References))
+	}
+}
+
+func TestOSVMatcher_Match_GoVulnDBCVSSSeverity(t *testing.T) {
+	batchResp := osvBatchResponse{
+		Results: []osvQueryResult{
+			{
+				Vulns: []osvVuln{{ID: "GO-2026-4440"}},
+			},
+		},
+	}
+
+	goVulnDetail := osvVuln{
+		ID:      "GO-2026-4440",
+		Summary: "Quadratic parsing complexity in golang.org/x/net/html",
+		Details: "The html.Parse function in golang.org/x/net/html has quadratic parsing complexity.",
+		Aliases: []string{"CVE-2025-47911", "GHSA-w4gw-w5jq-g9jh"},
+		DatabaseSpecific: map[string]interface{}{
+			"severity": "MODERATE",
+		},
+		Affected: []osvAffected{
+			{
+				Package: osvPackage{Name: "golang.org/x/net", Ecosystem: "Go"},
+				Ranges: []osvRange{{
+					Type:   "SEMVER",
+					Events: []osvEvent{{Introduced: "0"}, {Fixed: "0.45.0"}},
+				}},
+			},
+		},
+		References: []osvReference{
+			{Type: "REPORT", URL: "https://github.com/golang/vulndb/issues/4440"},
+		},
+	}
+
+	cveVulnDetail := osvVuln{
+		ID:      "CVE-2025-47911",
+		Summary: "Quadratic parsing complexity in golang.org/x/net/html",
+		Details: "The html.Parse function in golang.org/x/net/html has quadratic parsing complexity.",
+		Aliases: []string{"GHSA-w4gw-w5jq-g9jh", "GO-2026-4440"},
+		Severity: []osvSeverity{
+			{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"},
+		},
+		Affected: []osvAffected{
+			{
+				Package: osvPackage{Name: "golang.org/x/net", Ecosystem: "Go"},
+				Ranges: []osvRange{{
+					Type:   "SEMVER",
+					Events: []osvEvent{{Introduced: "0"}, {Fixed: "0.45.0"}},
+				}},
+			},
+		},
+		References: []osvReference{
+			{Type: "ADVISORY", URL: "https://pkg.go.dev/vuln/GO-2026-4440"},
+		},
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/querybatch":
+			json.NewEncoder(w).Encode(batchResp)
+		case "/v1/vulns/GO-2026-4440":
+			json.NewEncoder(w).Encode(goVulnDetail)
+		case "/v1/vulns/CVE-2025-47911":
+			json.NewEncoder(w).Encode(cveVulnDetail)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	m := &OSVMatcher{
+		client: &http.Client{
+			Transport: &redirectTransport{server: ts},
+		},
+	}
+
+	vulns, err := m.Match(context.Background(), []models.Package{{
+		Name:      "golang.org/x/net",
+		Version:   "v0.34.0",
+		Ecosystem: models.EcosystemGo,
+	}})
+	if err != nil {
+		t.Fatalf("Match error: %v", err)
+	}
+	if len(vulns) != 1 {
+		t.Fatalf("expected 1 vulnerability, got %d", len(vulns))
+	}
+	if vulns[0].ID != "GO-2026-4440" {
+		t.Errorf("ID = %q, want original OSV ID before canonical normalization", vulns[0].ID)
+	}
+	if vulns[0].Score != 5.3 {
+		t.Errorf("Score = %f, want 5.3", vulns[0].Score)
+	}
+	if vulns[0].Severity != models.SeverityMedium {
+		t.Errorf("Severity = %v, want MEDIUM", vulns[0].Severity)
+	}
+	if vulns[0].FixedIn != "0.45.0" {
+		t.Errorf("FixedIn = %q, want 0.45.0", vulns[0].FixedIn)
 	}
 }
 
@@ -327,6 +442,9 @@ func TestOSVMatcher_FetchVulnDetails_Error(t *testing.T) {
 						ID:      "GHSA-test-1234-5678",
 						Summary: "Test vuln",
 						Aliases: []string{"CVE-2024-9999"},
+						Severity: []osvSeverity{
+							{Type: "CVSS_V3", Score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N"},
+						},
 					},
 				},
 			},
@@ -369,6 +487,12 @@ func TestOSVMatcher_FetchVulnDetails_Error(t *testing.T) {
 	}
 	if vulns[0].Summary != "Test vuln" {
 		t.Errorf("Summary = %q, want 'Test vuln'", vulns[0].Summary)
+	}
+	if vulns[0].Severity != models.SeverityMedium {
+		t.Errorf("Severity = %v, want MEDIUM from batch fallback", vulns[0].Severity)
+	}
+	if vulns[0].Score == 0 {
+		t.Error("Score = 0, want batch fallback CVSS score")
 	}
 }
 

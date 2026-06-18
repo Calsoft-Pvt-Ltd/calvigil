@@ -114,7 +114,7 @@ KEV enrichment is designed to never degrade scan results:
 - **API:** `POST https://api.osv.dev/v1/querybatch`
 - **Batch size:** Up to 1000 packages per request
 - **Matching:** By PURL (Package URL) and version
-- **Severity sources:** CVSS v3 vectors (top-level), CVSS v4 vectors (per-affected), CVSS v2 fallback
+- **Severity sources:** CVSS v3 vectors (top-level), CVSS v4 vectors (per-affected), CVSS v2 fallback. When an ecosystem-specific OSV record such as `GO-*` omits CVSS data but aliases a CVE, CalVigil fetches the CVE alias record and carries over its CVSS score/severity.
 - **Ecosystems:** Go, npm, PyPI, Maven, crates.io, RubyGems, Packagist, and more
 
 ### Sonatype OSS Index
@@ -130,7 +130,7 @@ KEV enrichment is designed to never degrade scan results:
 
 - **API:** `GET https://services.nvd.nist.gov/rest/json/cves/2.0`
 - **Package matching:** By keyword (package name + version), capped to keep scans responsive
-- **CVSS enrichment:** Exact CVE lookup uses the `cveIds` batch parameter with up to 100 CVE IDs per request. This fills missing `score` and `severity` on findings that OSV/other sources already matched, without creating new findings.
+- **CVSS enrichment:** Exact CVE lookup uses the `cveIds` batch parameter with resilient 10-ID requests, a 60s NVD request timeout, a bounded 3-minute enrichment budget, and a CalVigil User-Agent. Transient failures are retried with backoff, timed-out batches are split into smaller requests, partial successes are preserved, and CVE records are cached locally for 24 hours. This fills missing `score` and `severity` on findings that OSV/other sources already matched, without creating new findings. NVD/NIST primary CVSS is preferred; if NVD primary scoring is not yet provided, contributed CVSS from sources such as CISA-ADP is accepted as fallback.
 - **Rate limiting:** 5 requests/30s without key, 50 requests/30s with key
 - **API key:** Free — register at [nvd.nist.gov/developers](https://nvd.nist.gov/developers/request-an-api-key)
 

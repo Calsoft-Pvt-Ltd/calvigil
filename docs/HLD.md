@@ -156,7 +156,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **GitHub Advisory** | `GET /advisories` | Optional PAT | Standard GitHub limits | Supplementary — GHSA cross-references |
 | **CISA KEV** | `GET known_exploited_vulnerabilities.json` | None | Unrestricted | Enrichment — flags actively exploited CVEs (`KnownExploited`) |
 
-All matcher results pass through the **Canonical Data Model** (`internal/matcher/canonical.go`): IDs are normalized (CVE preferred, GHSA/ecosystem IDs become aliases), severity is derived from CVSS vectors/scores when a source omits it, and duplicate findings across databases are merged by ID or alias — missing fields are filled in from whichever source provides them. After matching, findings with CVE IDs but missing CVSS data are enriched from NVD using batched `cveIds` requests of up to 100 IDs each.
+All matcher results pass through the **Canonical Data Model** (`internal/matcher/canonical.go`): IDs are normalized (CVE preferred, GHSA/ecosystem IDs become aliases), severity is derived from CVSS vectors/scores when a source omits it, and duplicate findings across databases are merged by ID or alias — missing fields are filled in from whichever source provides them. OSV records are also strengthened by fetching a CVE alias when an ecosystem-specific record such as `GO-*` omits CVSS data. After matching, findings with CVE IDs but missing CVSS data are enriched from NVD using resilient `cveIds` requests: small batches, a 60s per-request timeout, transient-error backoff, split fallback, partial-result preservation, a bounded 3-minute enrichment budget, a CalVigil User-Agent, source-aware CVSS selection that prefers NVD primary scoring and falls back to contributed sources such as CISA-ADP, and a 24h local CVE cache.
 
 ### 5.2 AI Providers
 
@@ -477,7 +477,7 @@ Version is embedded at build time via `-ldflags`:
 
 | Attribute | Design Decision |
 |-----------|----------------|
-| **Performance** | OSV batch API (up to 1000 packages/request); NVD capped at 20 queries/scan; AI batches of 20 snippets; vulnerability cache (~/.calvigil/cache/, default 24h TTL); license resolution at 10-way concurrency; integrity verification at 10-way concurrency |
+| **Performance** | OSV batch API (up to 1000 packages/request); NVD package search capped at 20 queries/scan; NVD CVE enrichment uses resilient 10-ID batches, a 60s request timeout, a 3-minute budget, plus 24h CVE cache; AI batches of 20 snippets; vulnerability cache (~/.calvigil/cache/, default 24h TTL); license resolution at 10-way concurrency; integrity verification at 10-way concurrency |
 | **Privacy** | Ollama and LM Studio support for fully local AI analysis; secret store prefers OS keyring; no telemetry |
 | **Extensibility** | Parser, Matcher, Analyzer, Reporter, IaCRule, PatternRule all implemented as interfaces or rule arrays |
 | **Portability** | Single static binary; cross-platform (macOS, Linux, Windows); keyring auto-falls-back to file in headless environments |

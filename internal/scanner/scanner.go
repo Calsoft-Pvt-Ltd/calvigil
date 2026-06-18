@@ -22,7 +22,7 @@ import (
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
 )
 
-const dependencyCacheSource = "aggregated-v2"
+const dependencyCacheSource = "aggregated-v3"
 
 // Scanner orchestrates the full vulnerability scanning pipeline.
 type Scanner struct {
@@ -339,6 +339,7 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 
 func (s *Scanner) enrichDependencyCVSS(ctx context.Context, vulns []models.Vulnerability) matcher.NVDEnrichmentResult {
 	nvd := matcher.NewNVDMatcher(s.cfg.NVDKey)
+	nvd.SetCacheEnabled(!s.opts.NoCache)
 	result, err := nvd.EnrichCVSSByCVE(ctx, vulns)
 	if err != nil {
 		if s.opts.Verbose {
@@ -355,8 +356,17 @@ func (s *Scanner) enrichDependencyCVSS(ctx context.Context, vulns []models.Vulne
 			} else {
 				fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: filled %d finding(s)\n", result.Enriched)
 			}
+			if result.CacheHits > 0 || result.Retries > 0 || result.Failed > 0 {
+				fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment detail: cache_hits=%d retries=%d unavailable=%d\n",
+					result.CacheHits, result.Retries, result.Failed)
+			}
 		case result.Requested > 0:
-			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found\n")
+			if result.CacheHits > 0 || result.Failed > 0 || result.Retries > 0 {
+				fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found (cache_hits=%d retries=%d unavailable=%d)\n",
+					result.CacheHits, result.Retries, result.Failed)
+			} else {
+				fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found\n")
+			}
 		}
 	}
 	return result

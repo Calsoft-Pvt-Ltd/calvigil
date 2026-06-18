@@ -24,7 +24,9 @@ All notable changes to calvigil are documented here.
 - Enterprise config keys: `enterprise-url`, `enterprise-key`; env vars:
   `CALVIGIL_ENTERPRISE_URL`, `CALVIGIL_API_KEY`, and `CALVIGIL_ENTERPRISE_API_KEY`.
 - NVD CVSS enrichment for already-matched CVEs:
-  - Uses the NVD `cveIds` batch parameter with up to 100 IDs per request.
+  - Uses the NVD `cveIds` batch parameter with resilient 10-ID requests, a 45s request timeout, a 2-minute enrichment budget, and a CalVigil User-Agent.
+  - Retries transient NVD failures with backoff, splits timed-out batches into smaller requests, preserves partial results, and caches CVE enrichment records locally for 24 hours.
+  - Prefers NVD/NIST primary CVSS metrics and falls back to contributed secondary metrics such as CISA-ADP when NVD primary scoring is not yet provided.
   - Fills missing `score` and `severity` on OSV/other-source findings while preserving the original match source.
   - Fixes Go advisory cases where an OSV `GO-*` record aliases a CVE but does not include CVSS data.
 

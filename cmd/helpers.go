@@ -69,7 +69,16 @@ func enrichDependencyCVSS(ctx context.Context, cfg *config.Config, vulns []model
 		} else {
 			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: filled %d finding(s)\n", result.Enriched)
 		}
+		if result.CacheHits > 0 || result.Retries > 0 || result.Failed > 0 {
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment detail: cache_hits=%d retries=%d unavailable=%d\n",
+				result.CacheHits, result.Retries, result.Failed)
+		}
 	case result.Requested > 0:
-		fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found\n")
+		if result.CacheHits > 0 || result.Failed > 0 || result.Retries > 0 {
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found (cache_hits=%d retries=%d unavailable=%d)\n",
+				result.CacheHits, result.Retries, result.Failed)
+		} else {
+			fmt.Fprintf(os.Stderr, "   NVD CVSS enrichment: no additional scores found\n")
+		}
 	}
 }
