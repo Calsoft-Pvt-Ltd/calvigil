@@ -101,6 +101,27 @@ func TestDecodeScanResultRejectsExportArtifacts(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "CycloneDX") {
 		t.Fatalf("unexpected CycloneDX error: %v", err)
 	}
+
+	spdx := []byte(`{"spdxVersion":"SPDX-2.3","packages":[]}`)
+	if _, err := DecodeScanResult(spdx); err == nil {
+		t.Fatal("expected SPDX export to be rejected")
+	} else if !strings.Contains(err.Error(), "SPDX") {
+		t.Fatalf("unexpected SPDX error: %v", err)
+	}
+
+	sarif := []byte(`{"version":"2.1.0","runs":[]}`)
+	if _, err := DecodeScanResult(sarif); err == nil {
+		t.Fatal("expected SARIF export to be rejected")
+	} else if !strings.Contains(err.Error(), "SARIF") {
+		t.Fatalf("unexpected SARIF error: %v", err)
+	}
+
+	openVEXWithoutContext := []byte(`{"statements":[]}`)
+	if _, err := DecodeScanResult(openVEXWithoutContext); err == nil {
+		t.Fatal("expected OpenVEX statements-only artifact to be rejected")
+	} else if !strings.Contains(err.Error(), "OpenVEX") {
+		t.Fatalf("unexpected statements-only OpenVEX error: %v", err)
+	}
 }
 
 func TestDecodeScanResultRejectsEmptyReportShape(t *testing.T) {
@@ -116,6 +137,90 @@ func TestDecodeScanResultRejectsEmptyReportShape(t *testing.T) {
 		t.Fatal("expected empty report to be rejected")
 	} else if !errors.Is(err, ErrInvalidScanReport) || !strings.Contains(err.Error(), "no packages") {
 		t.Fatalf("unexpected empty report error: %v", err)
+	}
+}
+
+func TestDecodeScanResultRejectsMalformedAndTrailingJSON(t *testing.T) {
+	cases := map[string][]byte{
+		"invalid":   []byte(`{`),
+		"empty":     []byte(`{}`),
+		"trailing":  []byte(`{"project_path":"/tmp/a"} {"project_path":"/tmp/b"}`),
+		"bad_trail": []byte(`{"project_path":"/tmp/a"} [`),
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeScanResult(raw); err == nil {
+				t.Fatal("expected invalid report error")
+			} else if !errors.Is(err, ErrInvalidScanReport) {
+				t.Fatalf("error = %v, want ErrInvalidScanReport", err)
+			}
+		})
+	}
+}
+
+func TestDecodeScanResultRejectsMissingRequiredFields(t *testing.T) {
+	raw := []byte(`{
+	  "project_path": "/tmp/app",
+	  "ecosystems": ["npm"],
+	  "total_packages": 1,
+	  "vulnerabilities": [],
+	  "scanned_at": "2026-06-18T10:00:00Z"
+	}`)
+	if _, err := DecodeScanResult(raw); err == nil {
+		t.Fatal("expected missing duration to be rejected")
+	} else if !strings.Contains(err.Error(), `"duration"`) {
+		t.Fatalf("error = %v, want duration field mention", err)
+	}
+}
+
+func TestValidateScanResultRejectsInvalidDecodedValues(t *testing.T) {
+	valid := ScanResult{
+		ProjectPath:   "/tmp/app",
+		TotalPackages: 1,
+		ScannedAt:     time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC),
+		Packages:      []Package{{Name: "react", Version: "19.0.0", Ecosystem: "npm"}},
+	}
+
+	cases := map[string]struct {
+		mutate func(*ScanResult)
+		want   string
+	}{
+		"project_path": {
+			mutate: func(r *ScanResult) { r.ProjectPath = " " },
+			want:   "project_path",
+		},
+		"scanned_at": {
+			mutate: func(r *ScanResult) { r.ScannedAt = time.Time{} },
+			want:   "scanned_at",
+		},
+		"negative_packages": {
+			mutate: func(r *ScanResult) { r.TotalPackages = -1 },
+			want:   "total_packages",
+		},
+		"negative_duration": {
+			mutate: func(r *ScanResult) { r.Duration = -1 },
+			want:   "duration",
+		},
+		"empty_vuln_id": {
+			mutate: func(r *ScanResult) {
+				r.Packages = nil
+				r.Vulnerabilities = []Vulnerability{{ID: " "}}
+			},
+			want: "vulnerabilities[0].id",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := valid
+			tc.mutate(&got)
+			err := ValidateScanResult(got)
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !errors.Is(err, ErrInvalidScanReport) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

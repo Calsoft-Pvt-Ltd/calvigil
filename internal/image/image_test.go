@@ -2,8 +2,13 @@ package image
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/matcher"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 )
 
@@ -118,6 +123,68 @@ func TestScan_RejectsMaliciousImageRef(t *testing.T) {
 	}
 }
 
+func TestScan_WithFakeSyftPipeline(t *testing.T) {
+	installFakeSyft(t, []byte(`{
+		"artifacts": [
+			{
+				"name": "lodash",
+				"version": "4.17.21",
+				"type": "npm",
+				"language": "javascript",
+				"locations": [{"path": "/app/package-lock.json"}]
+			},
+			{
+				"name": "flask",
+				"version": "2.3.2",
+				"type": "python",
+				"language": "python",
+				"purl": "pkg:pypi/flask@2.3.2"
+			}
+		]
+	}`), 0)
+
+	fm := &fakeImageMatcher{}
+	s := NewScanner("registry.example.com/team/app:1.2.3", true, []matcher.Matcher{fm})
+	result, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan() error: %v", err)
+	}
+	if result.ProjectPath != "image:registry.example.com/team/app:1.2.3" {
+		t.Fatalf("ProjectPath = %q", result.ProjectPath)
+	}
+	if result.TotalPackages != 2 {
+		t.Fatalf("TotalPackages = %d, want 2", result.TotalPackages)
+	}
+	if len(result.Ecosystems) != 2 {
+		t.Fatalf("ecosystems = %v, want npm and PyPI", result.Ecosystems)
+	}
+	if len(result.Vulnerabilities) != 1 {
+		t.Fatalf("vulnerabilities = %d, want 1", len(result.Vulnerabilities))
+	}
+	if len(fm.packages) != 2 {
+		t.Fatalf("matcher saw %d packages, want 2", len(fm.packages))
+	}
+	if fm.packages[0].PURL == "" {
+		t.Fatal("Scan() should generate missing PURLs before matching")
+	}
+	if result.Vulnerabilities[0].Package.PURL == "" {
+		t.Fatal("vulnerability package should carry generated PURL")
+	}
+}
+
+func TestExtractPackages_SyftFailure(t *testing.T) {
+	installFakeSyft(t, nil, 42)
+
+	s := NewScanner("nginx:latest", false, nil)
+	_, err := s.extractPackages(context.Background())
+	if err == nil {
+		t.Fatal("expected syft failure")
+	}
+	if !strings.Contains(err.Error(), "syft failed") {
+		t.Fatalf("error = %v, want syft failed", err)
+	}
+}
+
 func TestParseSBOM(t *testing.T) {
 	input := `{
 		"artifacts": [
@@ -221,4 +288,55 @@ func TestParseSBOM_EmptyArtifacts(t *testing.T) {
 	if len(pkgs) != 0 {
 		t.Errorf("got %d packages, want 0", len(pkgs))
 	}
+}
+
+type fakeImageMatcher struct {
+	packages []models.Package
+}
+
+func (m *fakeImageMatcher) Name() string { return "fake-image-matcher" }
+
+func (m *fakeImageMatcher) Match(_ context.Context, packages []models.Package) ([]models.Vulnerability, error) {
+	m.packages = append([]models.Package(nil), packages...)
+	if len(packages) == 0 {
+		return nil, nil
+	}
+	return []models.Vulnerability{{
+		ID:       "CVE-2026-0001",
+		Severity: models.SeverityHigh,
+		Score:    8.1,
+		Package:  packages[0],
+		Source:   models.SourceOSV,
+	}}, nil
+}
+
+func installFakeSyft(t *testing.T, output []byte, exitCode int) {
+	t.Helper()
+
+	dir := t.TempDir()
+	syftPath := filepath.Join(dir, "syft")
+	outPath := filepath.Join(dir, "sbom.json")
+	if output != nil {
+		if err := os.WriteFile(outPath, output, 0o600); err != nil {
+			t.Fatalf("write fake sbom: %v", err)
+		}
+	}
+
+	script := "#!/bin/sh\n"
+	if exitCode != 0 {
+		script += "echo syft failed >&2\n"
+		script += "exit " + strconv.Itoa(exitCode) + "\n"
+	} else {
+		script += "exec /bin/cat " + shellQuote(outPath) + "\n"
+	}
+	if err := os.WriteFile(syftPath, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake syft: %v", err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+oldPath)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }

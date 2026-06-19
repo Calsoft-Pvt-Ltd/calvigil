@@ -3,6 +3,7 @@ package matcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -63,6 +64,74 @@ func TestNVDMatcher_RequestDelayUsesConservativePacing(t *testing.T) {
 	}
 }
 
+func TestNVDMatcher_SetCacheEnabledTogglesCVECache(t *testing.T) {
+	m := NewNVDMatcher("")
+	if m.cveCache == nil {
+		t.Fatal("new matcher should enable CVE cache by default")
+	}
+
+	m.SetCacheEnabled(false)
+	if m.cveCache != nil {
+		t.Fatal("SetCacheEnabled(false) should disable CVE cache")
+	}
+
+	m.SetCacheEnabled(true)
+	if m.cveCache == nil {
+		t.Fatal("SetCacheEnabled(true) should recreate CVE cache")
+	}
+}
+
+func TestNVDEnrichmentContext_UsesExistingTightDeadline(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	got, gotCancel := nvdEnrichmentContext(parent)
+	defer gotCancel()
+
+	parentDeadline, ok := parent.Deadline()
+	if !ok {
+		t.Fatal("parent deadline missing")
+	}
+	gotDeadline, ok := got.Deadline()
+	if !ok {
+		t.Fatal("enrichment deadline missing")
+	}
+	if !gotDeadline.Equal(parentDeadline) {
+		t.Fatalf("deadline = %s, want parent deadline %s", gotDeadline, parentDeadline)
+	}
+}
+
+func TestNVDMatcher_CVERequestContextKeepsShorterParentDeadline(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	m := &NVDMatcher{cveTimeout: time.Hour}
+	got, gotCancel := m.cveRequestContext(parent)
+	defer gotCancel()
+
+	parentDeadline, _ := parent.Deadline()
+	gotDeadline, ok := got.Deadline()
+	if !ok {
+		t.Fatal("request context deadline missing")
+	}
+	if !gotDeadline.Equal(parentDeadline) {
+		t.Fatalf("deadline = %s, want parent deadline %s", gotDeadline, parentDeadline)
+	}
+}
+
+func TestNVDRequestPacer_WaitsAndHonorsCancellation(t *testing.T) {
+	pacer := newNVDRequestPacer(time.Hour)
+	if err := pacer.Wait(context.Background()); err != nil {
+		t.Fatalf("first Wait() error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := pacer.Wait(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("second Wait() error = %v, want context canceled", err)
+	}
+}
+
 func TestNVDMatcher_QueryCVEs_SetsNVDHeaders(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("User-Agent"); got != nvdUserAgent {
@@ -102,6 +171,57 @@ func TestNVDMatcher_QueryCVEs_SetsNVDHeaders(t *testing.T) {
 	}
 	if records["CVE-2026-39883"].Score != 5.3 {
 		t.Fatalf("records = %+v, want CVE score 5.3", records)
+	}
+}
+
+func TestNVDMatcher_QueryCVEs_ReturnsRetryableStatusError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "3")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer ts.Close()
+
+	m := &NVDMatcher{
+		client:     ts.Client(),
+		baseURL:    ts.URL,
+		cveTimeout: time.Second,
+	}
+
+	_, err := m.queryCVEs(context.Background(), []string{"CVE-2026-39883", "CVE-2026-39884"})
+	var statusErr *nvdStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("error = %v, want nvdStatusError", err)
+	}
+	if statusErr.status != http.StatusTooManyRequests || statusErr.ids != 2 {
+		t.Fatalf("status error = %+v, want 429 for 2 ids", statusErr)
+	}
+	if statusErr.retryAfter != 3*time.Second {
+		t.Fatalf("retryAfter = %s, want 3s", statusErr.retryAfter)
+	}
+	if !strings.Contains(statusErr.Error(), "returned status 429") {
+		t.Fatalf("Error() = %q", statusErr.Error())
+	}
+	if !isTransientNVDError(err) {
+		t.Fatal("429 should be treated as a transient NVD error")
+	}
+}
+
+func TestNVDMatcher_BackoffAndRetryAfterHelpers(t *testing.T) {
+	retryAt := time.Now().Add(time.Hour).UTC().Format(http.TimeFormat)
+	if got := parseRetryAfter(retryAt); got <= 0 {
+		t.Fatalf("parseRetryAfter(http-date) = %s, want positive duration", got)
+	}
+	if got := parseRetryAfter("not-a-date"); got != 0 {
+		t.Fatalf("parseRetryAfter(invalid) = %s, want 0", got)
+	}
+
+	m := &NVDMatcher{cveBackoffBase: time.Second}
+	statusErr := &nvdStatusError{status: http.StatusServiceUnavailable, ids: 1, retryAfter: 7 * time.Second}
+	if got := m.nvdBackoffDelay(statusErr, 1); got != 7*time.Second {
+		t.Fatalf("retry-after backoff = %s, want 7s", got)
+	}
+	if got := m.nvdBackoffDelay(errors.New("plain"), 10); got != nvdCVEBackoffMax {
+		t.Fatalf("capped exponential backoff = %s, want %s", got, nvdCVEBackoffMax)
 	}
 }
 
@@ -598,16 +718,16 @@ func TestNVDMatcher_EnrichCVSSByCVE_UsesKeyedParallelism(t *testing.T) {
 }
 
 func TestNVDMatcher_EnrichCVSSByCVE_SplitsSmall503Batch(t *testing.T) {
-	var multiCalls int
-	var singleCalls int
+	var multiCalls int32
+	var singleCalls int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ids := strings.Split(r.URL.Query().Get("cveIds"), ",")
 		if len(ids) > 1 {
-			multiCalls++
+			atomic.AddInt32(&multiCalls, 1)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		singleCalls++
+		atomic.AddInt32(&singleCalls, 1)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(nvdResponse{
 			Vulnerabilities: []nvdVulnWrapper{{
@@ -640,11 +760,11 @@ func TestNVDMatcher_EnrichCVSSByCVE_SplitsSmall503Batch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
 	}
-	if multiCalls == 0 {
+	if atomic.LoadInt32(&multiCalls) == 0 {
 		t.Fatal("expected at least one failed multi-CVE batch before split fallback")
 	}
-	if singleCalls != 3 {
-		t.Fatalf("single CVE calls = %d, want 3", singleCalls)
+	if got := atomic.LoadInt32(&singleCalls); got != 3 {
+		t.Fatalf("single CVE calls = %d, want 3", got)
 	}
 	if result.Enriched != 3 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want all 3 enriched after split fallback", result)
@@ -657,13 +777,13 @@ func TestNVDMatcher_EnrichCVSSByCVE_SplitsSmall503Batch(t *testing.T) {
 }
 
 func TestNVDMatcher_EnrichCVSSByCVE_SplitsTimedOutBatch(t *testing.T) {
-	var calls int
-	var sawLargeBatch bool
+	var calls int32
+	var sawLargeBatch int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		atomic.AddInt32(&calls, 1)
 		ids := strings.Split(r.URL.Query().Get("cveIds"), ",")
 		if len(ids) > nvdCVEEnrichmentSplitThreshold {
-			sawLargeBatch = true
+			atomic.StoreInt32(&sawLargeBatch, 1)
 			time.Sleep(75 * time.Millisecond)
 			return
 		}
@@ -706,11 +826,11 @@ func TestNVDMatcher_EnrichCVSSByCVE_SplitsTimedOutBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
 	}
-	if !sawLargeBatch {
+	if atomic.LoadInt32(&sawLargeBatch) == 0 {
 		t.Fatal("expected initial large batch attempt before split fallback")
 	}
-	if calls < 3 {
-		t.Fatalf("calls = %d, want initial timeout plus split requests", calls)
+	if got := atomic.LoadInt32(&calls); got < 3 {
+		t.Fatalf("calls = %d, want initial timeout plus split requests", got)
 	}
 	if result.Enriched != 10 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want all 10 enriched without failures", result)
