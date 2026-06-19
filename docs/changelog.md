@@ -12,6 +12,25 @@ All notable changes to calvigil are documented here.
 
 ---
 
+## [5.2.0] — 2026-06-19
+
+### Added
+- Regular JSON scans now enrich package inventory licenses before reporting or Enterprise push, not only during `scan-license`.
+
+### Changed
+- NVD matching and CVSS enrichment are more resilient:
+  - Default dependency, image, and binary scans include NVD package keyword search again, capped at 20 unique package names and conservatively paced.
+  - Exact-CVE enrichment uses up to 100 `cveIds` per request, a 2-minute request timeout, a 10-minute enrichment budget, controlled keyed parallelism, six-second request pacing, transient-error backoff, and a 24-hour local CVE cache.
+  - Timed-out or `503` CVE batches split down to individual CVE lookups so partial successes are preserved.
+
+### Fixed
+- Report upload validation now rejects non-JSON and empty scan reports before Enterprise submission.
+- NVD CVSS enrichment now falls back to contributed CVSS metrics such as CISA-ADP when NVD/NIST primary scoring is not yet available.
+- OSV Go advisories that alias CVEs now receive CVSS score/severity enrichment when the ecosystem-specific OSV record omits CVSS data.
+- PyPI license resolution now reads version-specific `license_expression` metadata, normalizes PyPI license classifiers, and recognizes canonical full license text. This fixes packages such as `pkg:pypi/zstandard@0.25.0`, `pkg:pypi/tiktoken@0.12.0`, and `pkg:pypi/pathspec@1.1.1` that previously appeared as unknown.
+
+---
+
 ## [5.1.0] — 2026-06-16
 
 ### Added
@@ -23,12 +42,8 @@ All notable changes to calvigil are documented here.
   - `--evaluate-only` checks policy without storing the scan.
 - Enterprise config keys: `enterprise-url`, `enterprise-key`; env vars:
   `CALVIGIL_ENTERPRISE_URL`, `CALVIGIL_API_KEY`, and `CALVIGIL_ENTERPRISE_API_KEY`.
-- NVD package search and CVSS enrichment:
-  - Uses the NVD `cveIds` batch parameter with resilient requests of up to 100 CVEs, a 2-minute request timeout, a 10-minute enrichment budget, controlled keyed parallelism, six-second request pacing, and a CalVigil User-Agent.
-  - Splits timeout/503 CVE batches down to individual CVE lookups so a failing multi-CVE request does not discard recoverable records.
-  - Default dependency, image, and binary scans call NVD package `keywordSearch` again, capped at 20 unique package names and conservatively paced.
-  - Retries transient NVD failures with backoff, splits timed-out batches into smaller requests, preserves partial results, and caches CVE enrichment records locally for 24 hours.
-  - Prefers NVD/NIST primary CVSS metrics and falls back to contributed secondary metrics such as CISA-ADP when NVD primary scoring is not yet provided.
+- NVD CVSS enrichment for already-matched CVEs:
+  - Uses the NVD `cveIds` batch parameter with up to 100 IDs per request.
   - Fills missing `score` and `severity` on OSV/other-source findings while preserving the original match source.
   - Fixes Go advisory cases where an OSV `GO-*` record aliases a CVE but does not include CVSS data.
 
@@ -111,7 +126,6 @@ All notable changes to calvigil are documented here.
 - Semgrep CE integration with bundled OWASP Top 10 and language-specific rule packs
 - Pattern rules SEC-001 through SEC-012
 - License compliance scanning with SPDX classification
-- PyPI license resolution now reads version-specific `license_expression` metadata before legacy license fields, normalizes PyPI classifiers, and recognizes canonical full license text, fixing packages such as `pkg:pypi/zstandard@0.25.0`, `pkg:pypi/tiktoken@0.12.0`, and `pkg:pypi/pathspec@1.1.1` that otherwise appeared as unknown.
 - Output formats: Table, JSON, SARIF, CycloneDX, OpenVEX, HTML, PDF
 - PURL generation for all packages
 - Transitive dependency classification

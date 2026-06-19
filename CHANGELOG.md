@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [5.2.0] — 2026-06-19
+
+### Added
+- Regular JSON scans now enrich package inventory licenses before reporting or Enterprise push, not only during `scan-license`.
+
+### Changed
+- NVD matching and CVSS enrichment are more resilient:
+  - Default dependency, image, and binary scans include NVD package keyword search again, capped at 20 unique package names and conservatively paced.
+  - Exact-CVE enrichment uses up to 100 `cveIds` per request, a 2-minute request timeout, a 10-minute enrichment budget, controlled keyed parallelism, six-second request pacing, transient-error backoff, and a 24-hour local CVE cache.
+  - Timed-out or `503` CVE batches split down to individual CVE lookups so partial successes are preserved.
+
+### Fixed
+- Report upload validation now rejects non-JSON and empty scan reports before Enterprise submission.
+- NVD CVSS enrichment now falls back to contributed CVSS metrics such as CISA-ADP when NVD/NIST primary scoring is not yet available.
+- OSV Go advisories that alias CVEs now receive CVSS score/severity enrichment when the ecosystem-specific OSV record omits CVSS data.
+- PyPI license resolution now reads version-specific `license_expression` metadata, normalizes PyPI license classifiers, and recognizes canonical full license text. This fixes packages such as `pkg:pypi/zstandard@0.25.0`, `pkg:pypi/tiktoken@0.12.0`, and `pkg:pypi/pathspec@1.1.1` that previously appeared as unknown.
+
+---
+
 ## [5.1.0] — 2026-06-16
 
 ### Added
