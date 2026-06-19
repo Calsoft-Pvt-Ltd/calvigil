@@ -692,6 +692,70 @@ go 1.21
 	_ = errs
 }
 
+func TestScanDependencies_OfflineParsesPackagesWithoutMatching(t *testing.T) {
+	dir := t.TempDir()
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	goModPath := filepath.Join(dir, "go.mod")
+	os.WriteFile(goModPath, []byte(gomod), 0644)
+
+	s := &Scanner{
+		opts: models.ScanOptions{Path: dir, Offline: true, NoCache: true},
+		cfg:  &config.Config{NVDKey: "unused-in-offline"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	vulns, pkgs, errs := s.scanDependencies(ctx, []detector.DetectedFile{
+		{Path: goModPath, Filename: "go.mod", Ecosystem: models.EcosystemGo},
+	})
+	if len(errs) > 0 {
+		t.Fatalf("unexpected parse errors: %v", errs)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 parsed package, got %d", len(pkgs))
+	}
+	if len(vulns) != 0 {
+		t.Fatalf("offline scan should not return matched vulnerabilities, got %d", len(vulns))
+	}
+}
+
+func TestRun_OfflineSkipsLicenseRegistryEnrichment(t *testing.T) {
+	dir := t.TempDir()
+	gomod := "module example.com/test\n\ngo 1.21\n\nrequire golang.org/x/text v0.14.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	restore := license.SetResolverForTesting(func(context.Context, models.Package) string {
+		calls++
+		return "MIT"
+	})
+	t.Cleanup(restore)
+
+	outFile := filepath.Join(t.TempDir(), "scan.json")
+	s := &Scanner{
+		opts: models.ScanOptions{
+			Path:        dir,
+			Format:      "json",
+			OutputFile:  outFile,
+			Offline:     true,
+			SkipAI:      true,
+			SkipSemgrep: true,
+			NoCache:     true,
+		},
+		cfg:      &config.Config{},
+		reporter: reporter.ForFormat("json"),
+	}
+	if err := s.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("offline scan called license resolver %d time(s)", calls)
+	}
+}
+
 func TestScanSourceCode_NoAIProvider(t *testing.T) {
 	// Create a project with a pattern-matchable file but no AI provider
 	dir := t.TempDir()

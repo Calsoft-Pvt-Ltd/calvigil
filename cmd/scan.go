@@ -26,7 +26,8 @@ Use --provider to choose the AI backend: openai, ollama, lmstudio, or auto (defa
 In auto mode the scanner picks Ollama when it is reachable, then LM Studio, otherwise OpenAI.
 
 Use --skip-ai to run dependency scanning only (no API key required).
-Use --skip-deps to run AI analysis only.`,
+Use --skip-deps to run AI analysis only.
+Use --offline to parse local inventories without network calls to vulnerability or package registries.`,
 	Example: `  # Scan current directory
   calvigil scan
 
@@ -41,6 +42,9 @@ Use --skip-deps to run AI analysis only.`,
 
   # Dependencies only (no OpenAI key needed)
   calvigil scan --skip-ai
+
+  # Local inventory/reporting only (no network calls)
+  calvigil scan --offline --skip-ai --skip-semgrep --format json
 
   # Only report high and critical vulnerabilities
   calvigil scan --severity high
@@ -78,6 +82,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanOpts.NoCache, "no-cache", false, "disable vulnerability response caching")
 	scanCmd.Flags().StringVar(&scanOpts.CacheTTL, "cache-ttl", "24h", "cache TTL duration (e.g. 24h, 1h, 30m)")
 	scanCmd.Flags().BoolVar(&scanOpts.SkipTests, "skip-tests", false, "skip test files and test directories")
+	scanCmd.Flags().BoolVar(&scanOpts.Offline, "offline", false, "avoid network calls; parse local inventory and run local checks only")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {

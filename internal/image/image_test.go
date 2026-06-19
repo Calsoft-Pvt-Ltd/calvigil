@@ -172,6 +172,38 @@ func TestScan_WithFakeSyftPipeline(t *testing.T) {
 	}
 }
 
+func TestScan_OfflineInventorySkipsVulnerabilityMatching(t *testing.T) {
+	installFakeSyft(t, []byte(`{
+		"artifacts": [
+			{
+				"name": "requests",
+				"version": "2.32.0",
+				"type": "python",
+				"language": "python",
+				"locations": [{"path": "/app/requirements.txt"}]
+			}
+		]
+	}`), 0)
+
+	s := NewScanner("dir:/tmp/rootfs", true, nil)
+	result, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan() error: %v", err)
+	}
+	if result.TotalPackages != 1 {
+		t.Fatalf("TotalPackages = %d, want 1", result.TotalPackages)
+	}
+	if len(result.Packages) != 1 {
+		t.Fatalf("Packages = %d, want 1", len(result.Packages))
+	}
+	if len(result.Vulnerabilities) != 0 {
+		t.Fatalf("offline image scan should not match vulnerabilities, got %d", len(result.Vulnerabilities))
+	}
+	if result.Packages[0].PURL == "" {
+		t.Fatal("offline image scan should still generate package PURLs")
+	}
+}
+
 func TestExtractPackages_SyftFailure(t *testing.T) {
 	installFakeSyft(t, nil, 42)
 

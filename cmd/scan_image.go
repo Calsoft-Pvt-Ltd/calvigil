@@ -18,6 +18,7 @@ var imageOpts struct {
 	format     string
 	outputFile string
 	severity   string
+	offline    bool
 }
 
 var scanImageCmd = &cobra.Command{
@@ -34,7 +35,10 @@ Requires: syft (https://github.com/anchore/syft)
 The image argument can be:
   - A Docker/OCI image reference: nginx:latest, ubuntu:22.04
   - A local archive: docker-archive:image.tar
-  - A directory:      dir:/path/to/rootfs`,
+  - A directory:      dir:/path/to/rootfs
+
+Use --offline to extract image package inventory without querying
+vulnerability databases.`,
 	Example: `  # Scan a Docker image
   calvigil scan-image nginx:latest
 
@@ -45,7 +49,10 @@ The image argument can be:
   calvigil scan-image node:20 --format sarif --output results.sarif
 
   # Only report high and critical
-  calvigil scan-image alpine:3.18 --severity high`,
+  calvigil scan-image alpine:3.18 --severity high
+
+  # Extract image package inventory only
+  calvigil scan-image alpine:3.18 --offline --format json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runScanImage,
 }
@@ -56,6 +63,7 @@ func init() {
 	scanImageCmd.Flags().StringVarP(&imageOpts.format, "format", "f", "table", "output format: table, json, sarif, cyclonedx, openvex, html, pdf")
 	scanImageCmd.Flags().StringVarP(&imageOpts.outputFile, "output", "o", "", "write output to file (default: stdout)")
 	scanImageCmd.Flags().StringVarP(&imageOpts.severity, "severity", "s", "", "minimum severity to report: critical, high, medium, low")
+	scanImageCmd.Flags().BoolVar(&imageOpts.offline, "offline", false, "extract image package inventory without vulnerability database calls")
 }
 
 func runScanImage(cmd *cobra.Command, args []string) error {
@@ -70,13 +78,15 @@ func runScanImage(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Build matchers
-	matchers := []matcher.Matcher{
-		matcher.NewOSVMatcher(),
-		matcher.NewNVDMatcher(cfg.NVDKey),
-	}
-	if cfg.GitHubToken != "" {
-		matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(cfg.GitHubToken))
+	var matchers []matcher.Matcher
+	if !imageOpts.offline {
+		matchers = []matcher.Matcher{
+			matcher.NewOSVMatcher(),
+			matcher.NewNVDMatcher(cfg.NVDKey),
+		}
+		if cfg.GitHubToken != "" {
+			matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(cfg.GitHubToken))
+		}
 	}
 
 	s := imgscanner.NewScanner(imageRef, verbose, matchers)
@@ -84,7 +94,9 @@ func runScanImage(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	enrichDependencyCVSS(cmd.Context(), cfg, result.Vulnerabilities, verbose)
+	if !imageOpts.offline {
+		enrichDependencyCVSS(cmd.Context(), cfg, result.Vulnerabilities, verbose)
+	}
 
 	// Filter by severity (shared helper keeps validation consistent across commands)
 	if imageOpts.severity != "" {

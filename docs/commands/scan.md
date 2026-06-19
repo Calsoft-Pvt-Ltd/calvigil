@@ -48,6 +48,7 @@ calvigil scan [flags] <path>
 | `--verbose` | `-v` | `false` | Verbose output |
 | `--no-cache` | | `false` | Disable vulnerability cache |
 | `--cache-ttl` | | `24h` | Cache TTL duration |
+| `--offline` | | `false` | Avoid network calls; parse local inventory and run local checks only |
 
 ---
 
@@ -71,6 +72,14 @@ Shows detailed progress including:
 - Number of packages per ecosystem
 - Merge/normalization details
 - KEV enrichment results
+
+### Offline Inventory Mode
+
+```bash
+calvigil scan --offline --skip-ai --skip-semgrep --format json .
+```
+
+Use offline mode when you need deterministic local package inventory or report-format validation without calling vulnerability databases, package registries, KEV, CVSS enrichment, or integrity registries.
 
 ### Full Scan (Dependencies + AI)
 

@@ -92,7 +92,7 @@ func TestScanHelp(t *testing.T) {
 	for _, flag := range []string{
 		"--format", "--severity", "--skip-ai", "--skip-deps",
 		"--skip-semgrep", "--verify-integrity", "--no-cache",
-		"--check-licenses", "--provider",
+		"--check-licenses", "--provider", "--offline",
 	} {
 		if !strings.Contains(out, flag) {
 			t.Errorf("scan --help should mention %s", flag)
@@ -109,7 +109,7 @@ func TestScanInvalidPath(t *testing.T) {
 
 func TestScanInvalidFormat(t *testing.T) {
 	_, _, err := run(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "doesnotexist", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "doesnotexist", "--no-cache")
 	if err != nil {
 		t.Errorf("scan with unknown format should not crash: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestScanInvalidFormat(t *testing.T) {
 
 func TestScanDetectsMultiEcosystem(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
@@ -143,7 +143,7 @@ func TestScanDetectsMultiEcosystem(t *testing.T) {
 
 func TestScanCountsPackages(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
@@ -159,7 +159,7 @@ func TestScanCountsPackages(t *testing.T) {
 
 func TestOutputFormatJSON(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("JSON output should be valid JSON: %v", err)
@@ -173,7 +173,7 @@ func TestOutputFormatJSON(t *testing.T) {
 
 func TestOutputFormatSARIF(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "sarif", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "sarif", "--no-cache")
 	var sarif map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &sarif); err != nil {
 		t.Fatalf("SARIF output should be valid JSON: %v", err)
@@ -188,7 +188,7 @@ func TestOutputFormatSARIF(t *testing.T) {
 
 func TestOutputFormatCycloneDX(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "cyclonedx", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "cyclonedx", "--no-cache")
 	var cdx map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &cdx); err != nil {
 		t.Fatalf("CycloneDX output should be valid JSON: %v", err)
@@ -200,7 +200,7 @@ func TestOutputFormatCycloneDX(t *testing.T) {
 
 func TestOutputFormatOpenVEX(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "openvex", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "openvex", "--no-cache")
 	var vex map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &vex); err != nil {
 		t.Fatalf("OpenVEX output should be valid JSON: %v", err)
@@ -209,7 +209,7 @@ func TestOutputFormatOpenVEX(t *testing.T) {
 
 func TestOutputFormatSPDX(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "spdx", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "spdx", "--no-cache")
 	var spdx map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &spdx); err != nil {
 		t.Fatalf("SPDX output should be valid JSON: %v", err)
@@ -218,7 +218,7 @@ func TestOutputFormatSPDX(t *testing.T) {
 
 func TestOutputFormatTable(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "table", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "table", "--no-cache")
 	if !strings.Contains(out, "vulnerabilit") &&
 		!strings.Contains(out, "Scan Results") &&
 		!strings.Contains(out, "No vulnerabilities") {
@@ -229,7 +229,7 @@ func TestOutputFormatTable(t *testing.T) {
 func TestOutputToFile(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "output.json")
 	runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--output", tmp, "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--output", tmp, "--no-cache")
 
 	data, err := os.ReadFile(tmp)
 	if err != nil {
@@ -245,7 +245,7 @@ func TestOutputToFile(t *testing.T) {
 
 func TestSeverityFilterHigh(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--severity", "high", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--severity", "high", "--no-cache")
 
 	var result struct {
 		Vulnerabilities []struct {
@@ -265,7 +265,7 @@ func TestSeverityFilterHigh(t *testing.T) {
 
 func TestSeverityFilterCritical(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--severity", "critical", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--severity", "critical", "--no-cache")
 
 	var result struct {
 		Vulnerabilities []struct {
@@ -287,7 +287,7 @@ func TestSeverityFilterCritical(t *testing.T) {
 func TestPhantomDependencyDetection(t *testing.T) {
 	phantomDir := filepath.Join(testdataDir(), "phantom")
 	out := runOK(t, "scan", phantomDir,
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		ConsistencyIssues []struct {
@@ -316,7 +316,7 @@ func TestPhantomDependencyDetection(t *testing.T) {
 func TestPhantomTransitiveNotFlagged(t *testing.T) {
 	phantomDir := filepath.Join(testdataDir(), "phantom")
 	out := runOK(t, "scan", phantomDir,
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		ConsistencyIssues []struct {
@@ -340,7 +340,7 @@ func TestPhantomTransitiveNotFlagged(t *testing.T) {
 func TestIntegrityVerificationTableOutput(t *testing.T) {
 	phantomDir := filepath.Join(testdataDir(), "phantom")
 	stdout, _, _ := run(t, "scan", phantomDir,
-		"--skip-ai", "--skip-semgrep", "--verify-integrity", "--no-cache")
+		"--skip-deps", "--skip-ai", "--skip-semgrep", "--verify-integrity", "--no-cache")
 
 	if !strings.Contains(stdout, "Integrity") &&
 		!strings.Contains(stdout, "No vulnerabilities") {
@@ -351,7 +351,7 @@ func TestIntegrityVerificationTableOutput(t *testing.T) {
 
 func TestSkipDepsWithVerifyIntegrity(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-deps", "--skip-ai", "--skip-semgrep",
+		"--offline", "--skip-deps", "--skip-ai", "--skip-semgrep",
 		"--verify-integrity", "--format", "json", "--no-cache")
 
 	var result struct {
@@ -471,7 +471,7 @@ func TestIaCJSONStructure(t *testing.T) {
 // ── 8. License scanning ────────────────────────────────────────────────────
 
 func TestLicenseScanBasic(t *testing.T) {
-	out := runOK(t, "scan-license", testdataDir(), "--format", "json")
+	out := runOK(t, "scan-license", testdataDir(), "--offline", "--format", "json")
 
 	var result struct {
 		LicenseOnly   bool `json:"license_only"`
@@ -517,7 +517,7 @@ func TestConfigGetInvalidKey(t *testing.T) {
 
 func TestPURLsInJSON(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		Packages []struct {
@@ -545,7 +545,7 @@ func TestPURLsInJSON(t *testing.T) {
 
 func TestTransitiveDepsInJSON(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		Packages []struct {
@@ -577,7 +577,7 @@ func TestTransitiveDepsInJSON(t *testing.T) {
 
 func TestVulnerabilitySourceField(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		Vulnerabilities []struct {
@@ -603,7 +603,7 @@ func TestVulnerabilitySourceField(t *testing.T) {
 
 func TestVerboseOutput(t *testing.T) {
 	_, stderr, err := run(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "-v", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "-v", "--no-cache")
 	if err != nil {
 		t.Fatalf("scan failed: %v", err)
 	}
@@ -618,9 +618,9 @@ func TestVerboseOutput(t *testing.T) {
 
 func TestNoCacheFlag(t *testing.T) {
 	out1 := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json")
 	out2 := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var r1, r2 map[string]interface{}
 	if err := json.Unmarshal([]byte(out1), &r1); err != nil {
@@ -639,9 +639,9 @@ func TestNoCacheFlag(t *testing.T) {
 
 func TestDeterministicOutput(t *testing.T) {
 	out1 := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 	out2 := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var r1, r2 struct {
 		TotalPackages int      `json:"total_packages"`
@@ -664,7 +664,7 @@ func TestDeterministicOutput(t *testing.T) {
 
 func TestJSONOutputStructure(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		ProjectPath     string `json:"project_path"`
@@ -707,7 +707,7 @@ func TestJSONOutputStructure(t *testing.T) {
 
 func TestNpmIntegrityInPackages(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		Packages []struct {
@@ -732,7 +732,7 @@ func TestNpmIntegrityInPackages(t *testing.T) {
 
 func TestCargoChecksumInPackages(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--no-cache")
 
 	var result struct {
 		Packages []struct {
@@ -759,7 +759,7 @@ func TestCargoChecksumInPackages(t *testing.T) {
 
 func TestScanBinaryHelp(t *testing.T) {
 	out := runOK(t, "scan-binary", "--help")
-	for _, want := range []string{"--format", "--output", "--severity", "scan-binary"} {
+	for _, want := range []string{"--format", "--output", "--severity", "--offline", "scan-binary"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("scan-binary --help should mention %q", want)
 		}
@@ -776,7 +776,7 @@ func TestScanBinaryInvalidPath(t *testing.T) {
 func TestScanBinaryOnSelf(t *testing.T) {
 	// Scan the calvigil binary itself — it is a Go binary with embedded buildinfo
 	bin := ensureBinary(t)
-	out := runOK(t, "scan-binary", bin, "--format", "json")
+	out := runOK(t, "scan-binary", bin, "--offline", "--format", "json")
 
 	var result struct {
 		TotalPackages   int      `json:"total_packages"`
@@ -804,7 +804,7 @@ func TestScanBinaryOnSelf(t *testing.T) {
 
 func TestScanBinarySeverityFilter(t *testing.T) {
 	bin := ensureBinary(t)
-	out := runOK(t, "scan-binary", bin, "--format", "json", "--severity", "critical")
+	out := runOK(t, "scan-binary", bin, "--offline", "--format", "json", "--severity", "critical")
 
 	var result struct {
 		Vulnerabilities []struct {
@@ -824,7 +824,7 @@ func TestScanBinarySeverityFilter(t *testing.T) {
 func TestScanBinaryOutputToFile(t *testing.T) {
 	bin := ensureBinary(t)
 	tmp := filepath.Join(t.TempDir(), "binary-scan.json")
-	runOK(t, "scan-binary", bin, "--format", "json", "--output", tmp)
+	runOK(t, "scan-binary", bin, "--offline", "--format", "json", "--output", tmp)
 
 	data, err := os.ReadFile(tmp)
 	if err != nil {
@@ -838,7 +838,7 @@ func TestScanBinaryOutputToFile(t *testing.T) {
 
 func TestScanBinarySARIF(t *testing.T) {
 	bin := ensureBinary(t)
-	out := runOK(t, "scan-binary", bin, "--format", "sarif")
+	out := runOK(t, "scan-binary", bin, "--offline", "--format", "sarif")
 
 	var sarif map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &sarif); err != nil {
@@ -853,7 +853,7 @@ func TestScanBinarySARIF(t *testing.T) {
 
 func TestScanImageHelp(t *testing.T) {
 	out := runOK(t, "scan-image", "--help")
-	for _, want := range []string{"--format", "--output", "--severity", "scan-image", "syft"} {
+	for _, want := range []string{"--format", "--output", "--severity", "--offline", "scan-image", "syft"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("scan-image --help should mention %q", want)
 		}
@@ -869,7 +869,7 @@ func TestScanImageNoArgs(t *testing.T) {
 
 func TestScanImageRequiresSyft(t *testing.T) {
 	// If syft is not installed, the command should fail with a clear message
-	_, stderr, err := run(t, "scan-image", "alpine:3.18", "--format", "json")
+	_, stderr, err := run(t, "scan-image", "dir:"+testdataDir(), "--offline", "--format", "json")
 	if err != nil {
 		// Expected if syft is not installed
 		if strings.Contains(stderr, "syft") {
@@ -888,7 +888,7 @@ func TestScanImageRequiresSyft(t *testing.T) {
 // ── 20. scan-license additional coverage ────────────────────────────────────
 
 func TestLicenseScanRiskCopyleft(t *testing.T) {
-	out := runOK(t, "scan-license", testdataDir(), "--format", "json", "--risk", "copyleft")
+	out := runOK(t, "scan-license", testdataDir(), "--offline", "--format", "json", "--risk", "copyleft")
 
 	var result struct {
 		LicenseIssues []struct {
@@ -906,7 +906,7 @@ func TestLicenseScanRiskCopyleft(t *testing.T) {
 }
 
 func TestLicenseScanRiskUnknown(t *testing.T) {
-	out := runOK(t, "scan-license", testdataDir(), "--format", "json", "--risk", "unknown")
+	out := runOK(t, "scan-license", testdataDir(), "--offline", "--format", "json", "--risk", "unknown")
 
 	var result struct {
 		LicenseIssues []struct {
@@ -925,7 +925,7 @@ func TestLicenseScanRiskUnknown(t *testing.T) {
 
 func TestLicenseScanOutputToFile(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "licenses.json")
-	runOK(t, "scan-license", testdataDir(), "--format", "json", "--output", tmp)
+	runOK(t, "scan-license", testdataDir(), "--offline", "--format", "json", "--output", tmp)
 
 	data, err := os.ReadFile(tmp)
 	if err != nil {
@@ -948,7 +948,7 @@ func TestLicenseScanInvalidPath(t *testing.T) {
 
 func TestScanWithCheckLicenses(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--check-licenses", "--format", "json", "--no-cache")
+		"--offline", "--skip-ai", "--skip-semgrep", "--check-licenses", "--format", "json", "--no-cache")
 
 	var result struct {
 		LicenseIssues []interface{} `json:"license_issues"`
@@ -966,7 +966,7 @@ func TestScanWithCheckLicenses(t *testing.T) {
 
 func TestScanWithCacheTTL(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep", "--format", "json", "--cache-ttl", "1h")
+		"--offline", "--skip-ai", "--skip-semgrep", "--format", "json", "--cache-ttl", "1h")
 
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
@@ -1017,7 +1017,7 @@ func TestAIScanWithOllamaStub(t *testing.T) {
 	stub := startOllamaStub(t)
 
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-semgrep", "--skip-deps",
+		"--offline", "--skip-semgrep", "--skip-deps",
 		"--provider", "ollama",
 		"--ollama-url", stub.URL,
 		"--ollama-model", "stub-model",
@@ -1061,7 +1061,7 @@ func TestAIScanWithOllamaStubVerbose(t *testing.T) {
 	stub := startOllamaStub(t)
 
 	_, stderr, err := run(t, "scan", testdataDir(),
-		"--skip-semgrep", "--skip-deps",
+		"--offline", "--skip-semgrep", "--skip-deps",
 		"--provider", "ollama",
 		"--ollama-url", stub.URL,
 		"--ollama-model", "stub-model",
@@ -1079,7 +1079,7 @@ func TestAIScanWithOllamaStubVerbose(t *testing.T) {
 
 func TestAIScanSkipAIProducesNoAIFindings(t *testing.T) {
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-ai", "--skip-semgrep",
+		"--offline", "--skip-ai", "--skip-semgrep",
 		"--format", "json", "--no-cache")
 
 	var result struct {
@@ -1100,7 +1100,7 @@ func TestAIScanSkipAIProducesNoAIFindings(t *testing.T) {
 func TestAIScanProviderFlags(t *testing.T) {
 	// Verify --provider openai without a key degrades gracefully (no crash)
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-semgrep",
+		"--offline", "--skip-semgrep",
 		"--provider", "openai",
 		"--format", "json", "--no-cache")
 
@@ -1119,7 +1119,7 @@ func TestAIScanOllamaStubSARIF(t *testing.T) {
 	stub := startOllamaStub(t)
 
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-semgrep", "--skip-deps",
+		"--offline", "--skip-semgrep", "--skip-deps",
 		"--provider", "ollama",
 		"--ollama-url", stub.URL,
 		"--ollama-model", "stub-model",
@@ -1146,7 +1146,7 @@ func TestAIScanWithDepsAndOllamaStub(t *testing.T) {
 
 	// Full scan: deps + AI (no semgrep)
 	out := runOK(t, "scan", testdataDir(),
-		"--skip-semgrep",
+		"--offline", "--skip-semgrep",
 		"--provider", "ollama",
 		"--ollama-url", stub.URL,
 		"--ollama-model", "stub-model",

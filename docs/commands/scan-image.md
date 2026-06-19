@@ -43,6 +43,7 @@ curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -
 | `--format` | `-f` | `table` | Output format |
 | `--output` | `-o` | stdout | Output file path |
 | `--severity` | `-s` | all | Minimum severity filter |
+| `--offline` | | `false` | Extract image package inventory without vulnerability database calls |
 | `--verbose` | `-v` | `false` | Verbose output |
 
 ---
@@ -76,6 +77,12 @@ calvigil scan-image ghcr.io/myorg/myapp:v2.1.0
 
 ```bash
 calvigil scan-image --format json --output image-vulns.json python:3.12-slim
+```
+
+### Offline Inventory
+
+```bash
+calvigil scan-image --offline --format json dir:/path/to/rootfs
 ```
 
 ### Filter Critical Only

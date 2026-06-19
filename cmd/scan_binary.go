@@ -19,6 +19,7 @@ var scanBinaryOpts struct {
 	Format   string
 	Output   string
 	Severity string
+	Offline  bool
 }
 
 var scanBinaryCmd = &cobra.Command{
@@ -33,7 +34,10 @@ Supported binary types:
   - Python wheels/eggs — reads METADATA / PKG-INFO from .whl and .egg files
 
 The path can be a single file (e.g., a Go binary or a JAR) or a directory
-that will be walked recursively to discover scannable files.`,
+that will be walked recursively to discover scannable files.
+
+Use --offline to extract embedded dependency inventory without querying
+vulnerability databases.`,
 	Example: `  # Scan a single Go binary
   calvigil scan-binary ./bin/myapp
 
@@ -45,6 +49,9 @@ that will be walked recursively to discover scannable files.`,
 
   # Only report high and critical
   calvigil scan-binary ./bin/ --severity high
+
+  # Inventory embedded packages without network calls
+  calvigil scan-binary ./bin/myapp --offline --format json
 
   # Write HTML report
   calvigil scan-binary ./dist/ --format html --output report.html`,
@@ -58,6 +65,7 @@ func init() {
 	scanBinaryCmd.Flags().StringVarP(&scanBinaryOpts.Format, "format", "f", "table", "output format: table, json, sarif, cyclonedx, openvex, html, pdf")
 	scanBinaryCmd.Flags().StringVarP(&scanBinaryOpts.Output, "output", "o", "", "write output to file (default: stdout)")
 	scanBinaryCmd.Flags().StringVarP(&scanBinaryOpts.Severity, "severity", "s", "", "minimum severity to report: critical, high, medium, low")
+	scanBinaryCmd.Flags().BoolVar(&scanBinaryOpts.Offline, "offline", false, "extract embedded dependency inventory without network calls")
 }
 
 func runScanBinary(cmd *cobra.Command, args []string) error {
@@ -111,36 +119,43 @@ func runScanBinary(cmd *cobra.Command, args []string) error {
 		scanResult.Packages[i].EnsurePURL()
 	}
 
-	// Step 2: Build matchers
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	matchers := []matcher.Matcher{
-		matcher.NewOSVMatcher(),
-		matcher.NewNVDMatcher(cfg.NVDKey),
-	}
-	if cfg.GitHubToken != "" {
-		matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(cfg.GitHubToken))
-	} else if isVerbose {
-		fmt.Fprintf(os.Stderr, "   Skipping GitHub Advisory (no token configured)\n")
-	}
-
-	if isVerbose {
-		fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
-	}
-
 	// Use the command's context so Ctrl+C / SIGTERM cancels in-flight
 	// vulnerability database queries instead of hanging.
 	ctx := cmd.Context()
-	agg := matcher.NewAggregatedMatcher(matchers...)
-	agg.SetVerbose(isVerbose)
-	vulns, err := agg.Match(ctx, scanResult.Packages)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: matcher error: %v\n", err)
+	var vulns []models.Vulnerability
+	if scanBinaryOpts.Offline {
+		if isVerbose {
+			fmt.Fprintf(os.Stderr, "Skipping vulnerability databases (--offline)\n\n")
+		}
+	} else {
+		// Step 2: Build matchers
+		matchers := []matcher.Matcher{
+			matcher.NewOSVMatcher(),
+			matcher.NewNVDMatcher(cfg.NVDKey),
+		}
+		if cfg.GitHubToken != "" {
+			matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(cfg.GitHubToken))
+		} else if isVerbose {
+			fmt.Fprintf(os.Stderr, "   Skipping GitHub Advisory (no token configured)\n")
+		}
+
+		if isVerbose {
+			fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
+		}
+
+		agg := matcher.NewAggregatedMatcher(matchers...)
+		agg.SetVerbose(isVerbose)
+		vulns, err = agg.Match(ctx, scanResult.Packages)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: matcher error: %v\n", err)
+		}
+		enrichDependencyCVSS(ctx, cfg, vulns, isVerbose)
 	}
-	enrichDependencyCVSS(ctx, cfg, vulns, isVerbose)
 
 	if isVerbose {
 		fmt.Fprintf(os.Stderr, "   Found %d vulnerabilities\n\n", len(vulns))

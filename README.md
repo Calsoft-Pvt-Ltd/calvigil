@@ -474,12 +474,14 @@ Scan Flags:
       --check-licenses          Enable license compliance checking
       --no-cache                Disable vulnerability response caching
       --cache-ttl string        Cache TTL duration (default "24h")
+      --offline                 Avoid network calls; parse local inventory and local checks only
   -v, --verbose                 Enable verbose output
 
 Scan-Binary Flags:
   -f, --format string           Output format: table, json, sarif, cyclonedx, openvex, html, pdf (default "table")
   -o, --output string           Write output to file (default: stdout)
   -s, --severity string         Minimum severity: critical, high, medium, low
+      --offline                 Extract embedded dependency inventory without network calls
   -v, --verbose                 Enable verbose output
 
 Scan-IaC Flags:

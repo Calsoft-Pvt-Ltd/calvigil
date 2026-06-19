@@ -57,6 +57,8 @@ calvigil classifies every dependency license into one of three categories:
 
 Regular `calvigil scan --format json` also performs best-effort package license enrichment before reporting. `scan-license` is the focused workflow for license-only reports and compliance issue review.
 
+Use `--offline` when you want license classification from local manifest and lockfile metadata only. Offline mode skips package registry enrichment, so unresolved package licenses may remain `UNKNOWN`.
+
 ---
 
 ## Examples
@@ -71,6 +73,12 @@ calvigil scan-license .
 
 ```bash
 calvigil scan-license --format json --output licenses.json .
+```
+
+### Offline License Review
+
+```bash
+calvigil scan-license --offline --format json .
 ```
 
 ### Verbose (Shows Resolution Source)

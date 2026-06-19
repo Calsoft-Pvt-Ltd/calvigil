@@ -20,6 +20,7 @@ var licenseOpts struct {
 	format     string
 	outputFile string
 	risk       string // filter: copyleft, unknown, all
+	offline    bool
 }
 
 var scanLicenseCmd = &cobra.Command{
@@ -35,6 +36,8 @@ This is a lightweight, focused command that:
   4. Reports issues for copyleft and unknown licenses
 
 No API keys are required. No vulnerability databases are queried.
+Use --offline to skip package registry license enrichment and classify only
+the license metadata already present in local manifests and lockfiles.
 Use this when you only need to audit your dependency licenses.`,
 	Example: `  # Scan current directory
   calvigil scan-license
@@ -51,6 +54,9 @@ Use this when you only need to audit your dependency licenses.`,
   # Show only unknown/unresolved licenses
   calvigil scan-license --risk unknown
 
+  # Local license metadata only (no package registry calls)
+  calvigil scan-license --offline --format json
+
   # Write report to file
   calvigil scan-license --format json --output licenses.json`,
 	Args: cobra.MaximumNArgs(1),
@@ -63,6 +69,7 @@ func init() {
 	scanLicenseCmd.Flags().StringVarP(&licenseOpts.format, "format", "f", "table", "output format: table, json, html, pdf")
 	scanLicenseCmd.Flags().StringVarP(&licenseOpts.outputFile, "output", "o", "", "write output to file (default: stdout)")
 	scanLicenseCmd.Flags().StringVar(&licenseOpts.risk, "risk", "", "filter by risk level: copyleft, unknown (default: show all issues)")
+	scanLicenseCmd.Flags().BoolVar(&licenseOpts.offline, "offline", false, "skip package registry license enrichment")
 }
 
 func runScanLicense(cmd *cobra.Command, args []string) error {
@@ -155,10 +162,16 @@ func runScanLicense(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: Resolve licenses from package registries
-	if verbose {
+	if licenseOpts.offline {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "Skipping package registry license enrichment (--offline)\n")
+		}
+	} else if verbose {
 		fmt.Fprintf(os.Stderr, "Resolving licenses from package registries...\n")
 	}
-	license.ResolvePackages(ctx, allPackages, verbose)
+	if !licenseOpts.offline {
+		license.ResolvePackages(ctx, allPackages, verbose)
+	}
 
 	// Step 4: Check license compliance
 	issues := license.CheckPackages(allPackages)

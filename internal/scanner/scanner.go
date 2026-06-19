@@ -97,7 +97,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	if !s.opts.SkipDeps {
 		depVulns, allPackages, errs := s.scanDependencies(ctx, files)
 		result.TotalPackages = len(allPackages)
-		if len(allPackages) > 0 {
+		if len(allPackages) > 0 && !s.opts.Offline {
 			license.ResolvePackages(ctx, allPackages, s.opts.Verbose)
 		}
 		result.Packages = allPackages
@@ -128,13 +128,19 @@ func (s *Scanner) Run(ctx context.Context) error {
 	if len(result.Packages) > 0 {
 		// Lockfile integrity verification
 		if s.opts.VerifyIntegrity {
-			if s.opts.Verbose {
+			if s.opts.Offline {
+				if s.opts.Verbose {
+					fmt.Fprintf(os.Stderr, "Skipping lockfile integrity verification (--offline)\n")
+				}
+			} else if s.opts.Verbose {
 				fmt.Fprintf(os.Stderr, "Verifying lockfile integrity hashes...\n")
 			}
-			integrityIssues := parser.VerifyIntegrity(ctx, result.Packages, s.opts.Verbose)
-			result.IntegrityIssues = integrityIssues
-			if s.opts.Verbose {
-				fmt.Fprintf(os.Stderr, "   Found %d integrity issues\n\n", len(integrityIssues))
+			if !s.opts.Offline {
+				integrityIssues := parser.VerifyIntegrity(ctx, result.Packages, s.opts.Verbose)
+				result.IntegrityIssues = integrityIssues
+				if s.opts.Verbose {
+					fmt.Fprintf(os.Stderr, "   Found %d integrity issues\n\n", len(integrityIssues))
+				}
 			}
 		}
 
@@ -266,6 +272,13 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 
 	if len(allPackages) == 0 {
 		return nil, nil, errs
+	}
+
+	if s.opts.Offline {
+		if s.opts.Verbose {
+			fmt.Fprintf(os.Stderr, "Skipping vulnerability databases and registry enrichment (--offline)\n\n")
+		}
+		return nil, allPackages, errs
 	}
 
 	if s.opts.Verbose {

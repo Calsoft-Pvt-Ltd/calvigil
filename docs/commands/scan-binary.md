@@ -33,6 +33,7 @@ calvigil scan-binary [flags] <path>
 | `--format` | `-f` | `table` | Output format |
 | `--output` | `-o` | stdout | Output file path |
 | `--severity` | `-s` | all | Minimum severity filter |
+| `--offline` | | `false` | Extract embedded dependency inventory without vulnerability database calls |
 | `--verbose` | `-v` | `false` | Verbose output |
 
 ---
@@ -71,6 +72,12 @@ calvigil scan-binary ./target/application.jar
 
 ```bash
 calvigil scan-binary --format json --output binary-vulns.json ./bin/server
+```
+
+### Offline Inventory
+
+```bash
+calvigil scan-binary --offline --format json ./bin/server
 ```
 
 ---

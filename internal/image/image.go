@@ -63,6 +63,13 @@ func (s *Scanner) Scan(ctx context.Context) (*models.ScanResult, error) {
 	}
 
 	// Step 2: Match against vulnerability databases
+	if len(s.matchers) == 0 {
+		if s.verbose {
+			fmt.Fprintf(os.Stderr, "Skipping vulnerability databases (--offline)\n\n")
+		}
+		return s.result(pkgs, nil, start), nil
+	}
+
 	if s.verbose {
 		fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
 	}
@@ -78,6 +85,10 @@ func (s *Scanner) Scan(ctx context.Context) (*models.ScanResult, error) {
 		fmt.Fprintf(os.Stderr, "   Found %d vulnerabilities in %d packages\n\n", len(vulns), len(pkgs))
 	}
 
+	return s.result(pkgs, vulns, start), nil
+}
+
+func (s *Scanner) result(pkgs []models.Package, vulns []models.Vulnerability, start time.Time) *models.ScanResult {
 	// Collect unique ecosystems
 	ecoSet := make(map[models.Ecosystem]bool)
 	for _, p := range pkgs {
@@ -92,10 +103,11 @@ func (s *Scanner) Scan(ctx context.Context) (*models.ScanResult, error) {
 		ProjectPath:     "image:" + s.imageRef,
 		Ecosystems:      ecosystems,
 		TotalPackages:   len(pkgs),
+		Packages:        pkgs,
 		Vulnerabilities: vulns,
 		ScannedAt:       start,
 		Duration:        time.Since(start),
-	}, nil
+	}
 }
 
 // syftJSON represents the relevant portion of syft JSON output.
