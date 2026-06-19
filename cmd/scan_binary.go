@@ -119,11 +119,7 @@ func runScanBinary(cmd *cobra.Command, args []string) error {
 
 	matchers := []matcher.Matcher{
 		matcher.NewOSVMatcher(),
-	}
-	if cfg.NVDKey != "" {
-		matchers = append(matchers, matcher.NewNVDMatcher(cfg.NVDKey))
-	} else if isVerbose {
-		fmt.Fprintf(os.Stderr, "   Skipping NVD package search (no API key configured; exact CVE CVSS enrichment remains best-effort)\n")
+		matcher.NewNVDMatcher(cfg.NVDKey),
 	}
 	if cfg.GitHubToken != "" {
 		matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(cfg.GitHubToken))

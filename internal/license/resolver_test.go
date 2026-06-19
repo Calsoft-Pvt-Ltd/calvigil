@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,13 +57,64 @@ func TestResolvePyPI_WellKnownPackage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	lic := resolvePyPI(ctx, "requests")
+	lic := resolvePyPI(ctx, "requests", "")
 	if lic == "" {
 		t.Skip("PyPI API unreachable, skipping")
 	}
 	// requests is Apache-2.0
 	if lic != "Apache-2.0" && lic != "Apache 2.0" {
 		t.Logf("requests license: %q (may vary)", lic)
+	}
+}
+
+func TestResolvePyPI_ZstandardLicenseExpression(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	lic := resolvePyPI(ctx, "zstandard", "0.25.0")
+	if lic == "" {
+		t.Skip("PyPI API unreachable, skipping")
+	}
+	if lic != "BSD-3-Clause" {
+		t.Errorf("expected BSD-3-Clause for zstandard 0.25.0, got %q", lic)
+	}
+}
+
+func TestResolvePyPI_TiktokenFullLicenseText(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	lic := resolvePyPI(ctx, "tiktoken", "0.12.0")
+	if lic == "" {
+		t.Skip("PyPI API unreachable, skipping")
+	}
+	if lic != "MIT" {
+		t.Errorf("expected MIT for tiktoken 0.12.0, got %q", lic)
+	}
+}
+
+func TestResolvePyPI_PathspecMozillaClassifier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	lic := resolvePyPI(ctx, "pathspec", "")
+	if lic == "" {
+		t.Skip("PyPI API unreachable, skipping")
+	}
+	if lic != "MPL-2.0" {
+		t.Errorf("expected MPL-2.0 for pathspec, got %q", lic)
 	}
 }
 
@@ -179,9 +231,142 @@ func TestResolvePyPI_Mock(t *testing.T) {
 	defer ts.Close()
 
 	withMockClient(ts, func() {
-		lic := resolvePyPI(context.Background(), "requests")
+		lic := resolvePyPI(context.Background(), "requests", "")
 		if lic != "MIT" {
 			t.Errorf("resolvePyPI = %q, want MIT", lic)
+		}
+	})
+}
+
+func TestResolvePyPI_Mock_FullMITLicenseText(t *testing.T) {
+	fullMIT := `MIT License
+
+Copyright (c) 2022 Example
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"info": map[string]interface{}{
+				"license":            fullMIT,
+				"license_expression": nil,
+				"classifiers":        []string{},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolvePyPI(context.Background(), "tiktoken", "0.12.0")
+		if lic != "MIT" {
+			t.Errorf("resolvePyPI full MIT text = %q, want MIT", lic)
+		}
+	})
+}
+
+func TestResolvePyPI_Mock_LicenseExpression(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"info": map[string]interface{}{
+				"license":            nil,
+				"license_expression": "BSD-3-Clause",
+			},
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolvePyPI(context.Background(), "zstandard", "0.25.0")
+		if lic != "BSD-3-Clause" {
+			t.Errorf("resolvePyPI license_expression = %q, want BSD-3-Clause", lic)
+		}
+	})
+}
+
+func TestResolvePyPI_Mock_VersionFallbackToProjectEndpoint(t *testing.T) {
+	seenVersionEndpoint := false
+	seenProjectEndpoint := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/pypi/somepkg/1.0.0/json":
+			seenVersionEndpoint = true
+			w.WriteHeader(http.StatusNotFound)
+		case "/pypi/somepkg/json":
+			seenProjectEndpoint = true
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"info": map[string]interface{}{
+					"license_expression": "MIT",
+				},
+			})
+		default:
+			t.Fatalf("unexpected PyPI path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolvePyPI(context.Background(), "somepkg", "1.0.0")
+		if lic != "MIT" {
+			t.Errorf("resolvePyPI fallback = %q, want MIT", lic)
+		}
+	})
+	if !seenVersionEndpoint || !seenProjectEndpoint {
+		t.Fatalf("expected version and project endpoints, seen version=%t project=%t", seenVersionEndpoint, seenProjectEndpoint)
+	}
+}
+
+func TestResolvePyPI_Mock_ClassifierFallback(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"info": map[string]interface{}{
+				"license": "",
+				"classifiers": []string{
+					"Development Status :: 5 - Production/Stable",
+					"License :: OSI Approved :: Apache Software License",
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolvePyPI(context.Background(), "somepkg", "")
+		if lic != "Apache-2.0" {
+			t.Errorf("resolvePyPI classifier fallback = %q, want Apache-2.0", lic)
+		}
+	})
+}
+
+func TestResolvePyPI_Mock_MozillaClassifierFallback(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"info": map[string]interface{}{
+				"license": "",
+				"classifiers": []string{
+					"License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolvePyPI(context.Background(), "pathspec", "")
+		if lic != "MPL-2.0" {
+			t.Errorf("resolvePyPI Mozilla classifier fallback = %q, want MPL-2.0", lic)
 		}
 	})
 }
@@ -200,7 +385,7 @@ func TestResolvePyPI_Mock_LongLicense(t *testing.T) {
 	defer ts.Close()
 
 	withMockClient(ts, func() {
-		lic := resolvePyPI(context.Background(), "somepkg")
+		lic := resolvePyPI(context.Background(), "somepkg", "")
 		if lic != "" {
 			t.Errorf("long license should be ignored, got %q", lic)
 		}
@@ -219,7 +404,7 @@ func TestResolvePyPI_Mock_Unknown(t *testing.T) {
 	defer ts.Close()
 
 	withMockClient(ts, func() {
-		lic := resolvePyPI(context.Background(), "somepkg")
+		lic := resolvePyPI(context.Background(), "somepkg", "")
 		if lic != "" {
 			t.Errorf("UNKNOWN should be ignored, got %q", lic)
 		}
@@ -439,13 +624,18 @@ func TestResolveGo_Mock(t *testing.T) {
 
 func TestResolvePackages_GoReportedModules(t *testing.T) {
 	seen := map[string]bool{}
+	var seenMu sync.Mutex
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		escapedPath := r.URL.EscapedPath()
 		switch {
 		case strings.Contains(escapedPath, "github.com%2Fmodern-go%2Freflect2"):
+			seenMu.Lock()
 			seen["reflect2"] = true
+			seenMu.Unlock()
 		case strings.Contains(escapedPath, "gopkg.in%2Fini.v1"):
+			seenMu.Lock()
 			seen["ini"] = true
+			seenMu.Unlock()
 		default:
 			t.Fatalf("unexpected deps.dev path: %s", escapedPath)
 		}
@@ -469,6 +659,8 @@ func TestResolvePackages_GoReportedModules(t *testing.T) {
 		}
 	})
 
+	seenMu.Lock()
+	defer seenMu.Unlock()
 	if !seen["reflect2"] || !seen["ini"] {
 		t.Fatalf("expected both reported Go module paths to be queried, seen=%v", seen)
 	}

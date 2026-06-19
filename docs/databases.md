@@ -25,7 +25,7 @@ How calvigil queries, normalizes, and merges vulnerability data from multiple so
 |:---------|:---------:|:-----|:-----------|:-----|
 | **[OSV.dev](https://osv.dev)** | ✅ | None | Unlimited | Primary — batch queries, covers all ecosystems |
 | **[Sonatype OSS Index](https://ossindex.sonatype.org/)** | ❌ | Basic auth with existing/migrated token | 128 coords/request | Optional — PURL-based, all ecosystems |
-| **[NVD](https://nvd.nist.gov/)** | ❌ | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Optional keyword search; best-effort batched CVSS enrichment |
+| **[NVD](https://nvd.nist.gov/)** | ❌ | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Exact-CVE CVSS enrichment after primary matching |
 | **[GitHub Advisory](https://github.com/advisories)** | ❌ | Optional PAT | 60/hr (no token), 5000/hr (with token) | Supplementary — GHSA cross-references |
 | **[CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** | ✅ | None | Unlimited | Enrichment — flags actively exploited CVEs |
 
@@ -129,9 +129,10 @@ KEV enrichment is designed to never degrade scan results:
 ### NVD (National Vulnerability Database)
 
 - **API:** `GET https://services.nvd.nist.gov/rest/json/cves/2.0`
-- **Package matching:** By keyword (package name + version), capped to keep scans responsive
-- **CVSS enrichment:** Exact CVE lookup uses the `cveIds` batch parameter with resilient 10-ID requests, a 60s NVD request timeout, a bounded 3-minute enrichment budget, and a CalVigil User-Agent. Transient failures are retried with backoff, timed-out batches are split into smaller requests, partial successes are preserved, and CVE records are cached locally for 24 hours. This fills missing `score` and `severity` on findings that OSV/other sources already matched, without creating new findings. NVD/NIST primary CVSS is preferred; if NVD primary scoring is not yet provided, contributed CVSS from sources such as CISA-ADP is accepted as fallback.
-- **Rate limiting:** 5 requests/30s without key, 50 requests/30s with key
+- **Default scan role:** Package keyword search during dependency, image, and binary matching, plus exact CVE CVSS enrichment after OSV/OSS Index/GitHub Advisory/NVD matching.
+- **Package keyword search:** NVD does not provide package-version/PURL batch matching, so CalVigil queries `keywordSearch=<package>` for up to 20 unique package names per scan and keeps the path conservatively paced. Treat these results as an additional signal alongside package-aware sources such as OSV, OSS Index, and GitHub Advisory.
+- **CVSS enrichment:** Exact CVE lookup uses the `cveIds` batch parameter with resilient requests of up to 100 CVEs, a 2-minute NVD request timeout, a bounded 10-minute enrichment budget, controlled keyed parallelism, six-second request pacing, and a CalVigil User-Agent. Transient failures are retried with backoff, timed-out/503 batches are split down to smaller requests and then individual CVEs, partial successes are preserved, and CVE records are cached locally for 24 hours. This fills missing `score` and `severity` on findings that OSV/other sources already matched, without creating new findings. NVD/NIST primary CVSS is preferred; if NVD primary scoring is not yet provided, contributed CVSS from sources such as CISA-ADP is accepted as fallback.
+- **Rate limiting:** NVD publishes 5 requests/30s without a key and 50 requests/30s with a key; CalVigil deliberately uses conservative six-second pacing for CVE enrichment to reduce NVD `503` failures.
 - **API key:** Free — register at [nvd.nist.gov/developers](https://nvd.nist.gov/developers/request-an-api-key)
 
 ### GitHub Advisory Database
@@ -179,7 +180,8 @@ calvigil scan -v .
 🔎 Querying vulnerability databases...
    [OSV] Found 3 vulnerabilities
    [OSS-INDEX] Found 2 vulnerabilities
-   Skipping NVD package search (no API key configured; exact CVE CVSS enrichment remains best-effort)
+   [NVD] Found 1 vulnerability
+   NVD CVSS enrichment: filled 1 finding(s)
    Skipping GitHub Advisory (no token configured)
    Normalized and merged: 4 unique vulnerabilities (1 merged from multiple sources)
    [KEV] 1 vulnerability is known exploited

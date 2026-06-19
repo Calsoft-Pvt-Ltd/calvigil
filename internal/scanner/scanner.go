@@ -383,11 +383,7 @@ func (s *Scanner) dependencyMatchers() []matcher.Matcher {
 		fmt.Fprintf(os.Stderr, "   Skipping OSS Index (credentials not configured)\n")
 	}
 
-	if s.cfg.NVDKey != "" {
-		matchers = append(matchers, matcher.NewNVDMatcher(s.cfg.NVDKey))
-	} else if s.opts.Verbose {
-		fmt.Fprintf(os.Stderr, "   Skipping NVD package search (no API key configured; exact CVE CVSS enrichment remains best-effort)\n")
-	}
+	matchers = append(matchers, matcher.NewNVDMatcher(s.cfg.NVDKey))
 
 	if s.cfg.GitHubToken != "" {
 		matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(s.cfg.GitHubToken))

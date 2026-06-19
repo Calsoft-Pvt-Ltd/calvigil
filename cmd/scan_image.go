@@ -26,7 +26,8 @@ var scanImageCmd = &cobra.Command{
 	Long: `Scan a container image for security vulnerabilities.
 
 This command uses syft to extract an SBOM from the image and then queries
-vulnerability databases (OSV, NVD, GitHub Advisory) for known CVEs.
+vulnerability databases (OSV, NVD, GitHub Advisory) for known CVEs. NVD also
+runs after matching for exact CVE CVSS enrichment.
 
 Requires: syft (https://github.com/anchore/syft)
 
@@ -72,9 +73,7 @@ func runScanImage(cmd *cobra.Command, args []string) error {
 	// Build matchers
 	matchers := []matcher.Matcher{
 		matcher.NewOSVMatcher(),
-	}
-	if cfg.NVDKey != "" {
-		matchers = append(matchers, matcher.NewNVDMatcher(cfg.NVDKey))
+		matcher.NewNVDMatcher(cfg.NVDKey),
 	}
 	if cfg.GitHubToken != "" {
 		matchers = append(matchers, matcher.NewGitHubAdvisoryMatcher(cfg.GitHubToken))

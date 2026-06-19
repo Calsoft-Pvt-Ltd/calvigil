@@ -78,7 +78,7 @@ type Matcher interface {
 **Implementations:**
 - `OSVMatcher` — batch API, 1000 packages/request
 - `OSSIndexMatcher` — PURL-based, 128 coords/batch
-- `NVDMatcher` — keyword search with rate limiting
+- `NVDMatcher` — paced package keyword search plus exact-CVE CVSS enrichment
 - `GitHubAdvisoryMatcher` — ecosystem-based advisory lookup
 
 **Aggregation:**

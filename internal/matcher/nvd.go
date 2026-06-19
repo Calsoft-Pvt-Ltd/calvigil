@@ -18,11 +18,15 @@ import (
 )
 
 const nvdBaseURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-const nvdCVEEnrichmentBatchSize = 10
+const nvdCVEEnrichmentBatchSize = 100
 const nvdCVEEnrichmentSplitThreshold = 5
-const nvdCVEEnrichmentMaxAttempts = 2
-const nvdCVEEnrichmentTimeout = 60 * time.Second
-const nvdCVEEnrichmentBudget = 3 * time.Minute
+const nvdCVEEnrichmentMaxAttempts = 3
+const nvdCVEEnrichmentTimeout = 2 * time.Minute
+const nvdCVEEnrichmentBudget = 10 * time.Minute
+const nvdCVEEnrichmentPublicConcurrency = 1
+const nvdCVEEnrichmentKeyedConcurrency = 4
+const nvdCVEBackoffInitial = 5 * time.Second
+const nvdCVEBackoffMax = 30 * time.Second
 const nvdUserAgent = "calvigil/dev (+https://github.com/Calsoft-Pvt-Ltd/calvigil)"
 const nvdCVECacheSource = "nvd-cve-enrichment-v1"
 const nvdCVECacheTTL = 24 * time.Hour
@@ -40,6 +44,7 @@ type NVDMatcher struct {
 	rateLimitDelay time.Duration
 	cveCache       *cache.Cache
 	cveTimeout     time.Duration
+	cveBackoffBase time.Duration
 }
 
 // NewNVDMatcher creates a new NVD matcher. apiKey is optional but recommended for higher rate limits.
@@ -51,6 +56,7 @@ func NewNVDMatcher(apiKey string) *NVDMatcher {
 		rateLimitDelay: nvdRequestDelay(apiKey),
 		cveCache:       cache.New("", nvdCVECacheTTL),
 		cveTimeout:     nvdCVEEnrichmentTimeout,
+		cveBackoffBase: nvdCVEBackoffInitial,
 	}
 }
 
@@ -73,9 +79,21 @@ type NVDEnrichmentResult struct {
 	Requested int
 	Enriched  int
 	Batches   int
+	Workers   int
 	CacheHits int
 	Failed    int
 	Retries   int
+}
+
+type nvdCVEQueryStats struct {
+	Batches int
+	Retries int
+}
+
+type nvdCVEQueryResult struct {
+	records map[string]models.Vulnerability
+	stats   nvdCVEQueryStats
+	errs    []error
 }
 
 type nvdResponse struct {
@@ -146,8 +164,9 @@ func (m *NVDMatcher) Match(ctx context.Context, packages []models.Package) ([]mo
 		uniqueNames = uniqueNames[:20]
 	}
 
-	// NVD rate limits: 5 req/30s without key (~6s gap), 50 req/30s with key (~600ms gap).
-	// Dispatch sequentially with delay between sends to respect rate limits.
+	// Dispatch sequentially with a conservative delay between sends. NVD
+	// package keyword search has no batch API, so this path stays deliberately
+	// paced even when an API key is configured.
 	delay := nvdRequestDelay(m.apiKey)
 
 	type nvdResult struct {
@@ -263,18 +282,17 @@ func (m *NVDMatcher) EnrichCVSSByCVE(ctx context.Context, vulns []models.Vulnera
 
 	var errs []error
 	chunks := chunkStrings(missing, nvdCVEEnrichmentBatchSize)
-	firstRequest := true
-	for _, chunk := range chunks {
-		if err := workCtx.Err(); err != nil {
-			errs = append(errs, err)
-			break
-		}
-		batchRecords, batchErrs := m.queryCVEsAdaptive(workCtx, chunk, &result, &firstRequest)
-		for cveID, v := range batchRecords {
+	for _, batch := range m.queryCVEBatches(workCtx, chunks) {
+		result.Batches += batch.stats.Batches
+		result.Retries += batch.stats.Retries
+		for cveID, v := range batch.records {
 			records[cveID] = v
 			m.putCachedCVE(cveID, v)
 		}
-		errs = append(errs, batchErrs...)
+		errs = append(errs, batch.errs...)
+	}
+	if len(chunks) > 0 {
+		result.Workers = minInt(nvdCVEEnrichmentConcurrency(m.apiKey), len(chunks))
 	}
 
 	for _, cveID := range cveIDs {
@@ -309,10 +327,48 @@ func nvdEnrichmentContext(ctx context.Context) (context.Context, context.CancelF
 	return context.WithTimeout(ctx, nvdCVEEnrichmentBudget)
 }
 
-func (m *NVDMatcher) queryCVEsAdaptive(ctx context.Context, cveIDs []string, result *NVDEnrichmentResult, firstRequest *bool) (map[string]models.Vulnerability, []error) {
+func (m *NVDMatcher) queryCVEBatches(ctx context.Context, chunks [][]string) []nvdCVEQueryResult {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	workerCount := minInt(nvdCVEEnrichmentConcurrency(m.apiKey), len(chunks))
+	pacer := newNVDRequestPacer(m.rateLimitDelay)
+	jobs := make(chan []string, len(chunks))
+	results := make(chan nvdCVEQueryResult, len(chunks))
+
+	for _, chunk := range chunks {
+		jobs <- chunk
+	}
+	close(jobs)
+
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			defer wg.Done()
+			for chunk := range jobs {
+				records, stats, errs := m.queryCVEsAdaptive(ctx, chunk, pacer)
+				results <- nvdCVEQueryResult{records: records, stats: stats, errs: errs}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+
+	batches := make([]nvdCVEQueryResult, 0, len(chunks))
+	for result := range results {
+		batches = append(batches, result)
+	}
+	return batches
+}
+
+func (m *NVDMatcher) queryCVEsAdaptive(ctx context.Context, cveIDs []string, pacer *nvdRequestPacer) (map[string]models.Vulnerability, nvdCVEQueryStats, []error) {
 	records := make(map[string]models.Vulnerability, len(cveIDs))
+	var stats nvdCVEQueryStats
 	if len(cveIDs) == 0 {
-		return records, nil
+		return records, stats, nil
 	}
 
 	attempts := 1
@@ -322,11 +378,11 @@ func (m *NVDMatcher) queryCVEsAdaptive(ctx context.Context, cveIDs []string, res
 
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		if err := m.waitForCVERequest(ctx, firstRequest); err != nil {
-			return records, []error{err}
+		if err := pacer.Wait(ctx); err != nil {
+			return records, stats, []error{err}
 		}
 
-		result.Batches++
+		stats.Batches++
 		batchRecords, err := m.queryCVEs(ctx, cveIDs)
 		if err != nil {
 			lastErr = err
@@ -334,9 +390,9 @@ func (m *NVDMatcher) queryCVEsAdaptive(ctx context.Context, cveIDs []string, res
 				break
 			}
 			if attempt < attempts {
-				result.Retries++
-				if waitErr := waitNVDBackoff(ctx, err, attempt); waitErr != nil {
-					return records, []error{waitErr}
+				stats.Retries++
+				if waitErr := m.waitNVDBackoff(ctx, err, attempt); waitErr != nil {
+					return records, stats, []error{waitErr}
 				}
 			}
 			continue
@@ -344,45 +400,31 @@ func (m *NVDMatcher) queryCVEsAdaptive(ctx context.Context, cveIDs []string, res
 		for cveID, v := range batchRecords {
 			records[cveID] = v
 		}
-		return records, nil
+		return records, stats, nil
 	}
 
 	if lastErr == nil {
-		return records, nil
+		return records, stats, nil
 	}
-	if len(cveIDs) > nvdCVEEnrichmentSplitThreshold && isTransientNVDError(lastErr) {
-		if waitErr := waitNVDBackoff(ctx, lastErr, 1); waitErr != nil {
-			return records, []error{waitErr}
+	if len(cveIDs) > 1 && isTransientNVDError(lastErr) {
+		if waitErr := m.waitNVDBackoff(ctx, lastErr, attempts); waitErr != nil {
+			return records, stats, []error{waitErr}
 		}
 		mid := len(cveIDs) / 2
-		leftRecords, leftErrs := m.queryCVEsAdaptive(ctx, cveIDs[:mid], result, firstRequest)
-		rightRecords, rightErrs := m.queryCVEsAdaptive(ctx, cveIDs[mid:], result, firstRequest)
+		leftRecords, leftStats, leftErrs := m.queryCVEsAdaptive(ctx, cveIDs[:mid], pacer)
+		rightRecords, rightStats, rightErrs := m.queryCVEsAdaptive(ctx, cveIDs[mid:], pacer)
 		for cveID, v := range leftRecords {
 			records[cveID] = v
 		}
 		for cveID, v := range rightRecords {
 			records[cveID] = v
 		}
-		return records, append(leftErrs, rightErrs...)
+		stats.Batches += leftStats.Batches + rightStats.Batches
+		stats.Retries += leftStats.Retries + rightStats.Retries
+		return records, stats, append(leftErrs, rightErrs...)
 	}
 
-	return records, []error{lastErr}
-}
-
-func (m *NVDMatcher) waitForCVERequest(ctx context.Context, firstRequest *bool) error {
-	if firstRequest != nil && *firstRequest {
-		*firstRequest = false
-		return nil
-	}
-	if m.rateLimitDelay <= 0 {
-		return nil
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(m.rateLimitDelay):
-		return nil
-	}
+	return records, stats, []error{lastErr}
 }
 
 func (m *NVDMatcher) queryCVEs(ctx context.Context, cveIDs []string) (map[string]models.Vulnerability, error) {
@@ -486,21 +528,41 @@ func isTransientNVDError(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded)
 }
 
-func waitNVDBackoff(ctx context.Context, err error, attempt int) error {
-	delay := time.Duration(250*(1<<(attempt-1))) * time.Millisecond
+func (m *NVDMatcher) waitNVDBackoff(ctx context.Context, err error, attempt int) error {
+	delay := m.nvdBackoffDelay(err, attempt)
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (m *NVDMatcher) nvdBackoffDelay(err error, attempt int) time.Duration {
+	base := m.cveBackoffBase
+	if base < 0 {
+		return 0
+	}
+	if base == 0 {
+		base = nvdCVEBackoffInitial
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := base * time.Duration(1<<(attempt-1))
 	var statusErr *nvdStatusError
 	if errors.As(err, &statusErr) && statusErr.retryAfter > 0 {
 		delay = statusErr.retryAfter
 	}
-	if delay > 2*time.Second {
-		delay = 2 * time.Second
+	if delay > nvdCVEBackoffMax {
+		delay = nvdCVEBackoffMax
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(delay):
-		return nil
-	}
+	return delay
 }
 
 func parseRetryAfter(value string) time.Duration {
@@ -551,10 +613,63 @@ func (m *NVDMatcher) endpoint() string {
 }
 
 func nvdRequestDelay(apiKey string) time.Duration {
-	if apiKey != "" {
-		return 650 * time.Millisecond
-	}
+	// NVD publishes higher keyed rate limits, but also recommends clients keep
+	// requests paced. Use the conservative interval for reliability; CVE
+	// enrichment batches up to 100 IDs per request, so this is still efficient.
 	return 6 * time.Second
+}
+
+func nvdCVEEnrichmentConcurrency(apiKey string) int {
+	if apiKey != "" {
+		return nvdCVEEnrichmentKeyedConcurrency
+	}
+	return nvdCVEEnrichmentPublicConcurrency
+}
+
+type nvdRequestPacer struct {
+	delay time.Duration
+	mu    sync.Mutex
+	next  time.Time
+}
+
+func newNVDRequestPacer(delay time.Duration) *nvdRequestPacer {
+	return &nvdRequestPacer{delay: delay}
+}
+
+func (p *nvdRequestPacer) Wait(ctx context.Context) error {
+	if p == nil || p.delay <= 0 {
+		return nil
+	}
+
+	p.mu.Lock()
+	now := time.Now()
+	if p.next.IsZero() || p.next.Before(now) {
+		p.next = now.Add(p.delay)
+		p.mu.Unlock()
+		return nil
+	}
+	wait := time.Until(p.next)
+	p.next = p.next.Add(p.delay)
+	p.mu.Unlock()
+
+	if wait <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func nvdCVEToVulnerability(cve nvdCVE) models.Vulnerability {

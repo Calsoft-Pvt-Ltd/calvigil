@@ -51,7 +51,7 @@ calvigil classifies every dependency license into one of three categories:
 ## How It Works
 
 1. **Parse dependencies** — Same parser pipeline as `scan`
-2. **Resolve licenses** — Queries package registries (npm, PyPI, RubyGems, deps.dev) for declared licenses
+2. **Resolve licenses** — Queries package registries (npm, PyPI, RubyGems, deps.dev) for declared licenses. PyPI packages use version-specific JSON when possible and prefer `license_expression` before legacy license strings, normalized classifiers, or canonical full license text.
 3. **SPDX classification** — Maps license strings to SPDX identifiers
 4. **Risk categorization** — Groups into permissive/copyleft/unknown
 

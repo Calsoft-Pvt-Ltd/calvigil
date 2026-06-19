@@ -76,8 +76,8 @@ func TestDependencyMatchersSkipsOSSIndexWithoutCredentials(t *testing.T) {
 	}
 
 	got := matcherNames(s.dependencyMatchers())
-	if strings.Join(got, ",") != "osv" {
-		t.Fatalf("matchers = %v, want only osv", got)
+	if strings.Join(got, ",") != "osv,nvd" {
+		t.Fatalf("matchers = %v, want osv and nvd", got)
 	}
 }
 
@@ -88,8 +88,20 @@ func TestDependencyMatchersIncludesOSSIndexWithCredentials(t *testing.T) {
 	}
 
 	got := matcherNames(s.dependencyMatchers())
-	if strings.Join(got, ",") != "osv,oss-index" {
-		t.Fatalf("matchers = %v, want osv and oss-index", got)
+	if strings.Join(got, ",") != "osv,oss-index,nvd" {
+		t.Fatalf("matchers = %v, want osv, oss-index, and nvd", got)
+	}
+}
+
+func TestDependencyMatchersIncludesNVDPackageSearch(t *testing.T) {
+	s := &Scanner{
+		opts: models.ScanOptions{},
+		cfg:  &config.Config{NVDKey: "nvd-key", GitHubToken: "gh-token"},
+	}
+
+	got := matcherNames(s.dependencyMatchers())
+	if strings.Join(got, ",") != "osv,nvd,github-advisory" {
+		t.Fatalf("matchers = %v, want osv, nvd, and github-advisory", got)
 	}
 }
 

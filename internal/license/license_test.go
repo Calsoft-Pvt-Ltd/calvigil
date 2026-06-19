@@ -158,6 +158,7 @@ func TestClassify_LicenseAliases(t *testing.T) {
 		"LGPL", "LGPL 2.1", "LGPL V2.1", "LGPL 3", "LGPL V3",
 		"AGPL", "AGPL 3", "AGPL V3",
 		"MPL", "MPL 2", "MPL 2.0", "Mozilla Public License 2.0",
+		"Mozilla Public License 2.0 (MPL 2.0)",
 	}
 	for _, lic := range copyleftCases {
 		got := Classify(lic)

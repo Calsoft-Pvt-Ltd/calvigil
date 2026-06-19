@@ -171,7 +171,31 @@ func normalizeID(id string) string {
 	if canonical, ok := copyleftLower[lower]; ok {
 		return canonical
 	}
+	if canonical := normalizeParentheticalID(id); canonical != "" {
+		return canonical
+	}
 	return id
+}
+
+func normalizeParentheticalID(id string) string {
+	open := strings.LastIndex(id, "(")
+	close := strings.LastIndex(id, ")")
+	if open <= 0 || close <= open {
+		return ""
+	}
+
+	before := strings.TrimSpace(id[:open])
+	inside := strings.TrimSpace(id[open+1 : close])
+	for _, candidate := range []string{before, inside} {
+		if candidate == "" {
+			continue
+		}
+		normalized := normalizeID(candidate)
+		if permissiveLicenses[normalized] || copyleftLicenses[normalized] {
+			return normalized
+		}
+	}
+	return ""
 }
 
 // licenseAliases maps common non-SPDX license strings (lowercased) to their

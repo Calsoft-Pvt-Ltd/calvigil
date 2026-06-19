@@ -27,7 +27,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - CVE IDs preferred as the primary identifier (GHSA and ecosystem IDs become aliases)
   - Duplicate findings across databases are **merged**, not dropped — missing severity, CVSS score, or fix version is filled in from whichever source has it
   - OSV ecosystem advisories such as `GO-*` are enriched from their CVE alias when the ecosystem record omits CVSS data
-  - NVD exact-CVE enrichment uses resilient `cveIds` lookups with small batches, a 60s NVD request timeout, timeout split fallback, backoff, a CalVigil User-Agent, source-aware CVSS selection, and a 24h local CVE cache to fill missing CVSS scores on already-matched findings
+  - NVD exact-CVE enrichment uses resilient `cveIds` lookups with up to 100 CVEs per request, a 2-minute NVD request timeout, controlled keyed parallelism, six-second request pacing, timeout/503 split fallback, backoff, a CalVigil User-Agent, source-aware CVSS selection, and a 24h local CVE cache to fill missing CVSS scores on already-matched findings
   - Severity fallback chain (CVSS v3 → v4 → v2 vector → numeric score → source label) eliminates most `UNKNOWN` severities
 
 - **AI-Powered Code Analysis** — uses OpenAI GPT-4, local Ollama, or LM Studio models to detect OWASP Top 10 vulnerabilities:
@@ -48,7 +48,7 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
 - **License Compliance Scanning**:
   - Detect and classify licenses from package metadata (SPDX identifiers)
   - **Standalone `scan-license` command** — lightweight, no API keys or vuln DBs required
-  - **License resolver** queries deps.dev, PyPI, npm, and RubyGems registries for missing license data
+  - **License resolver** queries deps.dev, PyPI, npm, and RubyGems registries for missing license data; PyPI resolution prefers version-specific `license_expression` metadata, then legacy license fields, normalized classifiers, and canonical full license text
   - Regular JSON scans enrich package inventory licenses before reporting or Enterprise push
   - **SPDX compound expression support**: handles `OR` (most permissive), `AND` (most restrictive), and `WITH` (exception) clauses
   - Comprehensive SPDX license database (~480 permissive + ~130 copyleft identifiers)
@@ -136,10 +136,6 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - **C/C++** ⚙️: `conan.lock`
 
 - **Multiple Output Formats**: Terminal table, JSON, SARIF v2.1.0, CycloneDX v1.5, SPDX 2.3, OpenVEX v0.2.0, HTML, PDF
-
-## Manual Test Suite
-
-Release and user-acceptance validation is documented in the [Manual Test Suite](docs/MANUAL_TEST_SUITE.md). It covers every CLI command, configuration path, scanner mode, output format, Enterprise push workflow, and security regression check with step-by-step expected results.
 
 ## Installation
 

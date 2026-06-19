@@ -2,6 +2,9 @@
 title: Manual Test Suite
 layout: default
 nav_order: 9
+nav_exclude: true
+search_exclude: true
+published: false
 ---
 
 # Manual Test Suite
@@ -155,8 +158,8 @@ fixtures.
 | ID | Source | Steps | Expected result |
 |:---|:-------|:------|:----------------|
 | OSS-SRC-001 | OSV | Run a dependency scan with no optional credentials. | OSV queries execute because no credential is required. |
-| OSS-SRC-002 | NVD package search skipped | Unset `NVD_API_KEY` and config `nvd-key`; run verbose scan. | Log states NVD package search is skipped, while exact CVE CVSS enrichment remains best-effort. |
-| OSS-SRC-003 | NVD configured | Set `NVD_API_KEY` or `nvd-key`; run verbose scan. | NVD package search is attempted; rate-limit errors are handled gracefully. |
+| OSS-SRC-002 | NVD package search enabled | Run a verbose dependency scan with or without `NVD_API_KEY`. | Database list includes NVD. The NVD package search path queries up to 20 unique package names and preserves partial results if NVD is slow or unavailable. |
+| OSS-SRC-003 | NVD configured | Set `NVD_API_KEY` or `nvd-key`; run a scan that produces CVE findings with missing scores. | NVD package keyword search runs during matching, then exact CVE enrichment uses `cveIds`, fills missing scores where NVD has metrics, and handles NVD rate-limit/timeout errors gracefully. |
 | OSS-SRC-004 | GitHub Advisory skipped | Unset `GITHUB_TOKEN`; run verbose scan. | Log states GitHub Advisory is skipped. |
 | OSS-SRC-005 | GitHub Advisory configured | Set `GITHUB_TOKEN`; run scan. | GitHub Advisory data is decoded without type errors. |
 | OSS-SRC-006 | OSS Index skipped | Unset `OSSINDEX_USER` and `OSSINDEX_TOKEN`; run verbose scan. | Log states OSS Index is skipped. |
@@ -164,7 +167,7 @@ fixtures.
 | OSS-SRC-008 | Canonical merge | Scan a fixture with overlapping CVE/GHSA results from multiple sources. | Duplicate records merge into one canonical vulnerability with aliases. |
 | OSS-SRC-009 | Severity fallback | Inspect JSON for findings with score/vector data. | Severity is normalized to CRITICAL/HIGH/MEDIUM/LOW where possible. |
 | OSS-SRC-010 | OSV alias severity enrichment | Scan a Go project with a `GO-*` advisory that aliases a CVE with CVSS data, for example `CVE-2025-47911`. | JSON shows the canonical CVE with OSV as source and populated `score`/severity even if NVD is unavailable. |
-| OSS-SRC-011 | NVD CVE batch enrichment | Scan a project that reports OSV CVE findings with missing scores, for example vulnerable Go modules. | Verbose output reports `NVD CVSS enrichment`; JSON findings have NVD-filled `score` and severity while preserving the original match source. Slow NVD responses can wait up to 45s per request within a bounded 2-minute enrichment budget; output may include cache/retry/unavailable detail while keeping partial successes. |
+| OSS-SRC-011 | NVD CVE batch enrichment | Scan a project that reports OSV CVE findings with missing scores, for example vulnerable Go modules. | Verbose output reports `NVD CVSS enrichment`; JSON findings have NVD-filled `score` and severity while preserving the original match source. Slow NVD responses can wait up to 2 minutes per request within a bounded 10-minute enrichment budget; output may include cache/retry/unavailable detail while keeping partial successes. |
 | OSS-SRC-012 | CISA KEV enrichment | Scan data containing a known exploited CVE, or use a controlled fixture. | Finding has `known_exploited` set and is visible in table/HTML output. |
 
 ## AI Code Analysis

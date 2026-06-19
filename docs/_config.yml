@@ -58,6 +58,7 @@ plugins:
 exclude:
   - HLD.md
   - LLD.md
+  - MANUAL_TEST_SUITE.md
   - KNOWLEDGE_GRAPH.json
   - KNOWLEDGE_GRAPH.md
   - Gemfile

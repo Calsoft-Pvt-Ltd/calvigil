@@ -92,7 +92,7 @@ func resolveOne(ctx context.Context, pkg models.Package) string {
 	case models.EcosystemGo:
 		return resolveGo(ctx, pkg.Name, pkg.Version)
 	case models.EcosystemPyPI:
-		return resolvePyPI(ctx, pkg.Name)
+		return resolvePyPI(ctx, pkg.Name, pkg.Version)
 	case models.EcosystemNpm:
 		return resolveNpm(ctx, pkg.Name, pkg.Version)
 	case models.EcosystemMaven:
@@ -123,9 +123,22 @@ func resolveGo(ctx context.Context, name, version string) string {
 }
 
 // resolvePyPI queries the PyPI JSON API for license info.
-func resolvePyPI(ctx context.Context, name string) string {
-	url := fmt.Sprintf("https://pypi.org/pypi/%s/json", urlPathEscape(name))
+func resolvePyPI(ctx context.Context, name, version string) string {
+	if name == "" {
+		return ""
+	}
+	if version != "" {
+		url := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", urlPathEscape(name), urlPathEscape(version))
+		if lic := queryPyPILicense(ctx, url); lic != "" {
+			return lic
+		}
+	}
 
+	url := fmt.Sprintf("https://pypi.org/pypi/%s/json", urlPathEscape(name))
+	return queryPyPILicense(ctx, url)
+}
+
+func queryPyPILicense(ctx context.Context, url string) string {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return ""
@@ -144,19 +157,99 @@ func resolvePyPI(ctx context.Context, name string) string {
 
 	var result struct {
 		Info struct {
-			License string `json:"license"`
+			License           string   `json:"license"`
+			LicenseExpression string   `json:"license_expression"`
+			Classifiers       []string `json:"classifiers"`
 		} `json:"info"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return ""
 	}
 
-	lic := strings.TrimSpace(result.Info.License)
-	// PyPI sometimes returns long license text instead of SPDX ID; skip those
-	if len(lic) > 60 || lic == "" || lic == "UNKNOWN" {
+	if lic := cleanPyPILicenseExpression(result.Info.LicenseExpression); lic != "" {
+		return lic
+	}
+	if lic := cleanRegistryLicense(result.Info.License); lic != "" {
+		return lic
+	}
+	return licenseFromPyPIClassifiers(result.Info.Classifiers)
+}
+
+func cleanPyPILicenseExpression(lic string) string {
+	lic = strings.TrimSpace(lic)
+	if isUnknownLicenseValue(lic) {
 		return ""
 	}
 	return lic
+}
+
+func cleanRegistryLicense(lic string) string {
+	lic = strings.TrimSpace(lic)
+	if isUnknownLicenseValue(lic) {
+		return ""
+	}
+	if known := licenseFromKnownText(lic); known != "" {
+		return known
+	}
+	// PyPI's legacy license field sometimes contains full license text instead
+	// of an SPDX identifier. Keep that out of compliance classification and
+	// prefer structured license_expression/classifiers instead unless the text
+	// matches a known canonical license.
+	if len(lic) > 60 {
+		return ""
+	}
+	return lic
+}
+
+func isUnknownLicenseValue(lic string) bool {
+	switch strings.ToUpper(strings.TrimSpace(lic)) {
+	case "", "UNKNOWN", "UNKNOWN LICENSE", "N/A", "NONE":
+		return true
+	default:
+		return false
+	}
+}
+
+func licenseFromPyPIClassifiers(classifiers []string) string {
+	for _, classifier := range classifiers {
+		parts := strings.Split(classifier, "::")
+		if len(parts) < 2 || strings.TrimSpace(parts[0]) != "License" {
+			continue
+		}
+		lic := strings.TrimSpace(parts[len(parts)-1])
+		if isUnknownLicenseValue(lic) ||
+			strings.EqualFold(lic, "Other/Proprietary License") ||
+			strings.EqualFold(lic, "Public Domain") {
+			continue
+		}
+		normalized := normalizeID(lic)
+		if Classify(normalized) != models.LicenseUnknown {
+			return normalized
+		}
+	}
+	return ""
+}
+
+func licenseFromKnownText(text string) string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	isBSD := strings.Contains(normalized, "redistribution and use in source and binary forms") &&
+		strings.Contains(normalized, "are permitted provided that the following conditions are met")
+	switch {
+	case strings.Contains(normalized, "permission is hereby granted, free of charge, to any person obtaining a copy") &&
+		strings.Contains(normalized, `the software is provided "as is"`):
+		return "MIT"
+	case strings.Contains(normalized, "apache license version 2.0") &&
+		strings.Contains(normalized, "http://www.apache.org/licenses/license-2.0"):
+		return "Apache-2.0"
+	case isBSD && strings.Contains(normalized, "advertising materials"):
+		return ""
+	case isBSD && strings.Contains(normalized, "neither the name of"):
+		return "BSD-3-Clause"
+	case isBSD:
+		return "BSD-2-Clause"
+	default:
+		return ""
+	}
 }
 
 // resolveNpm queries the npm registry for license info.

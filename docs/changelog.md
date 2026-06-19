@@ -23,8 +23,10 @@ All notable changes to calvigil are documented here.
   - `--evaluate-only` checks policy without storing the scan.
 - Enterprise config keys: `enterprise-url`, `enterprise-key`; env vars:
   `CALVIGIL_ENTERPRISE_URL`, `CALVIGIL_API_KEY`, and `CALVIGIL_ENTERPRISE_API_KEY`.
-- NVD CVSS enrichment for already-matched CVEs:
-  - Uses the NVD `cveIds` batch parameter with resilient 10-ID requests, a 45s request timeout, a 2-minute enrichment budget, and a CalVigil User-Agent.
+- NVD package search and CVSS enrichment:
+  - Uses the NVD `cveIds` batch parameter with resilient requests of up to 100 CVEs, a 2-minute request timeout, a 10-minute enrichment budget, controlled keyed parallelism, six-second request pacing, and a CalVigil User-Agent.
+  - Splits timeout/503 CVE batches down to individual CVE lookups so a failing multi-CVE request does not discard recoverable records.
+  - Default dependency, image, and binary scans call NVD package `keywordSearch` again, capped at 20 unique package names and conservatively paced.
   - Retries transient NVD failures with backoff, splits timed-out batches into smaller requests, preserves partial results, and caches CVE enrichment records locally for 24 hours.
   - Prefers NVD/NIST primary CVSS metrics and falls back to contributed secondary metrics such as CISA-ADP when NVD primary scoring is not yet provided.
   - Fills missing `score` and `severity` on OSV/other-source findings while preserving the original match source.
@@ -109,6 +111,7 @@ All notable changes to calvigil are documented here.
 - Semgrep CE integration with bundled OWASP Top 10 and language-specific rule packs
 - Pattern rules SEC-001 through SEC-012
 - License compliance scanning with SPDX classification
+- PyPI license resolution now reads version-specific `license_expression` metadata before legacy license fields, normalizes PyPI classifiers, and recognizes canonical full license text, fixing packages such as `pkg:pypi/zstandard@0.25.0`, `pkg:pypi/tiktoken@0.12.0`, and `pkg:pypi/pathspec@1.1.1` that otherwise appeared as unknown.
 - Output formats: Table, JSON, SARIF, CycloneDX, OpenVEX, HTML, PDF
 - PURL generation for all packages
 - Transitive dependency classification

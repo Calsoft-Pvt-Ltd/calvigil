@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,14 +35,31 @@ func TestNVDMatcher_NameReturnsNVD(t *testing.T) {
 }
 
 func TestNVDMatcher_DefaultTimeoutsCoverSlowResponses(t *testing.T) {
-	if nvdCVEEnrichmentTimeout <= 30*time.Second {
-		t.Fatalf("nvdCVEEnrichmentTimeout = %s, want above observed 30s NVD responses", nvdCVEEnrichmentTimeout)
+	if nvdCVEEnrichmentTimeout != 2*time.Minute {
+		t.Fatalf("nvdCVEEnrichmentTimeout = %s, want 2m", nvdCVEEnrichmentTimeout)
 	}
 	if nvdHTTPClient.Timeout != nvdCVEEnrichmentTimeout {
 		t.Fatalf("nvdHTTPClient.Timeout = %s, want %s", nvdHTTPClient.Timeout, nvdCVEEnrichmentTimeout)
 	}
-	if nvdCVEEnrichmentBudget < 2*nvdCVEEnrichmentTimeout {
-		t.Fatalf("nvdCVEEnrichmentBudget = %s, want enough room for more than one slow batch", nvdCVEEnrichmentBudget)
+	if nvdCVEEnrichmentBudget != 10*time.Minute {
+		t.Fatalf("nvdCVEEnrichmentBudget = %s, want 10m", nvdCVEEnrichmentBudget)
+	}
+}
+
+func TestNVDMatcher_CVEEnrichmentConcurrency(t *testing.T) {
+	if got := nvdCVEEnrichmentConcurrency(""); got != 1 {
+		t.Fatalf("public concurrency = %d, want 1", got)
+	}
+	if got := nvdCVEEnrichmentConcurrency("test-key"); got != nvdCVEEnrichmentKeyedConcurrency {
+		t.Fatalf("keyed concurrency = %d, want %d", got, nvdCVEEnrichmentKeyedConcurrency)
+	}
+}
+
+func TestNVDMatcher_RequestDelayUsesConservativePacing(t *testing.T) {
+	for _, apiKey := range []string{"", "test-key"} {
+		if got := nvdRequestDelay(apiKey); got != 6*time.Second {
+			t.Fatalf("nvdRequestDelay(%q) = %s, want conservative 6s pacing", apiKey, got)
+		}
 	}
 }
 
@@ -459,11 +477,14 @@ func TestNVDMatcher_EnrichCVSSByCVE_SkipsCompleteFindings(t *testing.T) {
 	}
 }
 
-func TestNVDMatcher_EnrichCVSSByCVE_UsesSmallBatches(t *testing.T) {
+func TestNVDMatcher_EnrichCVSSByCVE_BatchesUpTo100IDs(t *testing.T) {
 	var calls int
 	var batchSizes []int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		if got := r.URL.Query().Get("keywordSearch"); got != "" {
+			t.Fatalf("keywordSearch = %q, want exact cveIds enrichment", got)
+		}
 		ids := strings.Split(r.URL.Query().Get("cveIds"), ",")
 		batchSizes = append(batchSizes, len(ids))
 
@@ -499,17 +520,139 @@ func TestNVDMatcher_EnrichCVSSByCVE_UsesSmallBatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
 	}
-	if calls != 11 {
-		t.Fatalf("NVD calls = %d, want 11 small batched calls", calls)
+	if calls != 2 {
+		t.Fatalf("NVD calls = %d, want 2 batched calls", calls)
 	}
-	if len(batchSizes) != 11 || batchSizes[0] != 10 || batchSizes[10] != 1 {
-		t.Fatalf("batch sizes = %v, want ten 10-id batches plus one 1-id batch", batchSizes)
+	if len(batchSizes) != 2 || batchSizes[0] != 100 || batchSizes[1] != 1 {
+		t.Fatalf("batch sizes = %v, want [100 1]", batchSizes)
 	}
-	if result.Requested != 101 || result.Batches != 11 || result.Enriched != 101 {
-		t.Fatalf("result = %+v, want requested=101 batches=11 enriched=101", result)
+	if result.Requested != 101 || result.Batches != 2 || result.Enriched != 101 {
+		t.Fatalf("result = %+v, want requested=101 batches=2 enriched=101", result)
 	}
 	if vulns[100].Score != 5.3 || vulns[100].Severity != models.SeverityMedium {
 		t.Fatalf("last vuln = score %v severity %q, want 5.3 MEDIUM", vulns[100].Score, vulns[100].Severity)
+	}
+}
+
+func TestNVDMatcher_EnrichCVSSByCVE_UsesKeyedParallelism(t *testing.T) {
+	var active int32
+	var maxActive int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := atomic.AddInt32(&active, 1)
+		for {
+			seen := atomic.LoadInt32(&maxActive)
+			if current <= seen || atomic.CompareAndSwapInt32(&maxActive, seen, current) {
+				break
+			}
+		}
+		defer atomic.AddInt32(&active, -1)
+		time.Sleep(25 * time.Millisecond)
+
+		ids := strings.Split(r.URL.Query().Get("cveIds"), ",")
+		resp := nvdResponse{}
+		for _, id := range ids {
+			resp.Vulnerabilities = append(resp.Vulnerabilities, nvdVulnWrapper{
+				CVE: nvdCVE{
+					ID: id,
+					Metrics: nvdMetrics{
+						CvssMetricV31: []nvdCvssMetric{
+							{CvssData: nvdCvssData{BaseScore: 7.4, BaseSeverity: "HIGH"}},
+						},
+					},
+				},
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	m := &NVDMatcher{
+		client:         ts.Client(),
+		apiKey:         "test-key",
+		baseURL:        ts.URL,
+		rateLimitDelay: 0,
+	}
+	vulns := make([]models.Vulnerability, 250)
+	for i := range vulns {
+		vulns[i] = models.Vulnerability{
+			ID:       fmt.Sprintf("CVE-2026-8%03d", i+1),
+			Severity: models.SeverityUnknown,
+			Source:   models.SourceOSV,
+		}
+	}
+
+	result, err := m.EnrichCVSSByCVE(context.Background(), vulns)
+	if err != nil {
+		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
+	}
+	if result.Workers != 3 {
+		t.Fatalf("workers = %d, want 3 workers for three CVE batches", result.Workers)
+	}
+	if atomic.LoadInt32(&maxActive) < 2 {
+		t.Fatalf("max concurrent requests = %d, want keyed enrichment to run more than one request concurrently", maxActive)
+	}
+	if result.Requested != 250 || result.Batches != 3 || result.Enriched != 250 {
+		t.Fatalf("result = %+v, want requested=250 batches=3 enriched=250", result)
+	}
+}
+
+func TestNVDMatcher_EnrichCVSSByCVE_SplitsSmall503Batch(t *testing.T) {
+	var multiCalls int
+	var singleCalls int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ids := strings.Split(r.URL.Query().Get("cveIds"), ",")
+		if len(ids) > 1 {
+			multiCalls++
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		singleCalls++
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(nvdResponse{
+			Vulnerabilities: []nvdVulnWrapper{{
+				CVE: nvdCVE{
+					ID: ids[0],
+					Metrics: nvdMetrics{
+						CvssMetricV31: []nvdCvssMetric{
+							{CvssData: nvdCvssData{BaseScore: 8.8, BaseSeverity: "HIGH"}},
+						},
+					},
+				},
+			}},
+		})
+	}))
+	defer ts.Close()
+
+	m := &NVDMatcher{
+		client:         ts.Client(),
+		baseURL:        ts.URL,
+		rateLimitDelay: 0,
+		cveBackoffBase: -1,
+	}
+	vulns := []models.Vulnerability{
+		{ID: "CVE-2026-9001", Severity: models.SeverityUnknown, Source: models.SourceOSV},
+		{ID: "CVE-2026-9002", Severity: models.SeverityUnknown, Source: models.SourceOSV},
+		{ID: "CVE-2026-9003", Severity: models.SeverityUnknown, Source: models.SourceOSV},
+	}
+
+	result, err := m.EnrichCVSSByCVE(context.Background(), vulns)
+	if err != nil {
+		t.Fatalf("EnrichCVSSByCVE() error: %v", err)
+	}
+	if multiCalls == 0 {
+		t.Fatal("expected at least one failed multi-CVE batch before split fallback")
+	}
+	if singleCalls != 3 {
+		t.Fatalf("single CVE calls = %d, want 3", singleCalls)
+	}
+	if result.Enriched != 3 || result.Failed != 0 {
+		t.Fatalf("result = %+v, want all 3 enriched after split fallback", result)
+	}
+	for _, vuln := range vulns {
+		if vuln.Score != 8.8 || vuln.Severity != models.SeverityHigh {
+			t.Fatalf("%s = score %v severity %q, want 8.8 HIGH", vuln.ID, vuln.Score, vuln.Severity)
+		}
 	}
 }
 
@@ -548,6 +691,7 @@ func TestNVDMatcher_EnrichCVSSByCVE_SplitsTimedOutBatch(t *testing.T) {
 		baseURL:        ts.URL,
 		rateLimitDelay: 0,
 		cveTimeout:     10 * time.Millisecond,
+		cveBackoffBase: -1,
 	}
 	vulns := make([]models.Vulnerability, 10)
 	for i := range vulns {
@@ -601,7 +745,7 @@ func TestNVDMatcher_EnrichCVSSByCVE_RetriesTransientStatus(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	m := &NVDMatcher{client: ts.Client(), baseURL: ts.URL, rateLimitDelay: 0}
+	m := &NVDMatcher{client: ts.Client(), baseURL: ts.URL, rateLimitDelay: 0, cveBackoffBase: -1}
 	vulns := []models.Vulnerability{{
 		ID:       "CVE-2026-7001",
 		Severity: models.SeverityUnknown,

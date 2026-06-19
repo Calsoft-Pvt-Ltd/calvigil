@@ -390,8 +390,8 @@ calvigil
 3. Build matcher list:
    - Always: `matcher.NewOSVMatcher()`
    - If OSS Index user and token: `matcher.NewOSSIndexMatcher(user, token)`
-   - If NVD key: `matcher.NewNVDMatcher(key)`
    - If GitHub token: `matcher.NewGitHubAdvisoryMatcher(token)`
+   - NVD is not used for package keyword search in the default path; exact CVE enrichment runs after matching.
 4. Create `image.NewScanner(imageRef, verbose, matchers)`
 5. Run `scanner.Scan(ctx)` → get `ScanResult`
 6. Filter by severity
@@ -811,21 +811,20 @@ func (m *NVDMatcher) EnrichCVSSByCVE(ctx context.Context, vulns []models.Vulnera
 **API:**
 | Method | Endpoint |
 |--------|---------|
-| Search | `GET https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=<pkg>&resultsPerPage=10` |
+| Package search helper | `GET https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=<pkg>&resultsPerPage=10` |
 | Exact CVE enrichment | `GET https://services.nvd.nist.gov/rest/json/cves/2.0?cveIds=<CVE-1>,<CVE-2>,...` |
 
 **Rate Limiting:**
-- Without API key: 5 requests per 30 seconds (6-second delay between requests)
-- With API key: 50 requests per 30 seconds (~650 ms delay between requests)
-- Package keyword search is capped at 20 unique package names per scan to prevent long scans
-- Exact CVE CVSS enrichment uses resilient 10-ID batches, a 60s NVD request timeout, a bounded 3-minute enrichment budget, transient-error backoff, timed-out batch splitting, partial-result preservation, a CalVigil User-Agent, source-aware CVSS selection, and a 24h local CVE cache
+- NVD publishes 5 requests per 30 seconds without an API key and 50 requests per 30 seconds with an API key.
+- CalVigil still paces NVD CVE enrichment request starts by six seconds for reliability, because NVD can return fast `503` edge/service failures even when under the keyed rolling limit.
+- Package keyword search is enabled in default dependency, image, and binary scan paths, capped at 20 unique package-name queries, and paced conservatively because NVD does not provide a package batch API.
+- Exact CVE CVSS enrichment uses resilient 100-ID `cveIds` batches, a 2-minute NVD request timeout, a bounded 10-minute enrichment budget, controlled keyed parallelism, transient-error backoff, timed-out/503 batch splitting down to single CVEs, partial-result preservation, a CalVigil User-Agent, source-aware CVSS selection, and a 24h local CVE cache
 
 **Algorithm:**
-1. For package search, send keyword queries for up to 20 unique package names and map returned CVEs with `Source: SourceNVD`.
-2. After source aggregation, collect CVE IDs from findings that have missing `score` or `UNKNOWN`/empty severity.
-3. Query NVD by batched `cveIds` chunks of 10 IDs with a 60s NVD request timeout; on timeout or transient NVD failure, retry/back off and split the batch before preserving any partial successes.
-4. Parse CVSS metrics in priority order: v3.1, v3.0, v4.0, then v2. Within each CVSS version, prefer NVD/NIST primary metrics; if primary scoring is absent or N/A, fall back to contributed secondary metrics such as CISA-ADP.
-5. Fill only missing fields (`score`, `severity`, summary, published date, references) on already-matched findings; do not create new findings or overwrite the original match source.
+1. After source aggregation, collect CVE IDs from findings that have missing `score` or `UNKNOWN`/empty severity.
+2. Query NVD by batched exact `cveIds` chunks of up to 100 IDs with a 2-minute NVD request timeout. Public mode runs serially; API-key mode uses a small worker pool while pacing request starts by six seconds. On timeout, `503`, `429`, or other transient NVD failure, retry with exponential backoff and split the batch down to individual CVEs before preserving any partial successes.
+3. Parse CVSS metrics in priority order: v3.1, v3.0, v4.0, then v2. Within each CVSS version, prefer NVD/NIST primary metrics; if primary scoring is absent or N/A, fall back to contributed secondary metrics such as CISA-ADP.
+4. Fill only missing fields (`score`, `severity`, summary, published date, references) on already-matched findings; do not create new findings or overwrite the original match source.
 
 ### 7.3 GitHubAdvisoryMatcher (`ghsa.go`)
 
@@ -1274,9 +1273,9 @@ Run(ctx)
 │   ├── Build AggregatedMatcher:
 │   │   ├── Always: NewOSVMatcher()
 │   │   ├── Always: NewOSSIndexMatcher(user, token)
-│   │   ├── If NVD key: NewNVDMatcher(key)
 │   │   └── If GitHub token: NewGitHubAdvisoryMatcher(token)
-│   └── matcher.Match(ctx, allPackages) → []Vulnerability
+│   ├── matcher.Match(ctx, allPackages) → []Vulnerability
+│   └── NVD exact CVE enrichment via cveIds for missing CVSS fields
 │   (If --skip-deps but --verify-integrity: parsePackages only, no matching)
 │
 ├── Step 2a: SUPPLY CHAIN CHECKS (on parsed packages)

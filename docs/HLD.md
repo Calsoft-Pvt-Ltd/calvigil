@@ -152,11 +152,11 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 |----------|-------------|------|------------|------|
 | **OSV.dev** | `POST /v1/querybatch` | None | Unrestricted | Primary — batch queries, no API key needed |
 | **Sonatype OSS Index** | `POST /api/v3/component-report` | Existing/migrated token | 128 coords/request | Optional — PURL-based, all ecosystems |
-| **NVD** | `GET /rest/json/cves/2.0` | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — keyword search plus batched exact-CVE CVSS enrichment |
+| **NVD** | `GET /rest/json/cves/2.0` | Optional API key | 5 req/30s (free), 50 req/30s (keyed) | Secondary — paced package keyword search plus batched exact-CVE CVSS enrichment |
 | **GitHub Advisory** | `GET /advisories` | Optional PAT | Standard GitHub limits | Supplementary — GHSA cross-references |
 | **CISA KEV** | `GET known_exploited_vulnerabilities.json` | None | Unrestricted | Enrichment — flags actively exploited CVEs (`KnownExploited`) |
 
-All matcher results pass through the **Canonical Data Model** (`internal/matcher/canonical.go`): IDs are normalized (CVE preferred, GHSA/ecosystem IDs become aliases), severity is derived from CVSS vectors/scores when a source omits it, and duplicate findings across databases are merged by ID or alias — missing fields are filled in from whichever source provides them. OSV records are also strengthened by fetching a CVE alias when an ecosystem-specific record such as `GO-*` omits CVSS data. After matching, findings with CVE IDs but missing CVSS data are enriched from NVD using resilient `cveIds` requests: small batches, a 60s per-request timeout, transient-error backoff, split fallback, partial-result preservation, a bounded 3-minute enrichment budget, a CalVigil User-Agent, source-aware CVSS selection that prefers NVD primary scoring and falls back to contributed sources such as CISA-ADP, and a 24h local CVE cache.
+All matcher results pass through the **Canonical Data Model** (`internal/matcher/canonical.go`): IDs are normalized (CVE preferred, GHSA/ecosystem IDs become aliases), severity is derived from CVSS vectors/scores when a source omits it, and duplicate findings across databases are merged by ID or alias — missing fields are filled in from whichever source provides them. OSV records are also strengthened by fetching a CVE alias when an ecosystem-specific record such as `GO-*` omits CVSS data. After matching, findings with CVE IDs but missing CVSS data are enriched from NVD using resilient exact `cveIds` requests: up to 100 CVEs per request, a 2-minute per-request timeout, controlled keyed parallelism with six-second request pacing, transient-error backoff, split fallback for timeout/503 responses, partial-result preservation, a bounded 10-minute enrichment budget, a CalVigil User-Agent, source-aware CVSS selection that prefers NVD primary scoring and falls back to contributed sources such as CISA-ADP, and a 24h local CVE cache.
 
 ### 5.2 AI Providers
 
@@ -171,11 +171,11 @@ All matcher results pass through the **Canonical Data Model** (`internal/matcher
 | Registry | API Endpoint | Ecosystems |
 |----------|-------------|------------|
 | **deps.dev** | `GET /v3alpha/systems/{go,maven,cargo}/packages/{name}` and version endpoints | Go, Maven, Rust |
-| **PyPI** | `GET /pypi/{name}/json` | Python |
+| **PyPI** | `GET /pypi/{name}/{version}/json`, fallback `GET /pypi/{name}/json` | Python |
 | **npm** | `GET /{name}/{version}` | Node.js |
 | **RubyGems** | `GET /api/v1/gems/{name}.json` | Ruby |
 
-License resolution runs in parallel (bounded at 10 goroutines) and enriches packages missing license metadata from lockfiles. Regular scan JSON uses this best-effort enrichment for package inventory data; `--check-licenses` and `scan-license` additionally classify licenses and emit compliance issues.
+License resolution runs in parallel (bounded at 10 goroutines) and enriches packages missing license metadata from lockfiles. PyPI resolution prefers structured `license_expression` metadata, then short legacy `license` values, normalized license classifiers such as `Mozilla Public License 2.0 (MPL 2.0)`, and canonical full license text for common licenses such as MIT. Regular scan JSON uses this best-effort enrichment for package inventory data; `--check-licenses` and `scan-license` additionally classify licenses and emit compliance issues.
 
 ### 5.4 External Tools
 
@@ -209,7 +209,7 @@ User runs: calvigil scan ./myproject --format json
             ┌────────────▼───────────────┐
             │ 3. MATCH VULNERABILITIES   │
             │    OSV batch query          │
-            │    NVD keyword search       │
+            │    NVD keyword + CVE enrich │
             │    GitHub Advisory lookup   │
             │    Deduplicate by CVE+alias │
             └────────────┬───────────────┘
@@ -477,7 +477,7 @@ Version is embedded at build time via `-ldflags`:
 
 | Attribute | Design Decision |
 |-----------|----------------|
-| **Performance** | OSV batch API (up to 1000 packages/request); NVD package search capped at 20 queries/scan; NVD CVE enrichment uses resilient 10-ID batches, a 60s request timeout, a 3-minute budget, plus 24h CVE cache; AI batches of 20 snippets; vulnerability cache (~/.calvigil/cache/, default 24h TTL); license resolution at 10-way concurrency; integrity verification at 10-way concurrency |
+| **Performance** | OSV batch API (up to 1000 packages/request); NVD package keyword search is enabled with a 20-package cap and conservative pacing; NVD CVE enrichment uses exact 100-ID `cveIds` batches, a 2-minute request timeout, a 10-minute budget, six-second request pacing, controlled keyed parallelism, plus 24h CVE cache; AI batches of 20 snippets; vulnerability cache (~/.calvigil/cache/, default 24h TTL); license resolution at 10-way concurrency; integrity verification at 10-way concurrency |
 | **Privacy** | Ollama and LM Studio support for fully local AI analysis; secret store prefers OS keyring; no telemetry |
 | **Extensibility** | Parser, Matcher, Analyzer, Reporter, IaCRule, PatternRule all implemented as interfaces or rule arrays |
 | **Portability** | Single static binary; cross-platform (macOS, Linux, Windows); keyring auto-falls-back to file in headless environments |
