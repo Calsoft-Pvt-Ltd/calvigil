@@ -67,10 +67,10 @@ Download `calvigil-windows-amd64.zip` from [Releases](https://github.com/Calsoft
 
 ### Docker
 
-Public multi-architecture images are published to Docker Hub:
+Use the official multi-architecture Docker image:
 
 ```bash
-docker run --rm calsoftit/calvigil:latest version
+docker run --rm calsoftit/calvigil-oss:latest version
 ```
 
 Scan the current repository:
@@ -79,11 +79,11 @@ Scan the current repository:
 docker run --rm \
   -v "$PWD:/work" \
   -v "$HOME/.calvigil:/home/calvigil/.calvigil" \
-  calsoftit/calvigil:latest scan /work --skip-ai --skip-semgrep
+  calsoftit/calvigil-oss:latest scan /work --skip-ai --skip-semgrep
 ```
 
-Use `calsoftit/calvigil:latest` for the latest stable release, `edge` for the
-latest `main` build, and `vX.Y.Z` or `X.Y.Z` for a pinned release. Optional
+Use `calsoftit/calvigil-oss:latest` for the latest stable release, `edge` for
+the latest `main` build, and `vX.Y.Z` or `X.Y.Z` for a pinned release. Optional
 runtime tools such as Semgrep and Syft are not installed in the base image.
 
 ### From Source

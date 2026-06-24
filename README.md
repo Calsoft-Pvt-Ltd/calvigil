@@ -182,18 +182,18 @@ Download `calvigil-windows-amd64.zip` from [Releases](https://github.com/Calsoft
 
 ### Docker
 
-Official public images are published to Docker Hub at
-[`calsoftit/calvigil`](https://hub.docker.com/r/calsoftit/calvigil).
+Official public images are available on Docker Hub at
+[`calsoftit/calvigil-oss`](https://hub.docker.com/r/calsoftit/calvigil-oss).
 
 ```bash
 # Show the installed Calvigil version
-docker run --rm calsoftit/calvigil:latest version
+docker run --rm calsoftit/calvigil-oss:latest version
 
 # Scan the current repository from a container
 docker run --rm \
   -v "$PWD:/work" \
   -v "$HOME/.calvigil:/home/calvigil/.calvigil" \
-  calsoftit/calvigil:latest scan /work --skip-ai --skip-semgrep
+  calsoftit/calvigil-oss:latest scan /work --skip-ai --skip-semgrep
 ```
 
 Image tags:
