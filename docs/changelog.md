@@ -12,6 +12,21 @@ All notable changes to calvigil are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+- Official Docker image support for Calvigil OSS under `calsoftit/calvigil-oss`, with a non-root container image that includes the `calvigil` binary, CA certificates, `git`, and bundled Semgrep rules.
+- Docker build and smoke-test Make targets for local image validation.
+- Offline scanning mode for `scan`, `scan-image`, `scan-binary`, and `scan-license`, allowing dependency and package inventory extraction without querying external vulnerability databases.
+
+### Changed
+- Docker documentation now points users to `calsoftit/calvigil-oss` and keeps publishing details out of user-facing docs.
+
+### Fixed
+- Expanded matcher, image scan, report validation, scanner, and integration test coverage for post-5.2 changes.
+
+---
+
 ## [5.2.0] — 2026-06-19
 
 ### Added
