@@ -180,6 +180,34 @@ sudo rpm -i calvigil.rpm
 **Windows:**
 Download `calvigil-windows-amd64.zip` from [Releases](https://github.com/Calsoft-Pvt-Ltd/calvigil/releases), extract, and add to your PATH.
 
+### Docker
+
+Official public images are published to Docker Hub at
+[`calsoftit/calvigil`](https://hub.docker.com/r/calsoftit/calvigil).
+
+```bash
+# Show the installed Calvigil version
+docker run --rm calsoftit/calvigil:latest version
+
+# Scan the current repository from a container
+docker run --rm \
+  -v "$PWD:/work" \
+  -v "$HOME/.calvigil:/home/calvigil/.calvigil" \
+  calsoftit/calvigil:latest scan /work --skip-ai --skip-semgrep
+```
+
+Image tags:
+
+- `latest` - latest stable GitHub release tag.
+- `vX.Y.Z`, `X.Y.Z`, `X.Y` - release-specific tags.
+- `edge` - latest image built from `main`.
+- `sha-<git-sha>` - immutable source revision tag.
+
+The image includes the `calvigil` binary, CA certificates, `git`, and bundled
+Semgrep rules. Optional tools such as `semgrep` and `syft` are not installed in
+the base image; pass `--skip-semgrep` for dependency-only scans or build a
+derived image if you need those tools inside the container.
+
 ### From Source
 
 ```bash

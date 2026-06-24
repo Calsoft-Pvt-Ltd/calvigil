@@ -41,6 +41,42 @@ sudo mv calvigil /usr/local/bin/   # or move to a PATH dir you control
 calvigil version
 ```
 
+### Running the official Docker image
+
+Use the Docker Hub image when your CI environment already supports Docker:
+
+```bash
+docker run --rm \
+  -v "$PWD:/work" \
+  -v "$HOME/.calvigil:/home/calvigil/.calvigil" \
+  calsoftit/calvigil:latest scan /work --skip-ai --skip-semgrep --format json --output /work/calvigil.json
+```
+
+Pin `calsoftit/calvigil:vX.Y.Z` for production pipelines. Use
+`calsoftit/calvigil:edge` only for early validation against the latest `main`
+branch.
+
+### Publishing official Docker images
+
+The repository publishes multi-architecture Docker images with
+`.github/workflows/docker-publish.yml`.
+
+Required GitHub repository secrets:
+
+| Secret | Value |
+|:-------|:------|
+| `DOCKERHUB_USERNAME` | Docker Hub user or organization service account with write access to `calsoftit/calvigil`. |
+| `DOCKERHUB_TOKEN` | Docker Hub access token for that account. Do not use a password. |
+
+Publishing rules:
+
+| Event | Result |
+|:------|:-------|
+| Pull request | Build and smoke-test only; no push. |
+| Push to `main` | Push `calsoftit/calvigil:edge` and `sha-<git-sha>`. |
+| Push tag `vX.Y.Z` | Push `latest`, `vX.Y.Z`, `X.Y.Z`, `X.Y`, and `sha-<git-sha>`. |
+| Manual workflow dispatch | Builds without pushing unless `push_image=true` is selected. |
+
 ### Failing the build on findings
 
 calvigil exits `0` even when vulnerabilities are found (errors exit `1`). To gate a pipeline on findings, post-process the JSON:

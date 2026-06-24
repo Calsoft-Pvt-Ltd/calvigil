@@ -1,0 +1,141 @@
+name: Docker Images
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/docker-publish.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'pkg/**'
+      - 'rules/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'main.go'
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: 'Push the image to Docker Hub'
+        type: boolean
+        default: false
+      version_tag:
+        description: 'Optional extra image tag for manual runs, for example dev-test'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: calsoftit/calvigil
+
+jobs:
+  docker:
+    name: Build and publish Docker image
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      MANUAL_PUSH_IMAGE: ${{ inputs.push_image }}
+      MANUAL_VERSION_TAG: ${{ inputs.version_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${MANUAL_VERSION_TAG}" ]]; then
+            VERSION="${MANUAL_VERSION_TAG}"
+          else
+            VERSION="dev-${GITHUB_SHA::12}"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Decide publish mode
+        id: publish
+        shell: bash
+        run: |
+          PUSH_IMAGE=false
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            PUSH_IMAGE=false
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ "${MANUAL_PUSH_IMAGE}" == "true" ]]; then
+              PUSH_IMAGE=true
+            fi
+          else
+            PUSH_IMAGE=true
+          fi
+
+          if [[ "${PUSH_IMAGE}" == "true" && ( -z "${DOCKERHUB_USERNAME}" || -z "${DOCKERHUB_TOKEN}" ) ]]; then
+            echo "::warning::Docker Hub credentials are not configured; building image without pushing."
+            PUSH_IMAGE=false
+          fi
+
+          echo "push=${PUSH_IMAGE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: calvigil:smoke
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+
+      - name: Smoke test image
+        run: docker run --rm calvigil:smoke version
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.title=Calvigil
+            org.opencontainers.image.description=Open-source security scanner for dependency, IaC, license, binary, and container risk.
+            org.opencontainers.image.vendor=Calsoft Pvt Ltd
+            org.opencontainers.image.licenses=Apache-2.0
+          tags: |
+            type=raw,value=edge,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+            type=sha,prefix=sha-
+            type=raw,value=${{ inputs.version_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' }}
+
+      - name: Login to Docker Hub
+        if: steps.publish.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Build and optionally push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.publish.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}

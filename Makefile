@@ -3,7 +3,7 @@ BUILD_DIR=./bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X github.com/Calsoft-Pvt-Ltd/calvigil/cmd.version=$(VERSION)"
 
-.PHONY: build test test-unit test-coverage test-integration lint clean install run
+.PHONY: build test test-unit test-coverage test-integration lint clean install run docker-build docker-smoke
 
 ## build: Build the binary
 build:
@@ -44,6 +44,14 @@ install:
 ## run: Build and run with default args
 run: build
 	$(BUILD_DIR)/$(BINARY_NAME) scan .
+
+## docker-build: Build the local Docker image
+docker-build:
+	docker build --build-arg VERSION=$(VERSION) -t calvigil:$(VERSION) -t calvigil:dev .
+
+## docker-smoke: Build and smoke test the local Docker image
+docker-smoke: docker-build
+	docker run --rm calvigil:dev version
 
 ## help: Show this help
 help:
