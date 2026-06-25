@@ -12,7 +12,7 @@ All notable changes to calvigil are documented here.
 
 ---
 
-## [Unreleased]
+## [5.3.0] — 2026-06-24
 
 ### Added
 - Official Docker image support for Calvigil OSS under `calsoftit/calvigil-oss`, with a non-root container image that includes the `calvigil` binary, CA certificates, `git`, and bundled Semgrep rules.
@@ -24,6 +24,8 @@ All notable changes to calvigil are documented here.
 
 ### Fixed
 - Expanded matcher, image scan, report validation, scanner, and integration test coverage for post-5.2 changes.
+- Package license enrichment now resolves and stores licenses before vulnerability matching, preventing package inventory rows from being pushed or reported with empty licenses when later vulnerability sources are slow or fail.
+- Registry license strings are normalized before storage across PyPI, npm, RubyGems, ConanCenter, and deps.dev-backed ecosystems such as Go, Maven, and Cargo. This fixes PyPI packages such as `pkg:pypi/plotly@5.24.0` showing as unknown when registry metadata clearly reports `MIT`.
 
 ---
 

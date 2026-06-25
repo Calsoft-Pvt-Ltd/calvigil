@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +41,8 @@ func SetResolverForTesting(fn func(context.Context, models.Package) string) func
 // by querying the appropriate package registry for each ecosystem.
 // It modifies the packages slice in place.
 func ResolvePackages(ctx context.Context, packages []models.Package, verbose bool) {
+	NormalizePackages(packages)
+
 	// Collect indices of packages missing license info
 	var missing []int
 	for i, pkg := range packages {
@@ -69,7 +73,7 @@ func ResolvePackages(ctx context.Context, packages []models.Package, verbose boo
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			lic := resolveOneFunc(ctx, packages[i])
+			lic := cleanRegistryLicense(resolveOneFunc(ctx, packages[i]))
 			if lic != "" {
 				mu.Lock()
 				packages[i].License = lic
@@ -83,6 +87,14 @@ func ResolvePackages(ctx context.Context, packages []models.Package, verbose boo
 
 	if verbose {
 		fmt.Fprintf(os.Stderr, "   Resolved %d/%d missing package licenses\n", resolved, len(missing))
+	}
+}
+
+// NormalizePackages canonicalizes license strings already present in parsed
+// manifests and lockfiles. It does not perform network calls.
+func NormalizePackages(packages []models.Package) {
+	for i := range packages {
+		packages[i].License = cleanRegistryLicense(packages[i].License)
 	}
 }
 
@@ -101,6 +113,8 @@ func resolveOne(ctx context.Context, pkg models.Package) string {
 		return resolveCrates(ctx, pkg.Name)
 	case models.EcosystemRubyGem:
 		return resolveRubyGem(ctx, pkg.Name)
+	case models.EcosystemConan:
+		return resolveConan(ctx, pkg.Name)
 	default:
 		return ""
 	}
@@ -190,6 +204,9 @@ func cleanRegistryLicense(lic string) string {
 	}
 	if known := licenseFromKnownText(lic); known != "" {
 		return known
+	}
+	if normalized := normalizeID(lic); normalized != "" && Classify(normalized) != models.LicenseUnknown {
+		return normalized
 	}
 	// PyPI's legacy license field sometimes contains full license text instead
 	// of an SPDX identifier. Keep that out of compliance classification and
@@ -284,10 +301,10 @@ func resolveNpm(ctx context.Context, name, version string) string {
 	// Try "license" field first (modern npm format)
 	switch lic := result.License.(type) {
 	case string:
-		return lic
+		return cleanRegistryLicense(lic)
 	case map[string]interface{}:
 		if t, ok := lic["type"].(string); ok {
-			return t
+			return cleanRegistryLicense(t)
 		}
 	}
 
@@ -295,7 +312,7 @@ func resolveNpm(ctx context.Context, name, version string) string {
 	if arr, ok := result.Licenses.([]interface{}); ok && len(arr) > 0 {
 		if obj, ok := arr[0].(map[string]interface{}); ok {
 			if t, ok := obj["type"].(string); ok {
-				return t
+				return cleanRegistryLicense(t)
 			}
 		}
 	}
@@ -346,7 +363,51 @@ func resolveRubyGem(ctx context.Context, name string) string {
 	}
 
 	if len(result.Licenses) > 0 {
-		return result.Licenses[0]
+		return cleanRegistryLicense(result.Licenses[0])
+	}
+	return ""
+}
+
+var conanLicenseRe = regexp.MustCompile(`(?m)^\s*license\s*=\s*(?:"([^"]+)"|'([^']+)')`)
+
+// resolveConan queries ConanCenter recipe metadata for C/C++ package licenses.
+// Conan lockfiles do not include license data, so this reads the public recipe
+// conanfile.py and extracts the recipe's static license field when present.
+func resolveConan(ctx context.Context, name string) string {
+	if name == "" {
+		return ""
+	}
+	url := fmt.Sprintf("https://raw.githubusercontent.com/conan-io/conan-center-index/master/recipes/%s/all/conanfile.py",
+		urlPathEscape(strings.ToLower(name)))
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "text/plain")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return ""
+	}
+	matches := conanLicenseRe.FindStringSubmatch(string(body))
+	if len(matches) == 0 {
+		return ""
+	}
+	for _, match := range matches[1:] {
+		if lic := cleanRegistryLicense(match); lic != "" {
+			return lic
+		}
 	}
 	return ""
 }
@@ -388,20 +449,20 @@ func queryDepsDevLicense(ctx context.Context, url string) string {
 
 	// Version-specific response
 	if len(result.Licenses) > 0 {
-		return result.Licenses[0]
+		return cleanRegistryLicense(result.Licenses[0])
 	}
 
 	// Package-level response — use default version's license
 	for _, v := range result.Versions {
 		if v.VersionKey.Version == result.DefaultVersion && len(v.Licenses) > 0 {
-			return v.Licenses[0]
+			return cleanRegistryLicense(v.Licenses[0])
 		}
 	}
 
 	// Fallback: first version with license info
 	for _, v := range result.Versions {
 		if len(v.Licenses) > 0 {
-			return v.Licenses[0]
+			return cleanRegistryLicense(v.Licenses[0])
 		}
 	}
 

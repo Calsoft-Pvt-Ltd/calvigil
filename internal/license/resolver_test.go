@@ -101,6 +101,23 @@ func TestResolvePyPI_TiktokenFullLicenseText(t *testing.T) {
 	}
 }
 
+func TestResolvePyPI_PlotlyMIT(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	lic := resolvePyPI(ctx, "plotly", "5.24.0")
+	if lic == "" {
+		t.Skip("PyPI API unreachable, skipping")
+	}
+	if lic != "MIT" {
+		t.Errorf("expected MIT for plotly 5.24.0, got %q", lic)
+	}
+}
+
 func TestResolvePyPI_PathspecMozillaClassifier(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping network test in short mode")
@@ -149,6 +166,23 @@ func TestResolveRubyGem_WellKnownPackage(t *testing.T) {
 	}
 	if lic != "MIT" {
 		t.Errorf("expected MIT for rails, got %q", lic)
+	}
+}
+
+func TestResolveConan_WellKnownPackage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	lic := resolveConan(ctx, "boost")
+	if lic == "" {
+		t.Skip("ConanCenter recipe metadata unreachable, skipping")
+	}
+	if lic != "BSL-1.0" {
+		t.Errorf("expected BSL-1.0 for boost, got %q", lic)
 	}
 }
 
@@ -234,6 +268,31 @@ func TestResolvePyPI_Mock(t *testing.T) {
 		lic := resolvePyPI(context.Background(), "requests", "")
 		if lic != "MIT" {
 			t.Errorf("resolvePyPI = %q, want MIT", lic)
+		}
+	})
+}
+
+func TestResolvePyPI_Mock_PlotlyMITLicense(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/pypi/plotly/5.24.0/json" {
+			t.Fatalf("unexpected PyPI path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"info": map[string]interface{}{
+				"license": "MIT",
+				"classifiers": []string{
+					"License :: OSI Approved :: MIT License",
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolvePyPI(context.Background(), "plotly", "5.24.0")
+		if lic != "MIT" {
+			t.Errorf("resolvePyPI plotly = %q, want MIT", lic)
 		}
 	})
 }
@@ -448,6 +507,23 @@ func TestResolveNpm_Mock_ObjectLicense(t *testing.T) {
 	})
 }
 
+func TestResolveNpm_Mock_NormalizesInformalLicense(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"license": "Apache 2.0 License",
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolveNpm(context.Background(), "somepkg", "1.0")
+		if lic != "Apache-2.0" {
+			t.Errorf("resolveNpm normalized = %q, want Apache-2.0", lic)
+		}
+	})
+}
+
 func TestResolveNpm_Mock_LegacyLicenses(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -501,6 +577,23 @@ func TestResolveRubyGem_Mock(t *testing.T) {
 	})
 }
 
+func TestResolveRubyGem_Mock_NormalizesInformalLicense(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"licenses": []string{"Apache License 2.0"},
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolveRubyGem(context.Background(), "somegem")
+		if lic != "Apache-2.0" {
+			t.Errorf("resolveRubyGem normalized = %q, want Apache-2.0", lic)
+		}
+	})
+}
+
 func TestResolveRubyGem_Mock_NoLicenses(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -518,11 +611,34 @@ func TestResolveRubyGem_Mock_NoLicenses(t *testing.T) {
 	})
 }
 
+func TestResolveConan_Mock(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/recipes/boost/all/conanfile.py") {
+			t.Fatalf("unexpected ConanCenter path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(`from conan import ConanFile
+
+class BoostConan(ConanFile):
+    name = "boost"
+    license = "Boost Software License"
+`))
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		lic := resolveConan(context.Background(), "boost")
+		if lic != "BSL-1.0" {
+			t.Errorf("resolveConan = %q, want BSL-1.0", lic)
+		}
+	})
+}
+
 func TestQueryDepsDevLicense_Mock_VersionLevel(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"licenses": []string{"Apache-2.0"},
+			"licenses": []string{"Apache License 2.0"},
 		})
 	}))
 	defer ts.Close()
@@ -730,6 +846,60 @@ func TestResolveOne_AllEcosystems(t *testing.T) {
 	})
 }
 
+func TestResolveOne_AllRegistryEcosystemsNormalizeAliases(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/recipes/test/all/conanfile.py") {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte(`license = "Apache 2.0 License"`))
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"licenses": []string{"Apache 2.0 License"},
+			"info":     map[string]interface{}{"license": "Apache 2.0 License"},
+			"license":  "Apache 2.0 License",
+		})
+	}))
+	defer ts.Close()
+
+	withMockClient(ts, func() {
+		ecosystems := []models.Ecosystem{
+			models.EcosystemGo,
+			models.EcosystemPyPI,
+			models.EcosystemNpm,
+			models.EcosystemMaven,
+			models.EcosystemCrates,
+			models.EcosystemRubyGem,
+			models.EcosystemConan,
+		}
+		for _, eco := range ecosystems {
+			pkg := models.Package{Name: "test", Version: "1.0", Ecosystem: eco}
+			lic := resolveOne(context.Background(), pkg)
+			if lic != "Apache-2.0" {
+				t.Errorf("resolveOne(%s) = %q, want Apache-2.0", eco, lic)
+			}
+		}
+	})
+}
+
+func TestNormalizePackages_LocalLicenseMetadata(t *testing.T) {
+	packages := []models.Package{
+		{Name: "plotly", Version: "5.24.0", Ecosystem: models.EcosystemPyPI, License: "MIT License"},
+		{Name: "spring-core", Version: "6.1.0", Ecosystem: models.EcosystemMaven, License: "Apache 2.0 License"},
+		{Name: "boost", Version: "1.80.0", Ecosystem: models.EcosystemConan, License: "Boost Software License"},
+		{Name: "unknown", Version: "1.0.0", Ecosystem: models.EcosystemConan, License: "UNKNOWN"},
+	}
+
+	NormalizePackages(packages)
+
+	want := []string{"MIT", "Apache-2.0", "BSL-1.0", ""}
+	for i, pkg := range packages {
+		if pkg.License != want[i] {
+			t.Errorf("%s normalized license = %q, want %q", pkg.Name, pkg.License, want[i])
+		}
+	}
+}
+
 func TestResolvePackages_Mock(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -752,4 +922,30 @@ func TestResolvePackages_Mock(t *testing.T) {
 			t.Errorf("should not overwrite, got %q", packages[1].License)
 		}
 	})
+}
+
+func TestResolvePackages_NormalizesExistingLicensesBeforeResolving(t *testing.T) {
+	calls := 0
+	restore := SetResolverForTesting(func(context.Context, models.Package) string {
+		calls++
+		return "MIT License"
+	})
+	defer restore()
+
+	packages := []models.Package{
+		{Name: "already", Version: "1.0", Ecosystem: models.EcosystemNpm, License: "Apache 2.0 License"},
+		{Name: "missing", Version: "1.0", Ecosystem: models.EcosystemNpm},
+	}
+
+	ResolvePackages(context.Background(), packages, false)
+
+	if calls != 1 {
+		t.Fatalf("resolver calls = %d, want 1", calls)
+	}
+	if packages[0].License != "Apache-2.0" {
+		t.Fatalf("existing license = %q, want Apache-2.0", packages[0].License)
+	}
+	if packages[1].License != "MIT" {
+		t.Fatalf("resolved license = %q, want MIT", packages[1].License)
+	}
 }

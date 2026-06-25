@@ -97,9 +97,6 @@ func (s *Scanner) Run(ctx context.Context) error {
 	if !s.opts.SkipDeps {
 		depVulns, allPackages, errs := s.scanDependencies(ctx, files)
 		result.TotalPackages = len(allPackages)
-		if len(allPackages) > 0 && !s.opts.Offline {
-			license.ResolvePackages(ctx, allPackages, s.opts.Verbose)
-		}
 		result.Packages = allPackages
 		allVulns = append(allVulns, depVulns...)
 		result.Errors = append(result.Errors, errs...)
@@ -243,6 +240,7 @@ func (s *Scanner) parsePackages(files []detector.DetectedFile) ([]models.Package
 	for i := range allPackages {
 		allPackages[i].EnsurePURL()
 	}
+	license.NormalizePackages(allPackages)
 
 	if len(allPackages) == 0 {
 		if s.opts.Verbose {
@@ -280,6 +278,8 @@ func (s *Scanner) scanDependencies(ctx context.Context, files []detector.Detecte
 		}
 		return nil, allPackages, errs
 	}
+
+	license.ResolvePackages(ctx, allPackages, s.opts.Verbose)
 
 	if s.opts.Verbose {
 		fmt.Fprintf(os.Stderr, "Querying vulnerability databases...\n")
