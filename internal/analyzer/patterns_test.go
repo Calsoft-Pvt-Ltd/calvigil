@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -896,6 +898,170 @@ func TestAISEC017_TemplateLiteralInSQL(t *testing.T) {
 	}
 }
 
+func TestAISEC019_ExternalRequestWithoutTimeout(t *testing.T) {
+	rule := findRule(t, "AI-SEC-019")
+
+	positives := []string{
+		`resp = requests.get(url)`,
+		`const res = await axios.post(endpoint, payload)`,
+		`const data = await fetch("/api/orders")`,
+	}
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-019 failed to detect request without timeout:\n  %s", line)
+		}
+	}
+
+	negatives := []string{
+		`resp = requests.get(url, timeout=10)`,
+		`const res = await axios.get(url, { timeout: 5000 })`,
+		`const data = await fetch(url, { signal: controller.signal })`,
+	}
+	for _, line := range negatives {
+		if rule.Pattern.MatchString(line) && (rule.Excludes == nil || !rule.Excludes.MatchString(line)) {
+			t.Errorf("AI-SEC-019 false positive:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC020_FailOpenErrorHandling(t *testing.T) {
+	rule := findRule(t, "AI-SEC-020")
+
+	positives := []string{
+		`if err != nil { return true }`,
+		`if err != nil { allowed = true }`,
+		`except Exception: return True`,
+		`catch (err) { resolve(true) }`,
+	}
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-020 failed to detect fail-open handling:\n  %s", line)
+		}
+	}
+
+	negatives := []string{
+		`if err != nil { return false }`,
+		`if err != nil { return nil, err }`,
+		`except Exception: raise`,
+		`catch (err) { return false }`,
+	}
+	for _, line := range negatives {
+		if rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-020 false positive:\n  %s", line)
+		}
+	}
+}
+
+func TestAISEC021_TemporarySecurityBypassComment(t *testing.T) {
+	rule := findRule(t, "AI-SEC-021")
+
+	positives := []string{
+		`// TODO: add auth validation before release`,
+		`# temporary bypass authorization until demo`,
+		`// skip CSRF for now`,
+	}
+	for _, line := range positives {
+		if !rule.Pattern.MatchString(line) {
+			t.Errorf("AI-SEC-021 failed to detect security bypass comment:\n  %s", line)
+		}
+	}
+
+	negative := `// test helper skips auth in docs`
+	if rule.Pattern.MatchString(negative) && (rule.Excludes == nil || !rule.Excludes.MatchString(negative)) {
+		t.Errorf("AI-SEC-021 false positive:\n  %s", negative)
+	}
+}
+
+func TestAISEC022_UnboundedGoroutineFanOut(t *testing.T) {
+	rule := findRule(t, "AI-SEC-022")
+
+	positive := `for _, item := range items { go process(item) }`
+	if !rule.Pattern.MatchString(positive) {
+		t.Errorf("AI-SEC-022 failed to detect unbounded goroutine fan-out:\n  %s", positive)
+	}
+
+	negative := `for _, item := range items { workerPool.Submit(func() { process(item) }) }`
+	if rule.Pattern.MatchString(negative) && (rule.Excludes == nil || !rule.Excludes.MatchString(negative)) {
+		t.Errorf("AI-SEC-022 false positive:\n  %s", negative)
+	}
+}
+
+func TestAISEC023_HTTPServerWithoutTimeouts(t *testing.T) {
+	rule := findRule(t, "AI-SEC-023")
+
+	positive := `log.Fatal(http.ListenAndServe(":8080", mux))`
+	if !rule.Pattern.MatchString(positive) {
+		t.Errorf("AI-SEC-023 failed to detect HTTP server without timeouts:\n  %s", positive)
+	}
+
+	negative := `httptest.NewServer(handler)`
+	if rule.Pattern.MatchString(negative) && (rule.Excludes == nil || !rule.Excludes.MatchString(negative)) {
+		t.Errorf("AI-SEC-023 false positive:\n  %s", negative)
+	}
+}
+
+func TestScanPatternsWithOptions_CustomRules(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "service.go"), []byte(`package main
+
+func handler() {
+	tenantID := r.URL.Query().Get("tenant")
+	_ = tenantID
+}
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	rulesDir := t.TempDir()
+	rulesPath := filepath.Join(rulesDir, "tenant-rules.yaml")
+	if err := os.WriteFile(rulesPath, []byte(`
+rules:
+  - id: CUSTOM-001
+    name: Query-string tenant scope
+    description: Tenant scope is read from a query string and should be authorized against request context.
+    severity: HIGH
+    pattern: 'URL\.Query\(\)\.Get\("tenant"\)'
+    languages: [".go"]
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	matches, err := ScanPatternsWithOptions(projectDir, PatternScanOptions{
+		RulesPath:              rulesPath,
+		DisableBuiltinPatterns: true,
+	})
+	if err != nil {
+		t.Fatalf("ScanPatternsWithOptions error: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches = %d, want 1", len(matches))
+	}
+	if matches[0].Rule.ID != "CUSTOM-001" {
+		t.Fatalf("rule id = %s, want CUSTOM-001", matches[0].Rule.ID)
+	}
+}
+
+func TestScanPatternsWithOptions_ProjectLocalRulesRequireTrust(t *testing.T) {
+	projectDir := t.TempDir()
+	rulesPath := filepath.Join(projectDir, "rules.yaml")
+	if err := os.WriteFile(rulesPath, []byte(`
+rules:
+  - id: CUSTOM-LOCAL
+    name: Local custom rule
+    description: Project-local rules require explicit trust.
+    severity: LOW
+    pattern: 'anything'
+    languages: [".go"]
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ScanPatternsWithOptions(projectDir, PatternScanOptions{RulesPath: rulesPath})
+	if err == nil {
+		t.Fatal("expected untrusted project-local pattern rules to fail")
+	}
+}
+
 // ── Ensure all AI-SEC rules are present ───────────────────────────
 
 func TestAllAISecRulesExist(t *testing.T) {
@@ -904,7 +1070,8 @@ func TestAllAISecRulesExist(t *testing.T) {
 		"AI-SEC-005", "AI-SEC-006", "AI-SEC-007", "AI-SEC-008",
 		"AI-SEC-009", "AI-SEC-010", "AI-SEC-011", "AI-SEC-012",
 		"AI-SEC-013", "AI-SEC-014", "AI-SEC-015", "AI-SEC-016",
-		"AI-SEC-017", "AI-SEC-018",
+		"AI-SEC-017", "AI-SEC-018", "AI-SEC-019", "AI-SEC-020",
+		"AI-SEC-021", "AI-SEC-022", "AI-SEC-023",
 	}
 
 	ruleIDs := make(map[string]bool)

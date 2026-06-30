@@ -71,6 +71,8 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanOpts.SkipDeps, "skip-deps", false, "skip dependency vulnerability scanning")
 	scanCmd.Flags().BoolVar(&scanOpts.SkipSemgrep, "skip-semgrep", false, "skip Semgrep SAST analysis")
 	scanCmd.Flags().StringVar(&scanOpts.SemgrepRules, "semgrep-rules", "", "path to custom Semgrep rule directory")
+	scanCmd.Flags().StringVar(&scanOpts.PatternRules, "pattern-rules", "", "path to custom regex pattern rule YAML file or directory")
+	scanCmd.Flags().BoolVar(&scanOpts.DisableBuiltinPatterns, "disable-builtin-patterns", false, "run only custom regex pattern rules from --pattern-rules")
 	scanCmd.Flags().BoolVar(&scanOpts.TrustProjectRules, "trust-project-rules", false, "load Semgrep rules from .semgrep/ and .semgrep.yml inside the scanned project (disabled by default — only enable for trusted code)")
 	scanCmd.Flags().StringVar(&scanOpts.AIProvider, "provider", "auto", "AI provider: openai, ollama, lmstudio, or auto")
 	scanCmd.Flags().StringVar(&scanOpts.OllamaURL, "ollama-url", "", "Ollama server URL (default: http://localhost:11434)")

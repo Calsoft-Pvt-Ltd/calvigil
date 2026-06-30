@@ -266,6 +266,7 @@ func TestSchemaFileDocumentsEnterpriseWireContract(t *testing.T) {
 		"integrity_issues",
 		"consistency_issues",
 		"ai_enrichment",
+		"slop_code_smells",
 	} {
 		if !strings.Contains(text, `"`+key+`"`) {
 			t.Fatalf("schema.json does not document %q", key)

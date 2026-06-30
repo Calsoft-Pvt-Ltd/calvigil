@@ -16,10 +16,11 @@ import (
 // LMStudioAnalyzer uses a local LM Studio instance for AI-powered code analysis.
 // LM Studio exposes an OpenAI-compatible API at /v1/chat/completions.
 type LMStudioAnalyzer struct {
-	baseURL   string // e.g. "http://localhost:1234"
-	model     string // e.g. "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
-	client    *http.Client
-	SkipTests bool // Skip test files during scanning
+	baseURL        string // e.g. "http://localhost:1234"
+	model          string // e.g. "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
+	client         *http.Client
+	SkipTests      bool // Skip test files during scanning
+	PatternOptions PatternScanOptions
 }
 
 // lmstudioTimeout is the maximum time to wait for a single LM Studio API call.
@@ -51,7 +52,9 @@ func (l *LMStudioAnalyzer) Available() bool {
 // Analyze runs pattern matching and then sends flagged code to LM Studio for deep analysis.
 func (l *LMStudioAnalyzer) Analyze(ctx context.Context, projectPath string, verbose bool) ([]models.Vulnerability, error) {
 	// Step 1: Run pattern matching first (fast, no API cost)
-	patternMatches, err := ScanPatterns(projectPath, l.SkipTests)
+	patternOpts := l.PatternOptions
+	patternOpts.SkipTests = patternOpts.SkipTests || l.SkipTests
+	patternMatches, err := ScanPatternsWithOptions(projectPath, patternOpts)
 	if err != nil {
 		return nil, fmt.Errorf("pattern scan failed: %w", err)
 	}

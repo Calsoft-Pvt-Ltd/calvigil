@@ -195,6 +195,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	}
 
 	result.Vulnerabilities = allVulns
+	result.SlopCodeSmells = analyzer.BuildSlopCodeSmellSummary(allVulns)
 	result.Duration = time.Since(start)
 
 	// Step 5: Report results
@@ -417,8 +418,8 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 			fmt.Fprintf(os.Stderr, "Running pattern-based code analysis (no AI provider available)...\n")
 		}
 
-		// Run pattern matching only
-		matches, err := analyzer.ScanPatterns(s.opts.Path, s.opts.SkipTests)
+		// Run pattern matching only.
+		matches, err := analyzer.ScanPatternsWithOptions(s.opts.Path, s.patternScanOptions())
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("pattern scan error: %v", err))
 			return nil, errs
@@ -440,6 +441,7 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 		}
 		ai := analyzer.NewOllamaAnalyzer(url, model)
 		ai.SkipTests = s.opts.SkipTests
+		ai.PatternOptions = s.patternScanOptions()
 		vulns, err := ai.Analyze(ctx, s.opts.Path, s.opts.Verbose)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("Ollama analysis error: %v", err))
@@ -456,6 +458,7 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 		}
 		ai := analyzer.NewLMStudioAnalyzer(url, model)
 		ai.SkipTests = s.opts.SkipTests
+		ai.PatternOptions = s.patternScanOptions()
 		vulns, err := ai.Analyze(ctx, s.opts.Path, s.opts.Verbose)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("LM Studio analysis error: %v", err))
@@ -471,6 +474,7 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 		}
 		ai := analyzer.NewOpenAIAnalyzer(s.cfg.OpenAIKey, s.cfg.OpenAIModel)
 		ai.SkipTests = s.opts.SkipTests
+		ai.PatternOptions = s.patternScanOptions()
 		vulns, err := ai.Analyze(ctx, s.opts.Path, s.opts.Verbose)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("AI analysis error: %v", err))
@@ -479,6 +483,15 @@ func (s *Scanner) scanSourceCode(ctx context.Context) ([]models.Vulnerability, [
 			fmt.Fprintf(os.Stderr, "   Found %d issues via code analysis\n\n", len(vulns))
 		}
 		return vulns, errs
+	}
+}
+
+func (s *Scanner) patternScanOptions() analyzer.PatternScanOptions {
+	return analyzer.PatternScanOptions{
+		SkipTests:              s.opts.SkipTests,
+		RulesPath:              s.opts.PatternRules,
+		TrustProjectRules:      s.opts.TrustProjectRules,
+		DisableBuiltinPatterns: s.opts.DisableBuiltinPatterns,
 	}
 }
 

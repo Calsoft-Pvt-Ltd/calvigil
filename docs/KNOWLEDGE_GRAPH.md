@@ -125,9 +125,9 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 ### `internal/analyzer`
 - `Analyzer` interface
 - `OpenAIAnalyzer`, `OllamaAnalyzer` (AI enrichment of vulns + `AICodeIndicator` classification)
-- `PatternRule` — **47 built-in regex rules** (29 SEC + 18 AI-SEC); uses `fsutil.ShouldSkipSubDir`
+- `PatternRule` — **52 built-in regex rules** (29 SEC + 23 AI-SEC); supports trusted custom rule packs and uses `fsutil.ShouldSkipSubDir`
   - SEC-001 .. SEC-029: OWASP Top 10, secrets, crypto, injection, deserialization, etc.
-  - AI-SEC-001 .. AI-SEC-018: AI-generated code anti-patterns (resource leaks, race conditions, inefficient algorithms, deprecated APIs, missing validation, insecure defaults)
+  - AI-SEC-001 .. AI-SEC-023: AI-generated code anti-patterns (resource leaks, race conditions, inefficient algorithms, deprecated APIs, missing validation, insecure defaults, missing timeouts, fail-open handling, temporary bypasses)
 - `SemgrepAnalyzer` (external CLI; **project rules require opt-in `--trust-project-rules`**)
 - 3 bundled Semgrep rule packs: `owasp-top10.yaml` (32), `language-specific.yaml` (20), `ai-code-quality.yaml` (25+)
 

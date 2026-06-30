@@ -90,7 +90,7 @@ github.com/Calsoft-Pvt-Ltd/calvigil/
 │   │   ├── openai.go                # OpenAIAnalyzer (GPT-4 ChatCompletion)
 │   │   ├── ollama.go                # OllamaAnalyzer (local LLM)
 │   │   ├── lmstudio.go              # LMStudioAnalyzer (LM Studio local LLM)
-│   │   ├── patterns.go              # PatternRule regex scanner (47 rules: 29 SEC + 18 AI-SEC)
+│   │   ├── patterns.go              # PatternRule regex scanner (52 rules: 29 SEC + 23 AI-SEC + custom packs)
 │   │   ├── prompts.go               # AI prompt templates (system, analysis, enrichment)
 │   │   ├── evidence.go              # Evidence packet builder for AI enrichment
 │   │   └── semgrep.go               # SemgrepAnalyzer (external CLI integration; trust-project-rules opt-in)
@@ -290,6 +290,8 @@ type ScanOptions struct {
     SkipDeps       bool
     SkipSemgrep    bool
     SemgrepRules   string
+    PatternRules   string       // Custom regex pattern rule YAML/JSON file or directory
+    DisableBuiltinPatterns bool  // Run only custom regex pattern rules
     OutputFile     string
     Verbose        bool
     AIProvider     string       // "openai", "ollama", "lmstudio", "auto"
@@ -364,6 +366,8 @@ calvigil
 | `--skip-deps` | | bool | `false` | Skip dependency scanning |
 | `--skip-semgrep` | | bool | `false` | Skip Semgrep SAST |
 | `--semgrep-rules` | | string | `""` | Custom Semgrep rule directory |
+| `--pattern-rules` | | string | `""` | Custom regex pattern rule YAML/JSON file or directory |
+| `--disable-builtin-patterns` | | bool | `false` | Run only custom regex pattern rules |
 | `--provider` | | string | `""` | AI provider: openai, ollama, lmstudio, auto |
 | `--ollama-url` | | string | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | | string | `""` | Ollama model name |
@@ -934,7 +938,7 @@ type PatternRule struct {
 }
 ```
 
-#### Built-in Rules (47 total: 29 SEC + 18 AI-SEC)
+#### Built-in Rules (52 total: 29 SEC + 23 AI-SEC)
 
 **Security Rules (SEC-001 through SEC-029):**
 
@@ -970,7 +974,7 @@ type PatternRule struct {
 | SEC-028 | Bearer/Auth Token | HIGH | Hardcoded authorization tokens |
 | SEC-029 | Generic API Key | MEDIUM | `api_key`/`secret_key` = long strings |
 
-**AI-Generated Code Anti-Pattern Rules (AI-SEC-001 through AI-SEC-018):**
+**AI-Generated Code Anti-Pattern Rules (AI-SEC-001 through AI-SEC-023):**
 
 | Rule ID | Name | Severity | CWE | What It Catches |
 |---------|------|----------|-----|------------------|
@@ -992,6 +996,21 @@ type PatternRule struct {
 | AI-SEC-016 | Sync Crypto in Event Loop | MEDIUM | CWE-400 | `crypto.pbkdf2Sync`, `scryptSync` (Node.js) |
 | AI-SEC-017 | Template Literal SQL | HIGH | CWE-89 | JS/TS `` query(`...${input}`) `` |
 | AI-SEC-018 | Missing CSRF Protection | MEDIUM | CWE-352 | POST/PUT/DELETE without CSRF middleware |
+| AI-SEC-019 | External Request Without Timeout | MEDIUM | CWE-400 | Python requests, JS fetch/axios without timeout or abort signal |
+| AI-SEC-020 | Fail-Open Error Handling | HIGH | CWE-703 | Error handlers returning success/allow/true |
+| AI-SEC-021 | Temporary Security Bypass Comment | MEDIUM | CWE-489 | TODO/FIXME/HACK comments deferring auth, CSRF, validation, or sanitization |
+| AI-SEC-022 | Unbounded Goroutine Fan-Out | MEDIUM | CWE-400 | Goroutines launched in loops without an obvious limiter |
+| AI-SEC-023 | HTTP Server Without Timeouts | MEDIUM | CWE-400 | Go `http.ListenAndServe` without server timeout configuration |
+
+#### Custom Regex Rule Packs
+
+`ScanOptions.PatternRules` accepts a YAML/JSON file or directory containing
+line-oriented RE2 regex rules. `ScanOptions.DisableBuiltinPatterns` lets teams
+run only a custom pack when they need a policy-specific scanner mode. Project
+local rule packs require `--trust-project-rules`; duplicate built-in IDs are
+rejected to keep first-party detections stable.
+
+AI-SEC findings, Semgrep `ai-code-quality.yaml` findings, and optional AI enrichment indicators are aggregated by `internal/analyzer/slop.go` into `ScanResult.slop_code_smells`. The score is a review-prioritization signal for code-quality and security symptoms; it is not proof of AI authorship.
 
 #### Source Extensions Scanned
 ```

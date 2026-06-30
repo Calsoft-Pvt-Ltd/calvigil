@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/fsutil"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
+	"gopkg.in/yaml.v3"
 )
 
 // PatternRule defines a regex-based vulnerability detection rule.
@@ -23,6 +25,30 @@ type PatternRule struct {
 	Excludes    *regexp.Regexp // Optional: if the match also matches this, skip it (false-positive filter)
 	Languages   []string       // file extensions this rule applies to (e.g., ".go", ".py")
 }
+
+// PatternScanOptions configures the lightweight regex pattern scanner.
+type PatternScanOptions struct {
+	SkipTests              bool
+	RulesPath              string
+	TrustProjectRules      bool
+	DisableBuiltinPatterns bool
+}
+
+type patternRuleFile struct {
+	Rules []customPatternRule `yaml:"rules" json:"rules"`
+}
+
+type customPatternRule struct {
+	ID          string   `yaml:"id" json:"id"`
+	Name        string   `yaml:"name" json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	Severity    string   `yaml:"severity" json:"severity"`
+	Pattern     string   `yaml:"pattern" json:"pattern"`
+	Excludes    string   `yaml:"excludes" json:"excludes"`
+	Languages   []string `yaml:"languages" json:"languages"`
+}
+
+var patternRuleID = regexp.MustCompile(`^(?:AI-SEC|SEC|CUSTOM)-[A-Z0-9][A-Z0-9_-]*$`)
 
 // sqlSyntax is a shared set of SQL keyword patterns requiring follow-on SQL syntax
 // to avoid matching natural language (e.g., "Failed to update" != "UPDATE users SET").
@@ -792,6 +818,68 @@ var knownPatterns = []PatternRule{
 		Excludes:  regexp.MustCompile(`(?i)(?:csrf|csrfProtection|csrfToken|_csrf|xsrf)`),
 		Languages: []string{".js", ".ts", ".go"},
 	},
+
+	// Missing client-side request timeout outside Go (CWE-400)
+	{
+		ID:          "AI-SEC-019",
+		Name:        "External Request Without Timeout",
+		Description: "AI-generated client calls often omit request timeouts, allowing slow upstreams to exhaust worker threads or event loops. Set an explicit timeout or deadline. (CWE-400)",
+		Severity:    models.SeverityMedium,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			`requests\.(?:get|post|put|patch|delete|head)\s*\(` +
+			`|axios\.(?:get|post|put|patch|delete|head)\s*\(` +
+			`|fetch\s*\(` +
+			`)`),
+		Excludes:  regexp.MustCompile(`(?i)(?:timeout|AbortController|signal\s*:)`),
+		Languages: []string{".py", ".js", ".ts", ".jsx", ".tsx"},
+	},
+
+	// Fail-open authorization or validation after an error (CWE-703)
+	{
+		ID:          "AI-SEC-020",
+		Name:        "Fail-Open Error Handling",
+		Description: "Returning success, allow, or true from an error handler can bypass authentication, authorization, or validation. Fail closed and require an explicit safe decision. (CWE-703)",
+		Severity:    models.SeverityHigh,
+		Pattern: regexp.MustCompile(`(?i)(?:` +
+			`if\s+err\s*!=\s*nil\s*\{\s*(?:return\s+true|allowed\s*=\s*true|allow\s*=\s*true)` +
+			`|except\s+[^:]*:\s*return\s+True` +
+			`|catch\s*\([^)]*\)\s*\{\s*(?:return\s+true|resolve\s*\(\s*true\s*\))` +
+			`)`),
+		Languages: []string{".go", ".py", ".js", ".ts", ".java"},
+	},
+
+	// Explicit security bypass left as TODO or temporary code (CWE-489)
+	{
+		ID:          "AI-SEC-021",
+		Name:        "Temporary Security Bypass Comment",
+		Description: "Comments that defer authentication, authorization, CSRF, validation, or sanitization work are a release risk. Remove the bypass or track it with an owner and remediation date. (CWE-489)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`(?i)(?:TODO|FIXME|HACK|temporary|temp|bypass|skip)\b.*\b(?:auth|authorization|authentication|csrf|validate|validation|sanitize|sanitization|permission|access control)\b|\b(?:auth|authorization|authentication|csrf|validate|validation|sanitize|permission|access control)\b.*\b(?:TODO|FIXME|HACK|temporary|temp|bypass|skip)\b`),
+		Excludes:    regexp.MustCompile(`(?i)(?:test|example|docs?)`),
+		Languages:   []string{".go", ".py", ".java", ".js", ".ts", ".jsx", ".tsx", ".rb", ".php", ".rs", ".cs"},
+	},
+
+	// Unbounded goroutine fan-out in loops (CWE-400)
+	{
+		ID:          "AI-SEC-022",
+		Name:        "Unbounded Goroutine Fan-Out",
+		Description: "Launching goroutines directly inside a loop without an obvious limiter can exhaust CPU, memory, or downstream services. Use a worker pool, semaphore, or errgroup with SetLimit. (CWE-400)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`for\s[^{]*\{[^}]*go\s+(?:func\s*\(|\w+\s*\()`),
+		Excludes:    regexp.MustCompile(`(?i)(?:semaphore|sem\.|worker|pool|SetLimit|errgroup|limiter|bounded|throttle|rate\.Limit|WaitGroup)`),
+		Languages:   []string{".go"},
+	},
+
+	// Go HTTP server without read/write/idle timeouts (CWE-400)
+	{
+		ID:          "AI-SEC-023",
+		Name:        "HTTP Server Without Timeouts (Go)",
+		Description: "Go HTTP servers without ReadTimeout, WriteTimeout, or IdleTimeout are vulnerable to slow-client resource exhaustion. Configure server timeouts before listening. (CWE-400)",
+		Severity:    models.SeverityMedium,
+		Pattern:     regexp.MustCompile(`http\.(?:ListenAndServe|ListenAndServeTLS)\s*\(`),
+		Excludes:    regexp.MustCompile(`(?i)(?:test|httptest|localhost:0)`),
+		Languages:   []string{".go"},
+	},
 }
 
 // sourceExtensions defines which file extensions to scan for source code analysis.
@@ -830,7 +918,20 @@ type PatternMatch struct {
 // ScanPatterns walks the project directory and runs all pattern rules against
 // source files using a worker pool for concurrent file scanning.
 func ScanPatterns(projectPath string, skipTests ...bool) ([]PatternMatch, error) {
-	skipTestFiles := len(skipTests) > 0 && skipTests[0]
+	return ScanPatternsWithOptions(projectPath, PatternScanOptions{
+		SkipTests: len(skipTests) > 0 && skipTests[0],
+	})
+}
+
+// ScanPatternsWithOptions walks the project directory and runs configured
+// pattern rules against source files using a worker pool for concurrent scanning.
+func ScanPatternsWithOptions(projectPath string, opts PatternScanOptions) ([]PatternMatch, error) {
+	rules, err := patternRulesForOptions(projectPath, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	skipTestFiles := opts.SkipTests
 	const numWorkers = 8
 
 	type fileJob struct {
@@ -848,7 +949,7 @@ func ScanPatterns(projectPath string, skipTests ...bool) ([]PatternMatch, error)
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				if m, err := scanFile(job.path, job.ext); err == nil && len(m) > 0 {
+				if m, err := scanFile(job.path, job.ext, rules); err == nil && len(m) > 0 {
 					results <- m
 				}
 			}
@@ -900,7 +1001,222 @@ func ScanPatterns(projectPath string, skipTests ...bool) ([]PatternMatch, error)
 	return matches, nil
 }
 
-func scanFile(filePath string, ext string) ([]PatternMatch, error) {
+func patternRulesForOptions(projectPath string, opts PatternScanOptions) ([]PatternRule, error) {
+	rules := make([]PatternRule, 0, len(knownPatterns))
+	if !opts.DisableBuiltinPatterns {
+		rules = append(rules, knownPatterns...)
+	}
+
+	if strings.TrimSpace(opts.RulesPath) == "" {
+		return rules, nil
+	}
+
+	customRules, err := loadCustomPatternRules(projectPath, opts.RulesPath, opts.TrustProjectRules)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool, len(rules)+len(customRules))
+	for _, rule := range rules {
+		seen[strings.ToUpper(rule.ID)] = true
+	}
+	for _, rule := range customRules {
+		id := strings.ToUpper(rule.ID)
+		if seen[id] {
+			return nil, fmt.Errorf("pattern rule %s duplicates an existing rule id", rule.ID)
+		}
+		seen[id] = true
+		rules = append(rules, rule)
+	}
+
+	return rules, nil
+}
+
+func loadCustomPatternRules(projectPath, rulesPath string, trustProjectRules bool) ([]PatternRule, error) {
+	resolvedProject, err := canonicalPath(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve project path: %w", err)
+	}
+
+	resolvedRules, err := canonicalPath(rulesPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve pattern rules path: %w", err)
+	}
+
+	if !trustProjectRules && isPathInside(resolvedProject, resolvedRules) {
+		return nil, fmt.Errorf("pattern rules under the scanned project require --trust-project-rules: %s", resolvedRules)
+	}
+
+	info, err := os.Stat(resolvedRules)
+	if err != nil {
+		return nil, fmt.Errorf("stat pattern rules path: %w", err)
+	}
+
+	var files []string
+	if info.IsDir() {
+		entries, err := os.ReadDir(resolvedRules)
+		if err != nil {
+			return nil, fmt.Errorf("read pattern rules directory: %w", err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			path := filepath.Join(resolvedRules, entry.Name())
+			if isPatternRuleFile(path) {
+				files = append(files, path)
+			}
+		}
+		sort.Strings(files)
+	} else {
+		if !isPatternRuleFile(resolvedRules) {
+			return nil, fmt.Errorf("pattern rules file must be .yaml, .yml, or .json: %s", resolvedRules)
+		}
+		files = append(files, resolvedRules)
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no pattern rule files found in %s", resolvedRules)
+	}
+
+	var rules []PatternRule
+	for _, file := range files {
+		fileRules, err := readPatternRuleFile(file)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, fileRules...)
+	}
+	return rules, nil
+}
+
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
+}
+
+func isPathInside(base, candidate string) bool {
+	rel, err := filepath.Rel(base, candidate)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+func isPatternRuleFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".yaml", ".yml", ".json":
+		return true
+	default:
+		return false
+	}
+}
+
+func readPatternRuleFile(path string) ([]PatternRule, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read pattern rules %s: %w", path, err)
+	}
+
+	var doc patternRuleFile
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse pattern rules %s: %w", path, err)
+	}
+	if len(doc.Rules) == 0 {
+		return nil, fmt.Errorf("pattern rules %s has no rules", path)
+	}
+
+	rules := make([]PatternRule, 0, len(doc.Rules))
+	seen := map[string]bool{}
+	for i, raw := range doc.Rules {
+		rule, err := compileCustomPatternRule(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s rule %d: %w", path, i+1, err)
+		}
+		id := strings.ToUpper(rule.ID)
+		if seen[id] {
+			return nil, fmt.Errorf("%s rule %d: duplicate rule id %s", path, i+1, rule.ID)
+		}
+		seen[id] = true
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func compileCustomPatternRule(raw customPatternRule) (PatternRule, error) {
+	id := strings.ToUpper(strings.TrimSpace(raw.ID))
+	if !patternRuleID.MatchString(id) {
+		return PatternRule{}, fmt.Errorf("id must match AI-SEC-*, SEC-*, or CUSTOM-*")
+	}
+	name := strings.TrimSpace(raw.Name)
+	if name == "" {
+		return PatternRule{}, fmt.Errorf("name is required")
+	}
+	description := strings.TrimSpace(raw.Description)
+	if description == "" {
+		return PatternRule{}, fmt.Errorf("description is required")
+	}
+	severity := models.ParseSeverity(raw.Severity)
+	if severity == models.SeverityUnknown {
+		return PatternRule{}, fmt.Errorf("severity must be CRITICAL, HIGH, MEDIUM, or LOW")
+	}
+	patternText := strings.TrimSpace(raw.Pattern)
+	if patternText == "" {
+		return PatternRule{}, fmt.Errorf("pattern is required")
+	}
+	if len(patternText) > 4000 {
+		return PatternRule{}, fmt.Errorf("pattern exceeds 4000 characters")
+	}
+	pattern, err := regexp.Compile(patternText)
+	if err != nil {
+		return PatternRule{}, fmt.Errorf("compile pattern: %w", err)
+	}
+
+	var excludes *regexp.Regexp
+	if strings.TrimSpace(raw.Excludes) != "" {
+		if len(raw.Excludes) > 4000 {
+			return PatternRule{}, fmt.Errorf("excludes exceeds 4000 characters")
+		}
+		excludes, err = regexp.Compile(raw.Excludes)
+		if err != nil {
+			return PatternRule{}, fmt.Errorf("compile excludes: %w", err)
+		}
+	}
+
+	if len(raw.Languages) == 0 {
+		return PatternRule{}, fmt.Errorf("languages must include at least one source file extension")
+	}
+	languages := make([]string, 0, len(raw.Languages))
+	seenLang := map[string]bool{}
+	for _, lang := range raw.Languages {
+		lang = strings.ToLower(strings.TrimSpace(lang))
+		if !strings.HasPrefix(lang, ".") || !sourceExtensions[lang] {
+			return PatternRule{}, fmt.Errorf("unsupported language extension %q", lang)
+		}
+		if !seenLang[lang] {
+			seenLang[lang] = true
+			languages = append(languages, lang)
+		}
+	}
+
+	return PatternRule{
+		ID:          id,
+		Name:        name,
+		Description: description,
+		Severity:    severity,
+		Pattern:     pattern,
+		Excludes:    excludes,
+		Languages:   languages,
+	}, nil
+}
+
+func scanFile(filePath string, ext string, rules []PatternRule) ([]PatternMatch, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -920,7 +1236,7 @@ func scanFile(filePath string, ext string) ([]PatternMatch, error) {
 			continue
 		}
 
-		for _, rule := range knownPatterns {
+		for _, rule := range rules {
 			// Check if this rule applies to this file extension
 			if !ruleAppliesToExt(rule, ext) {
 				continue
@@ -958,15 +1274,16 @@ func PatternMatchesToVulnerabilities(matches []PatternMatch) []models.Vulnerabil
 	var vulns []models.Vulnerability
 	for _, m := range matches {
 		vulns = append(vulns, models.Vulnerability{
-			ID:        m.Rule.ID,
-			Summary:   m.Rule.Name,
-			Details:   m.Rule.Description,
-			Severity:  m.Rule.Severity,
-			Source:    models.SourcePatternMatch,
-			FilePath:  m.FilePath,
-			StartLine: m.Line,
-			EndLine:   m.Line,
-			Snippet:   truncateSnippet(m.Content, 200),
+			ID:          m.Rule.ID,
+			Summary:     m.Rule.Name,
+			Details:     m.Rule.Description,
+			Severity:    m.Rule.Severity,
+			Source:      models.SourcePatternMatch,
+			FilePath:    m.FilePath,
+			StartLine:   m.Line,
+			EndLine:     m.Line,
+			Snippet:     truncateSnippet(m.Content, 200),
+			MatchedRule: m.Rule.ID,
 		})
 	}
 	return vulns

@@ -123,6 +123,10 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 		printConsistencyTable(w, result.ConsistencyIssues)
 	}
 
+	if result.SlopCodeSmells != nil {
+		printSlopCodeSmellSummary(w, result.SlopCodeSmells)
+	}
+
 	// Summary
 	fmt.Fprintln(w)
 	printSummary(w, vulns)
@@ -138,6 +142,53 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 	}
 
 	return nil
+}
+
+func printSlopCodeSmellSummary(w io.Writer, summary *models.SlopCodeSmellSummary) {
+	if summary == nil || summary.SignalCount == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "\n🧠 AI Slop Code Smells\n\n")
+	fmt.Fprintf(w, "  Score: %d/100  Level: %s  Signals: %d  Confidence: %s\n",
+		summary.Score, colorSlopLevel(summary.Level), summary.SignalCount, summary.Confidence)
+	if summary.GeneratedCodeSignal != "" {
+		fmt.Fprintf(w, "  Generated-code signal: %s\n", summary.GeneratedCodeSignal)
+	}
+	fmt.Fprintf(w, "  Note: %s\n\n", summary.AuthorshipDisclaimer)
+
+	t := table.NewWriter()
+	t.SetOutputMirror(w)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(table.Row{"Category", "Count", "Weight", "Why it matters"})
+	for _, category := range summary.Categories {
+		t.AppendRow(table.Row{
+			category.Name,
+			category.Count,
+			category.Weight,
+			truncate(category.Description, 70),
+		})
+	}
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 4, WidthMax: 70},
+	})
+	t.Render()
+
+	if len(summary.TopSignals) > 0 {
+		fmt.Fprintf(w, "\n  Top smell signals:\n")
+		limit := len(summary.TopSignals)
+		if limit > 5 {
+			limit = 5
+		}
+		for _, signal := range summary.TopSignals[:limit] {
+			location := ""
+			if signal.FilePath != "" {
+				location = fmt.Sprintf(" (%s:%d)", signal.FilePath, signal.StartLine)
+			}
+			fmt.Fprintf(w, "   - %s [%s/%s]%s: %s\n",
+				signal.FindingID, signal.CategoryID, signal.Confidence, location, truncate(signal.Title, 90))
+		}
+	}
 }
 
 func printDepTable(w io.Writer, vulns []models.Vulnerability) {
@@ -363,6 +414,21 @@ func colorSeverity(s models.Severity) string {
 		return text.FgBlue.Sprint(string(s))
 	default:
 		return string(s)
+	}
+}
+
+func colorSlopLevel(level string) string {
+	switch strings.ToUpper(level) {
+	case "CRITICAL":
+		return text.FgHiRed.Sprint(level)
+	case "HIGH":
+		return text.FgRed.Sprint(level)
+	case "MODERATE":
+		return text.FgYellow.Sprint(level)
+	case "LOW":
+		return text.FgBlue.Sprint(level)
+	default:
+		return level
 	}
 }
 

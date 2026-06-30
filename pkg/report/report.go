@@ -22,6 +22,12 @@ type (
 	Package = models.Package
 	// AIEnrichment is the optional AI-generated context for a finding.
 	AIEnrichment = models.AIEnrichment
+	// SlopCodeSmellSummary is the optional AI-slop-style code smell rollup.
+	SlopCodeSmellSummary = models.SlopCodeSmellSummary
+	// SlopCodeSmellCategory groups related smell signals.
+	SlopCodeSmellCategory = models.SlopCodeSmellCategory
+	// SlopCodeSmellSignal links a concrete finding to the smell score.
+	SlopCodeSmellSignal = models.SlopCodeSmellSignal
 	// LicenseIssue is a license compliance finding.
 	LicenseIssue = models.LicenseIssue
 	// IntegrityIssue is a lockfile integrity verification finding.

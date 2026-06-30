@@ -30,7 +30,7 @@ An open-source security scanner for **Go**, **Java**, **Python**, **Node.js**, *
 | **CISA KEV Enrichment** | Flags vulnerabilities actively exploited in the wild with `⚠ KEV` |
 | **AI Code Analysis** | OpenAI GPT-4, Ollama, or LM Studio detect OWASP Top 10 vulnerabilities in your code |
 | **SAST (Semgrep)** | 77+ bundled security rules plus custom rule support |
-| **Pattern Detection** | 47 built-in rules (29 SEC + 18 AI-generated code quality) |
+| **Pattern Detection** | 52 built-in rules (29 SEC + 23 AI-generated code quality) plus custom regex rule packs |
 | **Container Scanning** | Scan Docker/OCI images via Syft SBOM extraction |
 | **Binary/SCA Scanning** | Extract dependencies from Go binaries, JARs, and Python wheels |
 | **IaC Scanning** | 25 rules for Terraform, Kubernetes, Dockerfile, CloudFormation, Helm |

@@ -192,9 +192,11 @@ fixtures.
 | OSS-SAST-004 | Custom Semgrep rules | Run with `--semgrep-rules /path/to/rules`. | Trusted external rules are loaded and findings map into Calvigil report fields. |
 | OSS-SAST-005 | Project rules untrusted | Put rules in a project and run without `--trust-project-rules`. | Project rules are not silently executed. |
 | OSS-SAST-006 | Project rules trusted | Re-run with `--trust-project-rules`. | Project rules execute and findings appear. |
-| OSS-SAST-007 | Secret patterns | Scan `vuln_sample.go` with dependencies and AI skipped. | Hardcoded secret and insecure-code patterns are detected. |
-| OSS-SAST-008 | AI-generated code patterns | Scan a fixture with known AI anti-patterns. | Findings include the AI-generated/code-quality rule category where applicable. |
-| OSS-SAST-009 | Line metadata | Inspect JSON/SARIF for SAST findings. | File path, start line, end line, and snippet fields are populated when available. |
+| OSS-SAST-007 | Custom regex pattern rules | Create an external YAML pack and run `--pattern-rules /path/to/company-patterns.yaml --disable-builtin-patterns`. | Only custom regex findings are reported; invalid IDs, invalid severities, or invalid regexes fail cleanly. |
+| OSS-SAST-008 | Project regex rules untrusted | Put the YAML pack inside the scanned project and run without `--trust-project-rules`. | Scan fails with a trust-boundary error instead of silently executing project-local scanner logic. |
+| OSS-SAST-009 | Secret patterns | Scan `vuln_sample.go` with dependencies and AI skipped. | Hardcoded secret and insecure-code patterns are detected. |
+| OSS-SAST-010 | AI-generated code patterns | Scan a fixture with known AI anti-patterns. | Findings include the AI-generated/code-quality rule category where applicable. |
+| OSS-SAST-011 | Line metadata | Inspect JSON/SARIF for SAST findings. | File path, start line, end line, and snippet fields are populated when available. |
 
 ## License Compliance
 

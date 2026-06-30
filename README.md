@@ -433,6 +433,33 @@ calvigil scan . --semgrep-rules ./my-rules --trust-project-rules
   trusted location, so a symlink inside the project cannot escape the
   trust check.
 
+### Custom regex pattern rules
+
+The built-in `SEC-*` and `AI-SEC-*` pattern rules are configurable through
+an explicit rule-pack path:
+
+```bash
+calvigil scan . --pattern-rules ./company-patterns.yaml
+```
+
+Rule packs can be YAML or JSON files, or directories containing `.yaml`,
+`.yml`, or `.json` files:
+
+```yaml
+rules:
+  - id: CUSTOM-001
+    name: Query-string tenant scope
+    description: Tenant scope is read from a query string and must be authorized against request context.
+    severity: HIGH
+    pattern: 'URL\.Query\(\)\.Get\("tenant"\)'
+    languages: [".go"]
+```
+
+Custom rules are line-oriented RE2 regular expressions. Rule IDs must use
+`CUSTOM-*`, `AI-SEC-*`, or `SEC-*`; duplicate built-in IDs are rejected.
+Project-local pattern packs require `--trust-project-rules`, the same
+trust boundary used for Semgrep project rules.
+
 ### Skipped directories when walking a project
 
 All walkers (dependency detector, source analyzer, binary scanner, IaC
@@ -496,6 +523,9 @@ Scan Flags:
       --skip-deps               Skip dependency vulnerability scanning
       --skip-semgrep            Skip Semgrep SAST analysis
       --semgrep-rules string    Path to custom Semgrep rule directory
+      --pattern-rules string    Path to custom regex pattern rule YAML file or directory
+      --disable-builtin-patterns
+                                 Run only custom regex pattern rules from --pattern-rules
       --provider string         AI provider: openai, ollama, or auto (default "auto")
       --ollama-url string       Ollama server URL (default: http://localhost:11434)
       --ollama-model string     Ollama model name (e.g. llama3, codellama, mistral)
@@ -562,7 +592,8 @@ Push Flags:
 4. **Analyze**: Runs regex pattern matching + AI analysis (OpenAI or Ollama) on source code
 5. **Semgrep SAST**: Runs Semgrep CE with bundled or custom rule packs for static analysis
 6. **Enrich**: AI enrichment layer adds impact, confidence, remediation, and suppression rationale
-7. **Report**: Outputs results in the requested format (table, JSON, SARIF, CycloneDX, OpenVEX, HTML, or PDF)
+7. **Score code smells**: AI-SEC, Semgrep AI code-quality, and optional AI indicators are merged into an `slop_code_smells` review-prioritization score
+8. **Report**: Outputs results in the requested format (table, JSON, SARIF, CycloneDX, OpenVEX, HTML, or PDF)
 
 ## Supported Vulnerability Patterns (Code Analysis)
 
@@ -620,6 +651,36 @@ Push Flags:
 | AI-SEC-016 | Synchronous Crypto in Event Loop (Node.js) | MEDIUM | CWE-400 |
 | AI-SEC-017 | Template Literal in SQL Query (JS/TS) | HIGH | CWE-89 |
 | AI-SEC-018 | State-Changing Endpoint Without CSRF | MEDIUM | CWE-352 |
+| AI-SEC-019 | External Request Without Timeout | MEDIUM | CWE-400 |
+| AI-SEC-020 | Fail-Open Error Handling | HIGH | CWE-703 |
+| AI-SEC-021 | Temporary Security Bypass Comment | MEDIUM | CWE-489 |
+| AI-SEC-022 | Unbounded Goroutine Fan-Out | MEDIUM | CWE-400 |
+| AI-SEC-023 | HTTP Server Without Timeouts (Go) | MEDIUM | CWE-400 |
+
+### AI Slop Code Smell Summary
+
+Calvigil now rolls the existing AI-code detection into a single **AI slop code smell** summary in table, JSON, and HTML reports. This is intentionally **not authorship attribution**. It does not prove that code was written by an LLM. It highlights concrete engineering symptoms commonly found in low-trust generated, copied, or hurried code:
+
+- Resource lifecycle issues such as unclosed response bodies or files
+- Concurrency hazards such as shared map writes or loop-variable captures
+- Ignored errors, broad exception handlers, and stale APIs
+- Unbounded reads, missing timeouts, inefficient loops, and insecure defaults
+- Validation gaps, secret exposure, and state-changing endpoints without request-origin controls
+
+JSON reports include a `slop_code_smells` object when signals are present:
+
+```json
+{
+  "slop_code_smells": {
+    "score": 37,
+    "level": "MODERATE",
+    "signal_count": 2,
+    "generated_code_signal": "LIKELY_AI",
+    "confidence": "HIGH",
+    "authorship_disclaimer": "Slop code smells are quality and security symptoms, not proof that code was AI-generated."
+  }
+}
+```
 
 ## Semgrep CE Integration
 
@@ -641,7 +702,7 @@ calvigil scan --skip-semgrep /path/to/project
 **Bundled rule packs** (in `rules/semgrep/`):
 - `owasp-top10.yaml` — 32 rules: SQL injection, command injection, path traversal, hardcoded secrets, insecure TLS, weak crypto, XSS, insecure deserialization, SSRF, insecure random, weak ciphers, XXE, JWT misconfiguration, open redirect
 - `language-specific.yaml` — 20 rules: Go (unsafe pointer, HTTP timeouts, defer in loop, SQL concat, error wrapping), Python (Flask debug, bind 0.0.0.0, Django raw SQL, insecure tempfile, assert for auth), JS (eval, CORS wildcard, JWT no verify, prototype pollution), Java (XXE, ECB mode, weak ciphers, RSA key size)
-- `ai-code-quality.yaml` — 25+ rules: AI-generated code anti-patterns including resource leaks, race conditions, deprecated APIs, inefficient patterns, error handling, input validation, insecure defaults, and information exposure across Go, Python, Java, and JavaScript/TypeScript
+- `ai-code-quality.yaml` — 25+ rules: AI-generated code anti-patterns including resource leaks, race conditions, deprecated APIs, inefficient patterns, error handling, input validation, insecure defaults, and information exposure across Go, Python, Java, and JavaScript/TypeScript. Findings from this pack contribute to the `slop_code_smells` summary.
 
 ## Standards & Output Formats
 

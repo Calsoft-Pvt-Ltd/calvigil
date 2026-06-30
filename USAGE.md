@@ -296,6 +296,8 @@ calvigil scan [path] [flags]
 | `--skip-deps` | — | `false` | Skip dependency scan (code analysis only) |
 | `--skip-semgrep` | — | `false` | Skip Semgrep SAST analysis |
 | `--semgrep-rules` | — | (bundled) | Path to custom Semgrep rule directory |
+| `--pattern-rules` | — | — | Path to custom regex pattern rule YAML/JSON file or directory |
+| `--disable-builtin-patterns` | — | `false` | Run only custom regex pattern rules from `--pattern-rules` |
 | `--provider` | — | `auto` | AI provider: `openai`, `ollama`, `lmstudio`, or `auto` |
 | `--ollama-url` | — | `http://localhost:11434` | Ollama server URL |
 | `--ollama-model` | — | — | Ollama model name (e.g. `llama3`, `codellama`, `mistral`) |
@@ -1031,6 +1033,32 @@ calvigil scan --semgrep-rules ./my-company-rules/ /path/to/project
 ```
 
 The scanner will also pick up any `.semgrep/` directory in the project root automatically.
+
+### Custom Regex Pattern Rules
+
+Use custom regex rule packs for fast, line-oriented checks that do not require
+Semgrep or an AI provider:
+
+```bash
+calvigil scan --pattern-rules ./company-patterns.yaml /path/to/project
+```
+
+Rule packs can be YAML or JSON files, or directories containing `.yaml`, `.yml`,
+or `.json` files:
+
+```yaml
+rules:
+  - id: CUSTOM-001
+    name: Query-string tenant scope
+    description: Tenant scope is read from a query string and must be authorized against request context.
+    severity: HIGH
+    pattern: 'URL\.Query\(\)\.Get\("tenant"\)'
+    languages: [".go"]
+```
+
+Custom regex rules use Go RE2 syntax. Project-local rule packs require
+`--trust-project-rules`, and duplicate built-in rule IDs are rejected unless
+you intentionally run only custom rules with `--disable-builtin-patterns`.
 
 ### Skipping Semgrep
 

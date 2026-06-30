@@ -17,9 +17,10 @@ import (
 
 // OpenAIAnalyzer uses the OpenAI API to perform AI-powered code analysis.
 type OpenAIAnalyzer struct {
-	client    *openai.Client
-	model     string
-	SkipTests bool // Skip test files during scanning
+	client         *openai.Client
+	model          string
+	SkipTests      bool // Skip test files during scanning
+	PatternOptions PatternScanOptions
 }
 
 // NewOpenAIAnalyzer creates a new AI analyzer with the given API key and model.
@@ -119,7 +120,9 @@ func extractJSONArray(text string) string {
 
 func (a *OpenAIAnalyzer) Analyze(ctx context.Context, projectPath string, verbose bool) ([]models.Vulnerability, error) {
 	// Step 1: Run pattern matching first (fast, no API cost)
-	patternMatches, err := ScanPatterns(projectPath, a.SkipTests)
+	patternOpts := a.PatternOptions
+	patternOpts.SkipTests = patternOpts.SkipTests || a.SkipTests
+	patternMatches, err := ScanPatternsWithOptions(projectPath, patternOpts)
 	if err != nil {
 		return nil, fmt.Errorf("pattern scan failed: %w", err)
 	}

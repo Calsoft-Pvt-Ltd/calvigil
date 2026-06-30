@@ -28,6 +28,7 @@
       "type": "array",
       "items": { "$ref": "#/$defs/consistency_issue" }
     },
+    "slop_code_smells": { "$ref": "#/$defs/slop_code_smells" },
     "vulnerabilities": {
       "type": "array",
       "items": { "$ref": "#/$defs/vulnerability" }
@@ -91,6 +92,64 @@
         },
         "minimal_remediation": { "type": "string" },
         "suppression_rationale": { "type": "string" }
+      }
+    },
+    "slop_code_smells": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["score", "level", "signal_count", "confidence", "authorship_disclaimer"],
+      "properties": {
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "level": { "type": "string", "enum": ["CLEAN", "LOW", "MODERATE", "HIGH", "CRITICAL"] },
+        "signal_count": { "type": "integer", "minimum": 0 },
+        "generated_code_signal": {
+          "type": "string",
+          "enum": ["LIKELY_AI", "POSSIBLY_AI", "UNLIKELY_AI"]
+        },
+        "categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/slop_code_smell_category" }
+        },
+        "top_signals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/slop_code_smell_signal" }
+        },
+        "guidance": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "authorship_disclaimer": { "type": "string" }
+      }
+    },
+    "slop_code_smell_category": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name", "description", "count", "weight"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 },
+        "weight": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "slop_code_smell_signal": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["finding_id", "category_id", "title", "severity", "source", "confidence", "reason", "weight"],
+      "properties": {
+        "finding_id": { "type": "string" },
+        "rule_id": { "type": "string" },
+        "category_id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "source": { "type": "string" },
+        "file_path": { "type": "string" },
+        "start_line": { "type": "integer", "minimum": 0 },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "reason": { "type": "string" },
+        "weight": { "type": "integer", "minimum": 0 }
       }
     },
     "vulnerability": {

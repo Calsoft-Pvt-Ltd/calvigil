@@ -142,7 +142,7 @@ When AI analysis finds potential vulnerabilities, calvigil runs a second-pass **
 
 ## AI-Generated Code Detection
 
-calvigil includes **18 pattern rules** (AI-SEC-001 through AI-SEC-018) specifically targeting anti-patterns commonly introduced by AI code generators:
+calvigil includes **23 pattern rules** (AI-SEC-001 through AI-SEC-023) specifically targeting anti-patterns commonly introduced by AI code generators:
 
 - Resource leaks (unclosed HTTP bodies, files opened in loops)
 - Race conditions (concurrent map access, goroutine loop variable capture)
@@ -152,8 +152,80 @@ calvigil includes **18 pattern rules** (AI-SEC-001 through AI-SEC-018) specifica
 - Insecure defaults
 - Unbounded data loading
 - Missing input validation
+- Missing client/server request timeouts
+- Fail-open authorization, authentication, or validation error handling
+- Temporary security bypass comments left in release paths
+- Unbounded goroutine fan-out in Go services
 
 These rules run **without** an AI provider — they're regex-based pattern matchers.
+
+The built-in pattern set can be extended with custom YAML or JSON rule packs:
+
+```bash
+calvigil scan . --pattern-rules ./company-ai-sec-rules.yaml
+```
+
+Rule packs are line-oriented RE2 regular expressions with explicit severity
+and language filters. Project-local rule packs require
+`--trust-project-rules` so a repository cannot silently introduce scanner
+logic without reviewer intent.
+
+---
+
+## AI Slop Code Smell Scoring
+
+AI-generated code detection used to be spread across individual `AI-SEC-*` findings, Semgrep AI code-quality findings, and optional AI enrichment fields. Calvigil now merges those signals into one `slop_code_smells` summary so reviewers can quickly see whether a scan contains risky generated-code-style symptoms.
+
+The score is based on concrete findings, not on vibe or authorship guessing:
+
+| Signal family | Examples | Category |
+|:--------------|:---------|:---------|
+| Resource lifecycle | Unclosed HTTP bodies, files opened in loops | `resource_leak` |
+| Concurrency safety | Map writes from goroutines, loop variable captures | `concurrency` |
+| Error handling | Ignored errors, bare `except`, empty handlers | `error_handling` |
+| Stale APIs | Deprecated APIs, removed APIs, old platform patterns | `stale_api` |
+| Unbounded work | `ReadAll`, missing timeouts, O(n²) loops, sync crypto in event loops | `unbounded_work` |
+| Insecure defaults | Disabled TLS verification, wildcard CORS, debug mode | `insecure_defaults` |
+| Input validation | SQL/template injection patterns, unchecked conversions | `input_validation` |
+| Secret exposure | Tokens, passwords, private keys, sensitive logging | `secret_exposure` |
+
+The generated JSON looks like this when signals are present:
+
+```json
+{
+  "slop_code_smells": {
+    "score": 37,
+    "level": "MODERATE",
+    "signal_count": 2,
+    "generated_code_signal": "LIKELY_AI",
+    "confidence": "HIGH",
+    "categories": [
+      {
+        "id": "concurrency",
+        "name": "Concurrency safety",
+        "count": 1,
+        "weight": 24
+      }
+    ],
+    "top_signals": [
+      {
+        "finding_id": "AI-SEC-003",
+        "rule_id": "AI-SEC-003",
+        "category_id": "concurrency",
+        "title": "Concurrent map access without synchronization"
+      }
+    ],
+    "authorship_disclaimer": "Slop code smells are quality and security symptoms, not proof that code was AI-generated."
+  }
+}
+```
+
+Use the score as a review queue:
+
+- `LOW`: review during normal pull-request hardening
+- `MODERATE`: add targeted tests and confirm production limits
+- `HIGH`: block release until the top categories are reviewed
+- `CRITICAL`: treat as a security engineering stop-the-line signal
 
 ---
 

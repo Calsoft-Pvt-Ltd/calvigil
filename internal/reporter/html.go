@@ -49,6 +49,7 @@ type htmlData struct {
 	TotalDepVulns  int
 	LogoDataURL    template.URL
 	LicenseOnly    bool
+	SlopCodeSmells *models.SlopCodeSmellSummary
 }
 
 type htmlEcoGroup struct {
@@ -114,13 +115,14 @@ func (r *HTMLReporter) Report(result *models.ScanResult, w io.Writer) error {
 	})
 
 	data := htmlData{
-		ProjectPath:   result.ProjectPath,
-		GeneratedAt:   result.ScannedAt.Format(time.RFC1123),
-		Duration:      result.Duration.Round(time.Millisecond).String(),
-		TotalPackages: result.TotalPackages,
-		TotalVulns:    len(vulns),
-		LogoDataURL:   template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(logoPNG)),
-		LicenseOnly:   result.LicenseOnly,
+		ProjectPath:    result.ProjectPath,
+		GeneratedAt:    result.ScannedAt.Format(time.RFC1123),
+		Duration:       result.Duration.Round(time.Millisecond).String(),
+		TotalPackages:  result.TotalPackages,
+		TotalVulns:     len(vulns),
+		LogoDataURL:    template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(logoPNG)),
+		LicenseOnly:    result.LicenseOnly,
+		SlopCodeSmells: result.SlopCodeSmells,
 	}
 
 	for _, e := range result.Ecosystems {
@@ -256,6 +258,7 @@ func (r *HTMLReporter) Report(result *models.ScanResult, w io.Writer) error {
 			}
 			return fmt.Sprintf("%.1f", float64(a+b+c)*100/float64(total))
 		},
+		"lower": strings.ToLower,
 	}).Parse(htmlTemplate)
 	if err != nil {
 		return fmt.Errorf("HTML template error: %w", err)
@@ -460,6 +463,108 @@ const htmlTemplate = `<!DOCTYPE html>
   }
   .section h2 { font-size: 1.15rem; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid var(--bg); }
 
+  /* AI slop code-smell summary */
+  .slop-section {
+    border-left: 4px solid #5c6bc0;
+    background: linear-gradient(135deg, #ffffff 0%, #f7f9ff 100%);
+  }
+  .slop-section.slop-high, .slop-section.slop-critical { border-left-color: var(--high); }
+  .slop-section.slop-moderate { border-left-color: var(--medium); }
+  .slop-section.slop-low { border-left-color: var(--low); }
+  .slop-header {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) 1fr;
+    gap: 20px;
+    align-items: stretch;
+    margin-bottom: 18px;
+  }
+  .slop-score-card {
+    border: 1px solid #d7def3;
+    border-radius: 12px;
+    background: #fff;
+    padding: 18px;
+  }
+  .slop-score {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: #1e40af;
+    line-height: 1;
+  }
+  .slop-level {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #e8efff;
+    color: #1e40af;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .slop-copy {
+    border: 1px solid #d7def3;
+    border-radius: 12px;
+    background: #fff;
+    padding: 16px 18px;
+  }
+  .slop-copy p {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin-bottom: 8px;
+  }
+  .slop-metrics {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .slop-pill {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    background: #fafbfc;
+    color: #344054;
+    font-weight: 700;
+  }
+  .slop-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    gap: 18px;
+  }
+  .slop-list {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .slop-list h3 {
+    font-size: 0.85rem;
+    color: #344054;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: #f8fafc;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .slop-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+  }
+  .slop-row:last-child { border-bottom: 0; }
+  .slop-row strong { display: block; color: #111827; }
+  .slop-row span { color: var(--muted); }
+  .slop-weight {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #1e40af;
+    font-weight: 800;
+  }
+
   /* Vuln card */
   .vuln-card {
     border: 1px solid var(--border);
@@ -590,6 +695,7 @@ const htmlTemplate = `<!DOCTYPE html>
     .vuln-card-header { flex-direction: column; align-items: flex-start; gap: 6px; }
     .vuln-card-body, .enrichment { grid-template-columns: 1fr; }
     .vuln-field-label { min-width: 90px; }
+    .slop-header, .slop-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -657,6 +763,72 @@ const htmlTemplate = `<!DOCTYPE html>
       {{if gt .LowCount 0}}<span><span class="dot" style="background:var(--low)"></span> Low ({{.LowCount}})</span>{{end}}
       {{if gt .UnknownCount 0}}<span><span class="dot" style="background:var(--unknown)"></span> Unknown ({{.UnknownCount}})</span>{{end}}
     </div>
+  </div>
+  {{end}}
+
+  <!-- AI slop code-smell summary -->
+  {{with .SlopCodeSmells}}
+  <div class="section slop-section slop-{{lower .Level}}">
+    <h2>&#x1F9E0; AI Slop Code Smells</h2>
+    <div class="slop-header">
+      <div class="slop-score-card">
+        <div style="font-size:0.78rem;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:0.06em;">Smell score</div>
+        <div class="slop-score">{{.Score}}<span style="font-size:1rem;color:var(--muted);">/100</span></div>
+        <span class="slop-level">{{.Level}}</span>
+      </div>
+      <div class="slop-copy">
+        <p><strong>What this means:</strong> Calvigil found concrete review signals often seen in low-trust generated, copied, or hurried code.</p>
+        <p>{{.AuthorshipDisclaimer}}</p>
+        <div class="slop-metrics">
+          <span class="slop-pill">{{.SignalCount}} signal(s)</span>
+          <span class="slop-pill">{{.Confidence}} confidence</span>
+          {{if .GeneratedCodeSignal}}<span class="slop-pill">{{.GeneratedCodeSignal}} generated-code signal</span>{{end}}
+        </div>
+      </div>
+    </div>
+
+    <div class="slop-grid">
+      {{if .Categories}}
+      <div class="slop-list">
+        <h3>Top categories</h3>
+        {{range .Categories}}
+        <div class="slop-row">
+          <div>
+            <strong>{{.Name}} <span>({{.Count}})</span></strong>
+            <span>{{.Description}}</span>
+          </div>
+          <div class="slop-weight">{{.Weight}}</div>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
+
+      {{if .TopSignals}}
+      <div class="slop-list">
+        <h3>Top signals to review</h3>
+        {{range .TopSignals}}
+        <div class="slop-row">
+          <div>
+            <strong>{{.FindingID}}{{if .RuleID}} · {{.RuleID}}{{end}}</strong>
+            <span>{{.Title}}{{if .FilePath}} — {{.FilePath}}{{if gt .StartLine 0}}:{{.StartLine}}{{end}}{{end}}</span>
+          </div>
+          <div class="slop-weight">{{.Weight}}</div>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+
+    {{if .Guidance}}
+    <div style="margin-top:16px;border:1px solid #d7def3;border-radius:10px;background:#fff;padding:12px 14px;">
+      <div style="font-size:0.82rem;font-weight:800;color:#344054;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em;">Review guidance</div>
+      <ul style="padding-left:18px;font-size:0.86rem;color:var(--muted);">
+      {{range .Guidance}}
+        <li>{{.}}</li>
+      {{end}}
+      </ul>
+    </div>
+    {{end}}
   </div>
   {{end}}
 

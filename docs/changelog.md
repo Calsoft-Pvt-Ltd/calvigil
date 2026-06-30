@@ -12,6 +12,20 @@ All notable changes to calvigil are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+- AI slop code-smell scoring for OSS scans. Existing AI-SEC pattern findings, Semgrep AI code-quality findings, and optional AI enrichment indicators now roll up into `slop_code_smells` in JSON plus table and HTML report summaries.
+- Documentation and examples explaining that slop code smells are concrete quality/security symptoms, not proof of AI authorship.
+- Five new AI-SEC pattern signals for missing request/server timeouts, fail-open error handling, temporary security bypass comments, unbounded Go goroutine fan-out, and Go HTTP servers without timeout configuration.
+- Configurable regex pattern rule packs via `--pattern-rules`, with YAML/JSON file or directory support and project-local trust guardrails.
+
+### Changed
+- Built-in regex pattern coverage increased from 47 to 52 rules: 29 general `SEC-*` rules and 23 `AI-SEC-*` code-quality/security signals.
+- AI slop code-smell scoring maps additional timeout, fail-open, insecure-default, validation, and secret-exposure rules into summary categories.
+
+---
+
 ## [5.3.0] — 2026-06-24
 
 ### Added

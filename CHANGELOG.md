@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- AI slop code-smell scoring for OSS scans. Existing AI-SEC pattern findings, Semgrep AI code-quality findings, and optional AI enrichment indicators now roll up into `slop_code_smells` in JSON plus table and HTML report summaries.
+- Documentation and examples explaining that slop code smells are concrete quality/security symptoms, not proof of AI authorship.
+- Five new AI-SEC pattern signals informed by current secure-coding research and standards:
+  - `AI-SEC-019` external HTTP requests without explicit timeout or abort signal.
+  - `AI-SEC-020` fail-open error handling that returns success/allow/true after failures.
+  - `AI-SEC-021` temporary security bypass comments around auth, CSRF, validation, sanitization, or access control.
+  - `AI-SEC-022` unbounded Go goroutine fan-out without an obvious limiter.
+  - `AI-SEC-023` Go HTTP servers started without read/write/idle timeout configuration.
+- Configurable regex pattern rule packs via `--pattern-rules`, with YAML/JSON file or directory support, duplicate-ID validation, severity validation, RE2 compilation checks, and project-local trust guardrails.
+
+### Changed
+- Built-in regex pattern coverage increased from 47 to 52 rules: 29 general `SEC-*` rules and 23 `AI-SEC-*` code-quality/security signals.
+- AI slop code-smell scoring now maps additional timeout, fail-open, insecure-default, validation, and secret-exposure rules into the summary categories.
+
+---
+
 ## [5.3.0] — 2026-06-24
 
 ### Added
