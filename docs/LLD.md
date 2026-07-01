@@ -365,7 +365,7 @@ calvigil
 | `--skip-ai` | | bool | `false` | Skip AI code analysis |
 | `--skip-deps` | | bool | `false` | Skip dependency scanning |
 | `--skip-semgrep` | | bool | `false` | Skip Semgrep SAST |
-| `--semgrep-rules` | | string | `""` | Custom Semgrep rule directory |
+| `--semgrep-rules` | | string | `""` | Custom Semgrep rule YAML file or directory |
 | `--pattern-rules` | | string | `""` | Custom regex pattern rule YAML/JSON file or directory |
 | `--disable-builtin-patterns` | | bool | `false` | Run only custom regex pattern rules |
 | `--provider` | | string | `""` | AI provider: openai, ollama, lmstudio, auto |
@@ -1213,10 +1213,10 @@ func (s *SemgrepAnalyzer) Available() bool
 
 #### Rule Resolution Order
 1. Custom `RulesDir` if provided and exists
-2. `<projectPath>/.semgrep/` directory
-3. `<projectPath>/.semgrep.yml` file
+2. Project-local `<projectPath>/.semgrep/` directory only when `--trust-project-rules` is enabled
+3. Project-local `<projectPath>/.semgrep.yml` file only when `--trust-project-rules` is enabled
 4. Bundled rules: `getBundledRulesDir()` → `rules/semgrep/`
-5. Fallback: `semgrep --config auto`
+5. Fail closed with an actionable error if no rule file or directory is discoverable
 
 #### Command Execution
 ```bash
@@ -1752,42 +1752,16 @@ func ResolvePackages(ctx context.Context, packages []models.Package, verbose boo
 
 ## 13. Semgrep Rules
 
-### 13.1 OWASP Top 10 Rules (`rules/semgrep/owasp-top10.yaml`)
+The bundled rules live in `rules/semgrep/` and are auto-discovered as a directory by `getBundledRulesDir()`. The current bundle contains **101 original Calvigil rules**:
 
-| Rule ID | Category | Languages | CWE |
-|---------|---------|-----------|-----|
-| `calvigil.sql-injection-go` | SQL Injection | Go | CWE-89 |
-| `calvigil.sql-injection-python` | SQL Injection | Python | CWE-89 |
-| `calvigil.sql-injection-java` | SQL Injection | Java | CWE-89 |
-| `calvigil.sql-injection-js` | SQL Injection | JS/TS | CWE-89 |
-| `calvigil.command-injection-go` | Command Injection | Go | CWE-78 |
-| `calvigil.command-injection-python` | Command Injection | Python | CWE-78 |
-| `calvigil.command-injection-js` | Command Injection | JS/TS | CWE-78 |
-| `calvigil.path-traversal-go` | Path Traversal | Go | CWE-22 |
-| `calvigil.path-traversal-python` | Path Traversal | Python | CWE-22 |
-| `calvigil.hardcoded-secrets` | Hardcoded Secrets | All | CWE-798 |
-| `calvigil.aws-access-keys` | AWS Access Keys | All | CWE-798 |
-| `calvigil.insecure-tls-go` | Insecure TLS Config | Go | CWE-295 |
-| `calvigil.insecure-tls-python` | Insecure TLS Config | Python | CWE-295 |
-| `calvigil.weak-crypto-go` | Weak Cryptography | Go | CWE-327 |
-| `calvigil.weak-crypto-python` | Weak Cryptography | Python | CWE-327 |
-| `calvigil.xss-go` | Cross-Site Scripting | Go | CWE-79 |
-| `calvigil.xss-js` | Cross-Site Scripting | JS/TS | CWE-79 |
-| `calvigil.insecure-deserialization-python` | Insecure Deserialization | Python | CWE-502 |
-| `calvigil.insecure-deserialization-java` | Insecure Deserialization | Java | CWE-502 |
-| `calvigil.ssrf-go` | Server-Side Request Forgery | Go | CWE-918 |
-| `calvigil.ssrf-python` | Server-Side Request Forgery | Python | CWE-918 |
-| `calvigil.cors-misconfiguration` | CORS Misconfiguration | Go/Python/JS | CWE-942 |
+| Pack | Count | Purpose |
+|------|------:|---------|
+| `owasp-top10.yaml` | 32 | OWASP-style injection, auth, crypto, XSS, deserialization, SSRF, and CORS risks |
+| `language-specific.yaml` | 20 | Ecosystem-specific Go, Python, Java, JS/TS, Rust, Ruby, PHP, and C/C++ checks |
+| `ai-code-quality.yaml` | 22 | AI-generated-code quality and security anti-patterns at the Semgrep AST layer |
+| `community-aligned.yaml` | 27 | Original Calvigil rules covering framework/JWT/TLS/deserialization/container/shell gaps identified from the public `semgrep/semgrep-rules` structure |
 
-### 13.2 Language-Specific Rules (`rules/semgrep/language-specific.yaml`)
-
-| Rule ID | Category | Language | CWE |
-|---------|---------|----------|-----|
-| `calvigil.go-unsafe-pointer` | Unsafe Pointer Usage | Go | CWE-704 |
-| `calvigil.go-http-no-timeout` | HTTP Server Without Timeout | Go | CWE-400 |
-| `calvigil.go-defer-in-loop` | Defer in Loop | Go | CWE-404 |
-| `calvigil.python-flask-debug` | Flask Debug Mode in Production | Python | CWE-489 |
-| `calvigil.python-bind-all-interfaces` | Binding to All Interfaces | Python | CWE-668 |
+The `community-aligned.yaml` pack is not copied from upstream community YAML. It is original Calvigil rule content because upstream Semgrep community rules are published under the Semgrep Rules License. This keeps Calvigil's bundled rules distributable with the rest of the OSS scanner.
 
 ---
 

@@ -46,7 +46,7 @@ This catches security bugs that no dependency database can find — the ones **y
 
 ### 2a. AI-Generated Code Detection (automatic)
 
-Calvigil includes **18 dedicated rules** that detect anti-patterns commonly introduced by AI code generators (Copilot, ChatGPT, Claude, etc.):
+Calvigil includes **23 dedicated rules** that detect anti-patterns commonly introduced by AI code generators (Copilot, ChatGPT, Claude, etc.):
 
 - **Resource leaks**: unclosed HTTP response bodies, files opened in loops without close
 - **Race conditions**: concurrent map writes in goroutines, loop variable capture
@@ -61,7 +61,7 @@ These run automatically as part of the pattern scanner — no AI model or API ke
 
 ### 3. SAST Engine — Semgrep (automatic)
 
-Calvigil ships with **77+ built-in security rules** powered by Semgrep, covering Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, and C/C++. This includes a dedicated **AI code quality** rule pack that detects resource leaks, race conditions, deprecated APIs, and inefficient patterns at the AST level. All of this works without needing an AI model.
+Calvigil ships with **101 built-in security rules** powered by Semgrep, covering Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, Dockerfile, Bash, and C/C++. This includes dedicated OWASP, language-specific, AI code quality, and community-aligned packs. All of this works without needing an AI model.
 
 ### 4. Supply Chain Protection (automatic + opt-in)
 

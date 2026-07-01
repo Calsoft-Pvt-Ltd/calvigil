@@ -36,7 +36,7 @@ High-level design and internal structure of calvigil.
 | **Detector** | `internal/detector/` | Filesystem walk to identify project ecosystems |
 | **Parser** | `internal/parser/` | Extract dependencies from manifest/lock files; integrity checks |
 | **Matcher** | `internal/matcher/` | Query CVE databases; canonical normalize + merge; KEV enrichment |
-| **Analyzer** | `internal/analyzer/` | AI code analysis, 47 pattern rules, 77+ Semgrep rules |
+| **Analyzer** | `internal/analyzer/` | AI code analysis, 52 pattern rules, 101 Semgrep rules across 4 bundled packs |
 | **Reporter** | `internal/reporter/` | Format and emit scan results (8 formats) |
 | **Image Scanner** | `internal/image/` | Container image scanning via Syft |
 | **IaC Scanner** | `internal/iac/` | Regex-based misconfiguration scanner (25 rules) |

@@ -87,13 +87,13 @@
       "id": "analyzer",
       "path": "internal/analyzer/",
       "kind": "pipeline",
-      "responsibility": "AI enrichment (OpenAI/Ollama) + 52 regex pattern rules (29 SEC + 23 AI-SEC) + trusted custom regex rule packs + Semgrep wrapper (77+ rules across 3 packs)",
+      "responsibility": "AI enrichment (OpenAI/Ollama) + 52 regex pattern rules (29 SEC + 23 AI-SEC) + trusted custom regex rule packs + Semgrep wrapper (101 rules across 4 packs)",
       "files": ["analyzer.go", "openai.go", "ollama.go", "patterns.go", "prompts.go", "evidence.go", "semgrep.go"],
       "imports": ["internal/models", "internal/fsutil"],
       "hld_section": [8],
       "lld_section": [7],
       "pattern_rules_count": 52,
-      "semgrep_rules_count": 77
+      "semgrep_rules_count": 101
     },
     {
       "id": "license",

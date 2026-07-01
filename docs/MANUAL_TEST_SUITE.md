@@ -189,7 +189,7 @@ fixtures.
 | OSS-SAST-001 | Built-in SAST | `$CALVIGIL_BIN scan "$FIXTURE" --skip-ai --skip-deps --format json --output /tmp/calvigil-sast.json` | Semgrep and built-in patterns run when available. |
 | OSS-SAST-002 | Semgrep skipped | `$CALVIGIL_BIN scan "$FIXTURE" --skip-ai --skip-deps --skip-semgrep` | Semgrep findings are absent; pattern-only findings may remain. |
 | OSS-SAST-003 | Missing Semgrep binary | Temporarily remove Semgrep from PATH and run SAST scan. | Scanner reports Semgrep unavailable without a panic. |
-| OSS-SAST-004 | Custom Semgrep rules | Run with `--semgrep-rules /path/to/rules`. | Trusted external rules are loaded and findings map into Calvigil report fields. |
+| OSS-SAST-004 | Custom Semgrep rules | Run with `--semgrep-rules /path/to/rules` or `--semgrep-rules /path/to/rule-pack.yaml`. | Trusted external rules are loaded and findings map into Calvigil report fields. |
 | OSS-SAST-005 | Project rules untrusted | Put rules in a project and run without `--trust-project-rules`. | Project rules are not silently executed. |
 | OSS-SAST-006 | Project rules trusted | Re-run with `--trust-project-rules`. | Project rules execute and findings appear. |
 | OSS-SAST-007 | Custom regex pattern rules | Create an external YAML pack and run `--pattern-rules /path/to/company-patterns.yaml --disable-builtin-patterns`. | Only custom regex findings are reported; invalid IDs, invalid severities, or invalid regexes fail cleanly. |

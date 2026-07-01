@@ -97,11 +97,11 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - Full vulnerability matching against OSV, plus configured OSS Index, NVD, and GitHub Advisory sources
 
 - **SAST Engine — Semgrep CE Integration** with custom rule packs:
-  - 77+ bundled security rules covering OWASP Top 10 + SonarQube-aligned + language-specific + AI-generated code quality patterns
+  - 101 bundled security rules covering OWASP Top 10, language-specific risks, AI-generated code quality patterns, and community-aligned framework/security checks
   - Custom rule packs for Go, Python, Java, JavaScript/TypeScript, Rust, Ruby, PHP, and C/C++
   - Bring your own rules with `--semgrep-rules`
 
-- **AI-Generated Code Detection** — 18 dedicated pattern rules for code produced by AI generators:
+- **AI-Generated Code Detection** — 23 dedicated pattern rules for code produced by AI generators:
   - Resource leaks (unclosed HTTP bodies, files opened in loops)
   - Race conditions (concurrent map writes, goroutine loop variable capture)
   - Inefficient algorithms (O(n²) nested loops, string concat in loops)
@@ -522,7 +522,7 @@ Scan Flags:
       --skip-ai                 Skip AI-powered code analysis
       --skip-deps               Skip dependency vulnerability scanning
       --skip-semgrep            Skip Semgrep SAST analysis
-      --semgrep-rules string    Path to custom Semgrep rule directory
+      --semgrep-rules string    Path to custom Semgrep rule YAML file or directory
       --pattern-rules string    Path to custom regex pattern rule YAML file or directory
       --disable-builtin-patterns
                                  Run only custom regex pattern rules from --pattern-rules
@@ -689,20 +689,29 @@ The scanner integrates with [Semgrep CE](https://semgrep.dev/) for static applic
 ```bash
 pip install semgrep
 
-# Scan with bundled rule packs (OWASP Top 10 + language-specific)
+# Scan with bundled rule packs
 calvigil scan /path/to/project
 
-# Scan with your own custom rules
+# Scan with your own custom rules directory or YAML file
 calvigil scan --semgrep-rules ./my-rules/ /path/to/project
 
 # Skip Semgrep entirely
 calvigil scan --skip-semgrep /path/to/project
 ```
 
+Bundled rules are discovered from either `rules/semgrep/` in the current
+working directory or `rules/semgrep/` next to the `calvigil` binary. If
+you run the binary from another directory and the bundled rules are not
+packaged beside it, pass `--semgrep-rules /absolute/path/to/rules/semgrep`
+or `--semgrep-rules /absolute/path/to/rules/semgrep/community-aligned.yaml`.
+Calvigil does not fall back to Semgrep `--config auto` because scans run
+with Semgrep metrics disabled for privacy and reproducibility.
+
 **Bundled rule packs** (in `rules/semgrep/`):
 - `owasp-top10.yaml` — 32 rules: SQL injection, command injection, path traversal, hardcoded secrets, insecure TLS, weak crypto, XSS, insecure deserialization, SSRF, insecure random, weak ciphers, XXE, JWT misconfiguration, open redirect
 - `language-specific.yaml` — 20 rules: Go (unsafe pointer, HTTP timeouts, defer in loop, SQL concat, error wrapping), Python (Flask debug, bind 0.0.0.0, Django raw SQL, insecure tempfile, assert for auth), JS (eval, CORS wildcard, JWT no verify, prototype pollution), Java (XXE, ECB mode, weak ciphers, RSA key size)
-- `ai-code-quality.yaml` — 25+ rules: AI-generated code anti-patterns including resource leaks, race conditions, deprecated APIs, inefficient patterns, error handling, input validation, insecure defaults, and information exposure across Go, Python, Java, and JavaScript/TypeScript. Findings from this pack contribute to the `slop_code_smells` summary.
+- `ai-code-quality.yaml` — 22 rules: AI-generated code anti-patterns including resource leaks, race conditions, deprecated APIs, inefficient patterns, error handling, input validation, insecure defaults, and information exposure across Go, Python, Java, and JavaScript/TypeScript. Findings from this pack contribute to the `slop_code_smells` summary.
+- `community-aligned.yaml` — 27 original Calvigil rules added after comparing with the public `semgrep/semgrep-rules` repository. These cover framework and ecosystem gaps including Django, Flask, FastAPI, React, Express, Sequelize, JWT, Go gRPC/JWT, Spring, C/C++, PHP, Ruby/Rails, Dockerfile, and shell supply-chain patterns. Upstream community YAML is not vendored because it is distributed under the Semgrep Rules License.
 
 ## Standards & Output Formats
 

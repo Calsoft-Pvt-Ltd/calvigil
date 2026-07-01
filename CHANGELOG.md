@@ -17,10 +17,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `AI-SEC-022` unbounded Go goroutine fan-out without an obvious limiter.
   - `AI-SEC-023` Go HTTP servers started without read/write/idle timeout configuration.
 - Configurable regex pattern rule packs via `--pattern-rules`, with YAML/JSON file or directory support, duplicate-ID validation, severity validation, RE2 compilation checks, and project-local trust guardrails.
+- Community-aligned Semgrep rule pack with 27 original Calvigil rules for framework, JWT, TLS, deserialization, C/C++, PHP/Ruby, Dockerfile, and shell supply-chain patterns.
+- Bundled Semgrep rule integrity tests that parse every rule pack, enforce required fields, validate severity values, and prevent duplicate rule IDs.
 
 ### Changed
 - Built-in regex pattern coverage increased from 47 to 52 rules: 29 general `SEC-*` rules and 23 `AI-SEC-*` code-quality/security signals.
 - AI slop code-smell scoring now maps additional timeout, fail-open, insecure-default, validation, and secret-exposure rules into the summary categories.
+- Bundled Semgrep coverage increased from 74 to 101 rules across four packs after comparing Calvigil's gaps with the public `semgrep/semgrep-rules` repository structure.
+
+### Fixed
+- Corrected malformed bundled Semgrep YAML in existing packs so all shipped rules parse cleanly in automated tests.
 
 ---
 

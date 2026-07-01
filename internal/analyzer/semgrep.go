@@ -15,7 +15,7 @@ import (
 
 // SemgrepAnalyzer runs Semgrep CE with custom rule packs for SAST scanning.
 type SemgrepAnalyzer struct {
-	RulesDir string // directory containing custom .yaml rule files
+	RulesDir string // custom Semgrep YAML file or directory
 	Verbose  bool
 	// TrustProjectRules, when true, loads Semgrep rule files (.semgrep/ and
 	// .semgrep.yml) from inside the scanned project. This is off by default
@@ -92,9 +92,11 @@ func (s *SemgrepAnalyzer) Analyze(ctx context.Context, projectPath string, verbo
 			resolved = s.RulesDir
 		}
 		info, err := os.Stat(resolved)
-		if err == nil && info.IsDir() {
+		if err == nil && isSemgrepConfigPath(resolved, info) {
 			args = append(args, "--config", resolved)
 			rulesConfigured = true
+		} else {
+			return nil, fmt.Errorf("semgrep rules path %q was not found or is not a Semgrep YAML file/directory", s.RulesDir)
 		}
 	}
 
@@ -129,8 +131,7 @@ func (s *SemgrepAnalyzer) Analyze(ctx context.Context, projectPath string, verbo
 		if bundledRules != "" {
 			args = append(args, "--config", bundledRules)
 		} else {
-			// Use Semgrep's auto config as last resort
-			args = append(args, "--config", "auto")
+			return nil, fmt.Errorf("no Semgrep rule config found; run from the repository root, install bundled rules next to the binary, or pass --semgrep-rules <file-or-dir>")
 		}
 	}
 
@@ -162,8 +163,8 @@ func (s *SemgrepAnalyzer) Analyze(ctx context.Context, projectPath string, verbo
 			if exitErr.ExitCode() == 1 && len(output) > 0 {
 				// Has findings, continue parsing
 			} else {
-				stderr := string(exitErr.Stderr)
-				return nil, fmt.Errorf("semgrep failed (exit %d): %s", exitErr.ExitCode(), truncateStr(stderr, 500))
+				details := semgrepFailureDetails(output, exitErr.Stderr)
+				return nil, fmt.Errorf("semgrep failed (exit %d): %s", exitErr.ExitCode(), truncateStr(details, 2000))
 			}
 		} else {
 			return nil, fmt.Errorf("semgrep execution failed: %w", err)
@@ -290,6 +291,29 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+func semgrepFailureDetails(stdout, stderr []byte) string {
+	details := strings.TrimSpace(string(stderr))
+	out := strings.TrimSpace(string(stdout))
+	switch {
+	case details == "" && out == "":
+		return "no Semgrep diagnostic output"
+	case details == "":
+		return out
+	case out == "":
+		return details
+	default:
+		return details + "\n" + out
+	}
+}
+
+func isSemgrepConfigPath(path string, info os.FileInfo) bool {
+	if info.IsDir() {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".yaml" || ext == ".yml"
 }
 
 // getBundledRulesDir returns the path to bundled rule packs shipped with the scanner.

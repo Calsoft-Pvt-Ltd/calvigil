@@ -435,9 +435,12 @@ rules:
   # ─── JWT Misconfiguration (SonarQube S3649 / CWE-345) ──────────
   - id: sec-jwt-no-verify-python
     pattern-either:
-      - pattern: jwt.decode($TOKEN, ..., options={..., "verify_signature": False, ...})
-      - pattern: jwt.decode($TOKEN, ..., verify=False)
-      - pattern: jwt.decode($TOKEN, ..., algorithms=["none"])
+      - pattern: |
+          jwt.decode($TOKEN, ..., options={..., "verify_signature": False, ...})
+      - pattern: |
+          jwt.decode($TOKEN, ..., verify=False)
+      - pattern: |
+          jwt.decode($TOKEN, ..., algorithms=["none"])
     message: >
       JWT decoded without signature verification. Always verify JWT
       signatures using jwt.decode with verify=True and a strong algorithm.

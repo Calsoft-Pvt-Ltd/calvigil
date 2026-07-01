@@ -71,7 +71,7 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 | `internal/binary/`          | [scanner.go](../internal/binary/scanner.go)                                                         | Go binaries / JARs / Python wheels SCA | 17 | 17 |
 | `internal/image/`           | [image.go](../internal/image/image.go), [validate.go](../internal/image/validate.go)                | Container image scan via Syft + ref validation | 10, 21 | 14, 21 |
 | `internal/reporter/`        | (reporter.go, table.go, json.go, sarif.go, cyclonedx.go, openvex.go, spdx.go, html.go, pdf.go)      | Output formatters (table/JSON/SARIF/CycloneDX/OpenVEX/SPDX/HTML/PDF) | 11 | 10 |
-| `rules/semgrep/`            | owasp-top10.yaml, language-specific.yaml, ai-code-quality.yaml                                       | Built-in Semgrep ruleset (trusted; project rules opt-in) | 12.5 | 7 |
+| `rules/semgrep/`            | owasp-top10.yaml, language-specific.yaml, ai-code-quality.yaml, community-aligned.yaml                | Built-in Semgrep ruleset (trusted; project rules opt-in) | 12.5 | 7 |
 
 ---
 
@@ -129,7 +129,7 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
   - SEC-001 .. SEC-029: OWASP Top 10, secrets, crypto, injection, deserialization, etc.
   - AI-SEC-001 .. AI-SEC-023: AI-generated code anti-patterns (resource leaks, race conditions, inefficient algorithms, deprecated APIs, missing validation, insecure defaults, missing timeouts, fail-open handling, temporary bypasses)
 - `SemgrepAnalyzer` (external CLI; **project rules require opt-in `--trust-project-rules`**)
-- 3 bundled Semgrep rule packs: `owasp-top10.yaml` (32), `language-specific.yaml` (20), `ai-code-quality.yaml` (25+)
+- 4 bundled Semgrep rule packs: `owasp-top10.yaml` (32), `language-specific.yaml` (20), `ai-code-quality.yaml` (22), `community-aligned.yaml` (27)
 
 ### `internal/reporter`
 - `Reporter` interface · `ForFormat(fmt) Reporter`
@@ -146,7 +146,7 @@ Rule of thumb: **lower layers never import upward**. `models` is a leaf; `cmd` i
 | I2 | Every report file is written with mode `0600` (never `0644`) | `cmd/helpers.go::writeReport`, future reporters |
 | I3 | Secrets NEVER live in the YAML config struct or `.calvigil.yaml` — always via `secretStore` | `internal/config/secrets.go`, `cmd/config.go` |
 | I4 | `scan-image <ref>` always passes through `validateImageRef` before any `exec.Command` | `internal/image/image.go` |
-| I5 | External Semgrep rule directories from the scanned project are loaded **only** if `--trust-project-rules` was passed | `internal/analyzer/semgrep.go` |
+| I5 | External Semgrep rule files or directories from the scanned project are loaded **only** if `--trust-project-rules` was passed | `internal/analyzer/semgrep.go` |
 | I6 | Symlinks resolved (and confirmed inside scan root) before reading | `detector`, walkers reading file content |
 | I7 | New ecosystems get a parser **and** a PURL type entry in `models/purl.go` | `internal/models/purl.go`, `internal/parser/parser.go::ForFile` |
 | I8 | New report formats route through `cmd/helpers.go::writeReport`; do not write files in the reporter itself | `internal/reporter/*.go` |

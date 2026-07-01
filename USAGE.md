@@ -295,7 +295,7 @@ calvigil scan [path] [flags]
 | `--skip-ai` | — | `false` | Skip AI code analysis (dependency scan only) |
 | `--skip-deps` | — | `false` | Skip dependency scan (code analysis only) |
 | `--skip-semgrep` | — | `false` | Skip Semgrep SAST analysis |
-| `--semgrep-rules` | — | (bundled) | Path to custom Semgrep rule directory |
+| `--semgrep-rules` | — | (bundled) | Path to custom Semgrep rule YAML file or directory |
 | `--pattern-rules` | — | — | Path to custom regex pattern rule YAML/JSON file or directory |
 | `--disable-builtin-patterns` | — | `false` | Run only custom regex pattern rules from `--pattern-rules` |
 | `--provider` | — | `auto` | AI provider: `openai`, `ollama`, `lmstudio`, or `auto` |
@@ -990,7 +990,7 @@ When Semgrep is not installed, the scanner gracefully skips SAST analysis and co
 
 ### Bundled Rule Packs
 
-The scanner ships with **52 security rules** in `rules/semgrep/`:
+The scanner ships with **101 bundled Semgrep rules** in `rules/semgrep/`:
 
 **`owasp-top10.yaml`** — 32 rules covering OWASP Top 10 + SonarQube-aligned:
 
@@ -1020,19 +1020,63 @@ The scanner ships with **52 security rules** in `rules/semgrep/`:
 | JavaScript/TypeScript | `eval()`, CORS wildcard `*`, JWT without verification, prototype pollution |
 | Java | XXE-vulnerable XML parser, ECB mode encryption, weak ciphers (DES/RC4), insufficient RSA key size |
 
+**`ai-code-quality.yaml`** — 22 AI-code-quality rules:
+
+| Category | Languages | Examples |
+|----------|-----------|----------|
+| Resource leaks | Go, Python, Java | unclosed HTTP bodies, files without context managers, streams without close |
+| Race/shared state | Go, Python | goroutine loop capture, global maps without mutex, mutable defaults |
+| Error handling | Go, Python, JS/TS | ignored Go errors, bare `except`, empty catch blocks |
+| Deprecated APIs | Go, Python, JS/TS | `ioutil`, `distutils`, `new Buffer()` |
+| Performance and validation | Go, Python, JS/TS | string concat loops, await-in-loop, unchecked conversions |
+| Insecure defaults | Go | permissive CORS, TLS skip verify, sensitive logging |
+
+**`community-aligned.yaml`** — 27 original Calvigil rules added after comparing against the public `semgrep/semgrep-rules` repository:
+
+| Gap Area | Added Coverage |
+|----------|----------------|
+| Python frameworks | Django CSRF bypass, Django `mark_safe`, Flask template strings, FastAPI wildcard CORS with credentials, Jinja2 autoescape disabled |
+| Python HTTP clients | `requests` with `verify=False` |
+| JavaScript/TypeScript | React `dangerouslySetInnerHTML`, Express insecure session cookie, child process shell execution, Sequelize raw query concat, JWT `none` algorithm |
+| Go | JWT parse without verification, insecure gRPC transport, archive extraction path traversal |
+| Java/Spring | CSRF disabled, SpEL expression injection, LDAP filter concatenation |
+| C/C++ | `gets`, unbounded string copy/formatting, `system()` |
+| PHP/Ruby | `eval`, `unserialize`, Laravel debug enabled, Ruby YAML load, Rails CSRF weakening |
+| Dockerfile/Bash | root container user, curl/wget piped directly to shell |
+
+Calvigil does **not** vendor upstream community YAML directly because those rules are distributed under the Semgrep Rules License. The bundled community-aligned pack is original Calvigil rule content with similar defensive coverage.
+
 ### Custom Rules
 
-Point the scanner at your own Semgrep rule directory:
+Point the scanner at your own Semgrep rule directory or a single YAML file:
 
 ```bash
-# Use only your custom rules
+# Use a custom rules directory
 calvigil scan --semgrep-rules ./my-company-rules/ /path/to/project
+
+# Use one specific rule pack
+calvigil scan --semgrep-rules ./rules/semgrep/community-aligned.yaml /path/to/project
 
 # Rules are standard Semgrep YAML format
 # See: https://semgrep.dev/docs/writing-rules/rule-syntax/
 ```
 
-The scanner will also pick up any `.semgrep/` directory in the project root automatically.
+Project-local `.semgrep/` and `.semgrep.yml` rules are ignored by default because
+rules execute inside the scanner process. Load them only when the repository is
+trusted:
+
+```bash
+calvigil scan --trust-project-rules /path/to/trusted-project
+```
+
+Bundled rules are discovered from either `rules/semgrep/` in the current
+working directory or `rules/semgrep/` next to the `calvigil` binary. If you
+run a packaged binary from another directory, either ship that directory next
+to the binary or pass `--semgrep-rules /absolute/path/to/rules/semgrep` or
+`--semgrep-rules /absolute/path/to/rules/semgrep/community-aligned.yaml`.
+Calvigil intentionally does not use Semgrep `--config auto`; Semgrep auto
+configuration requires metrics to be enabled, while Calvigil runs Semgrep with
+metrics disabled.
 
 ### Custom Regex Pattern Rules
 

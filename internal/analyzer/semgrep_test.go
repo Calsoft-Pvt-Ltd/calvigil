@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestSemgrepAnalyzer_Available(t *testing.T) {
@@ -146,5 +149,219 @@ func TestSemgrepAnalyze_WhenUnavailable(t *testing.T) {
 	_, err := sa.Analyze(context.Background(), t.TempDir(), false)
 	if err == nil {
 		t.Error("expected error when semgrep is not on PATH")
+	}
+}
+
+func TestSemgrepAnalyze_WhenNoRuleConfigAvailable(t *testing.T) {
+	fakeBin := t.TempDir()
+	fakeSemgrep := filepath.Join(fakeBin, "semgrep")
+	if err := os.WriteFile(fakeSemgrep, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake semgrep: %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	clean := t.TempDir()
+	if err := os.Chdir(clean); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	sa := NewSemgrepAnalyzer("", false)
+	_, err = sa.Analyze(context.Background(), clean, false)
+	if err == nil || !strings.Contains(err.Error(), "no Semgrep rule config found") {
+		t.Fatalf("expected missing rule config error, got %v", err)
+	}
+}
+
+func TestSemgrepAnalyze_InvalidExplicitRulesPath(t *testing.T) {
+	fakeBin := t.TempDir()
+	fakeSemgrep := filepath.Join(fakeBin, "semgrep")
+	if err := os.WriteFile(fakeSemgrep, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake semgrep: %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+
+	missingRules := filepath.Join(t.TempDir(), "missing.yaml")
+	sa := NewSemgrepAnalyzer(missingRules, false)
+	_, err := sa.Analyze(context.Background(), t.TempDir(), false)
+	if err == nil || !strings.Contains(err.Error(), "semgrep rules path") {
+		t.Fatalf("expected explicit rules path error, got %v", err)
+	}
+}
+
+func TestSemgrepAnalyze_AcceptsExplicitRulesFile(t *testing.T) {
+	fakeBin := t.TempDir()
+	fakeSemgrep := filepath.Join(fakeBin, "semgrep")
+	if err := os.WriteFile(fakeSemgrep, []byte("#!/bin/sh\nprintf '{\"results\":[],\"errors\":[]}'\n"), 0o755); err != nil {
+		t.Fatalf("write fake semgrep: %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+
+	rulesFile := filepath.Join(t.TempDir(), "community-aligned.yaml")
+	if err := os.WriteFile(rulesFile, []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write rules file: %v", err)
+	}
+
+	sa := NewSemgrepAnalyzer(rulesFile, false)
+	vulns, err := sa.Analyze(context.Background(), t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("expected explicit YAML rules file to be accepted, got %v", err)
+	}
+	if len(vulns) != 0 {
+		t.Fatalf("expected no vulnerabilities from fake semgrep, got %d", len(vulns))
+	}
+}
+
+func TestSemgrepAnalyze_FailureIncludesValidationDiagnostics(t *testing.T) {
+	fakeBin := t.TempDir()
+	fakeSemgrep := filepath.Join(fakeBin, "semgrep")
+	script := "#!/bin/sh\nprintf 'semgrep-core rule validation failed (PatternParseError): bad rule ai-go-test\\n' >&2\nexit 2\n"
+	if err := os.WriteFile(fakeSemgrep, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake semgrep: %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+
+	rulesFile := filepath.Join(t.TempDir(), "rules.yaml")
+	if err := os.WriteFile(rulesFile, []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatalf("write rules file: %v", err)
+	}
+
+	sa := NewSemgrepAnalyzer(rulesFile, false)
+	_, err := sa.Analyze(context.Background(), t.TempDir(), false)
+	if err == nil {
+		t.Fatal("expected semgrep validation error")
+	}
+	if !strings.Contains(err.Error(), "PatternParseError") || !strings.Contains(err.Error(), "ai-go-test") {
+		t.Fatalf("expected validation details in error, got %v", err)
+	}
+}
+
+type bundledSemgrepRulesDoc struct {
+	Rules []struct {
+		ID        string   `yaml:"id"`
+		Message   string   `yaml:"message"`
+		Severity  string   `yaml:"severity"`
+		Languages []string `yaml:"languages"`
+	} `yaml:"rules"`
+}
+
+func TestBundledSemgrepRules_AvoidUnparseableGoShorthand(t *testing.T) {
+	rulesDir := filepath.Join("..", "..", "rules", "semgrep")
+	files, err := filepath.Glob(filepath.Join(rulesDir, "*.yaml"))
+	if err != nil {
+		t.Fatalf("glob rules: %v", err)
+	}
+	forbidden := []string{
+		"for ... {",
+		"for ...,",
+		"... $VAR ...",
+		"AllowAllOrigins: true",
+		"AllowOrigins: []string{\"*\"}",
+		"\n    pattern-not:",
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		text := string(data)
+		for _, needle := range forbidden {
+			if strings.Contains(text, needle) {
+				t.Fatalf("%s contains Semgrep shorthand that Go rule validation can reject: %q", file, needle)
+			}
+		}
+	}
+}
+
+func TestBundledSemgrepRules_AreLoadableAndUnique(t *testing.T) {
+	rulesDir := filepath.Join("..", "..", "rules", "semgrep")
+	files, err := filepath.Glob(filepath.Join(rulesDir, "*.yaml"))
+	if err != nil {
+		t.Fatalf("glob rules: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no bundled semgrep rule files found in %s", rulesDir)
+	}
+
+	seen := map[string]string{}
+	total := 0
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		var doc bundledSemgrepRulesDoc
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			t.Fatalf("parse %s: %v", file, err)
+		}
+		if len(doc.Rules) == 0 {
+			t.Fatalf("%s contains no rules", file)
+		}
+		for _, rule := range doc.Rules {
+			if strings.TrimSpace(rule.ID) == "" {
+				t.Fatalf("%s contains a rule without id", file)
+			}
+			if strings.TrimSpace(rule.Message) == "" {
+				t.Fatalf("%s rule %s has empty message", file, rule.ID)
+			}
+			switch strings.ToUpper(strings.TrimSpace(rule.Severity)) {
+			case "ERROR", "WARNING", "INFO":
+			default:
+				t.Fatalf("%s rule %s has unsupported severity %q", file, rule.ID, rule.Severity)
+			}
+			if len(rule.Languages) == 0 {
+				t.Fatalf("%s rule %s has no languages", file, rule.ID)
+			}
+			if previous, ok := seen[rule.ID]; ok {
+				t.Fatalf("duplicate semgrep rule id %q in %s and %s", rule.ID, previous, file)
+			}
+			seen[rule.ID] = file
+			total++
+		}
+	}
+	if total < 100 {
+		t.Fatalf("expected at least 100 bundled semgrep rules after community-aligned expansion, got %d", total)
+	}
+}
+
+func TestBundledSemgrepRules_CommunityAlignedCoverage(t *testing.T) {
+	rulesPath := filepath.Join("..", "..", "rules", "semgrep", "community-aligned.yaml")
+	data, err := os.ReadFile(rulesPath)
+	if err != nil {
+		t.Fatalf("read community-aligned rules: %v", err)
+	}
+	var doc bundledSemgrepRulesDoc
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("parse community-aligned rules: %v", err)
+	}
+
+	ids := map[string]bool{}
+	for _, rule := range doc.Rules {
+		ids[rule.ID] = true
+	}
+	expected := []string{
+		"py-requests-disable-cert-validation",
+		"py-django-csrf-exempt",
+		"py-fastapi-cors-wildcard-credentials",
+		"js-react-dangerously-set-inner-html",
+		"js-node-child-process-shell-true",
+		"go-jwt-parse-unverified",
+		"go-grpc-insecure-transport",
+		"java-spring-csrf-disabled",
+		"java-spel-expression-injection",
+		"c-unsafe-gets",
+		"php-unserialize-untrusted",
+		"ruby-yaml-load-untrusted",
+		"dockerfile-root-user",
+		"bash-curl-pipe-shell",
+	}
+	for _, id := range expected {
+		if !ids[id] {
+			t.Fatalf("missing community-aligned semgrep rule %s", id)
+		}
 	}
 }

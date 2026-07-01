@@ -19,10 +19,16 @@ All notable changes to calvigil are documented here.
 - Documentation and examples explaining that slop code smells are concrete quality/security symptoms, not proof of AI authorship.
 - Five new AI-SEC pattern signals for missing request/server timeouts, fail-open error handling, temporary security bypass comments, unbounded Go goroutine fan-out, and Go HTTP servers without timeout configuration.
 - Configurable regex pattern rule packs via `--pattern-rules`, with YAML/JSON file or directory support and project-local trust guardrails.
+- Community-aligned Semgrep rule pack with 27 original Calvigil rules for framework, JWT, TLS, deserialization, C/C++, PHP/Ruby, Dockerfile, and shell supply-chain patterns.
+- Bundled Semgrep rule integrity tests that parse every rule pack, enforce required fields, validate severity values, and prevent duplicate rule IDs.
 
 ### Changed
 - Built-in regex pattern coverage increased from 47 to 52 rules: 29 general `SEC-*` rules and 23 `AI-SEC-*` code-quality/security signals.
 - AI slop code-smell scoring maps additional timeout, fail-open, insecure-default, validation, and secret-exposure rules into summary categories.
+- Bundled Semgrep coverage increased from 74 to 101 rules across four packs after comparing Calvigil's gaps with the public `semgrep/semgrep-rules` repository structure.
+
+### Fixed
+- Corrected malformed bundled Semgrep YAML in existing packs so all shipped rules parse cleanly in automated tests.
 
 ---
 

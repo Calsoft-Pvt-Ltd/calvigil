@@ -1,0 +1,416 @@
+rules:
+  # Calvigil community-aligned Semgrep pack.
+  #
+  # These rules are original Calvigil rules that close high-value coverage gaps
+  # identified by comparing the bundled rule set with the public
+  # semgrep/semgrep-rules repository. We intentionally do not copy upstream
+  # rule YAML because those rules are published under the Semgrep Rules License.
+
+  # Python framework and client-side security defaults.
+  - id: py-requests-disable-cert-validation
+    pattern-either:
+      - pattern: requests.get(..., verify=False, ...)
+      - pattern: requests.post(..., verify=False, ...)
+      - pattern: requests.put(..., verify=False, ...)
+      - pattern: requests.patch(..., verify=False, ...)
+      - pattern: requests.delete(..., verify=False, ...)
+      - pattern: requests.request(..., verify=False, ...)
+    message: >
+      TLS certificate validation is disabled for an HTTP request. This exposes
+      the client to man-in-the-middle attacks. Keep certificate verification
+      enabled and configure a trusted CA bundle when required.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-tls
+      calvigil_coverage: community-aligned
+
+  - id: py-flask-render-template-string
+    pattern: render_template_string($TEMPLATE, ...)
+    message: >
+      Rendering a template string can expose server-side template injection or
+      XSS when the template is influenced by request data. Prefer static
+      templates and pass only escaped context values.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-94", "CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      category: template-injection
+      calvigil_coverage: community-aligned
+
+  - id: py-django-mark-safe
+    pattern: mark_safe($VALUE)
+    message: >
+      mark_safe disables Django HTML escaping. Only use it for trusted,
+      sanitized content; otherwise user-controlled data can reach the browser
+      as executable HTML or script.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      category: xss
+      calvigil_coverage: community-aligned
+
+  - id: py-django-csrf-exempt
+    pattern: |
+      @csrf_exempt
+      def $VIEW(...):
+        ...
+    message: >
+      CSRF protection is disabled for a Django view. Confirm this endpoint is
+      not state changing or restore CSRF protection with a scoped exception.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-352"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: csrf
+      calvigil_coverage: community-aligned
+
+  - id: py-jinja2-autoescape-disabled
+    pattern-either:
+      - pattern: Environment(..., autoescape=False, ...)
+      - pattern: jinja2.Environment(..., autoescape=False, ...)
+    message: >
+      Jinja2 autoescaping is disabled. This can turn untrusted template data
+      into browser-executable content. Enable autoescape for HTML/XML output.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      category: xss
+      calvigil_coverage: community-aligned
+
+  - id: py-fastapi-cors-wildcard-credentials
+    pattern: |
+      CORSMiddleware(..., allow_origins=["*"], allow_credentials=True, ...)
+    message: >
+      FastAPI CORS allows all origins while credentials are enabled. Restrict
+      allowed origins to trusted domains before accepting credentialed browser
+      requests.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-942"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: cors-misconfiguration
+      calvigil_coverage: community-aligned
+
+  # JavaScript and TypeScript web application risks.
+  - id: js-node-child-process-shell-true
+    pattern-either:
+      - pattern: |
+          child_process.spawn($CMD, $ARGS, { ..., shell: true, ... })
+      - pattern: |
+          child_process.spawnSync($CMD, $ARGS, { ..., shell: true, ... })
+    message: >
+      child_process is executed through a shell. If command or arguments contain
+      user-controlled data, this can become command injection. Prefer execFile
+      or spawn with shell disabled and explicit argument arrays.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      category: command-injection
+      calvigil_coverage: community-aligned
+
+  - id: js-express-session-cookie-insecure
+    pattern: |
+      session({ ..., cookie: { ..., secure: false, ... }, ... })
+    message: >
+      Express session cookies are explicitly marked insecure. Secure cookies
+      should be enabled in production so session identifiers are not sent over
+      cleartext HTTP.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-614"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: cookie-security
+      calvigil_coverage: community-aligned
+
+  - id: js-react-dangerously-set-inner-html
+    pattern-regex: 'dangerouslySetInnerHTML\s*=\s*\{\s*\{\s*__html\s*:'
+    message: >
+      React dangerouslySetInnerHTML bypasses React escaping. Use sanitized,
+      trusted HTML only and prefer normal React rendering for user-controlled
+      content.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      category: xss
+      calvigil_coverage: community-aligned
+
+  - id: js-sequelize-raw-query-concat
+    pattern-either:
+      - pattern: $DB.query("..." + $INPUT, ...)
+      - pattern: $DB.query(`...${$INPUT}...`, ...)
+    message: >
+      Raw database query is built with string interpolation or concatenation.
+      Use bound parameters or replacements rather than embedding values into
+      the query string.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: sql-injection
+      calvigil_coverage: community-aligned
+
+  - id: js-jsonwebtoken-none-algorithm
+    pattern-either:
+      - pattern: |
+          jwt.sign($PAYLOAD, $KEY, { ..., algorithm: "none", ... })
+      - pattern: |
+          jwt.sign($PAYLOAD, $KEY, { ..., algorithm: 'none', ... })
+    message: >
+      JWTs must not be created with the none algorithm. Use a strong signing
+      algorithm and verify tokens on every trust boundary.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      cwe: ["CWE-345"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: jwt-misconfiguration
+      calvigil_coverage: community-aligned
+
+  # Go framework and transport risks.
+  - id: go-jwt-parse-unverified
+    pattern-either:
+      - pattern: jwt.ParseUnverified($TOKEN, ...)
+      - pattern: $PARSER.ParseUnverified($TOKEN, ...)
+    message: >
+      JWT is parsed without verifying its signature. Treat parsed claims as
+      untrusted until the token is verified with a valid key and algorithm.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-345"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: jwt-misconfiguration
+      calvigil_coverage: community-aligned
+
+  - id: go-grpc-insecure-transport
+    pattern-either:
+      - pattern: grpc.WithInsecure()
+      - pattern: grpc.WithTransportCredentials(insecure.NewCredentials())
+    message: >
+      gRPC client transport is configured without TLS. Use TLS credentials
+      unless the connection is strictly local and protected by another control.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-319"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: insecure-transport
+      calvigil_coverage: community-aligned
+
+  - id: go-zip-slip-archive-extract
+    pattern: |
+      filepath.Join($DEST, $FILE.Name)
+    message: >
+      Archive entry name is joined directly to an extraction path. Validate
+      that the cleaned result remains inside the destination directory to
+      prevent zip-slip path traversal.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: path-traversal
+      calvigil_coverage: community-aligned
+
+  # Java and Spring risks.
+  - id: java-spring-csrf-disabled
+    pattern-either:
+      - pattern: $HTTP.csrf().disable()
+      - pattern: $CSRF.disable()
+    message: >
+      Spring CSRF protection is disabled. Only disable it for non-browser APIs
+      with equivalent anti-replay controls and clear security review evidence.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-352"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: csrf
+      calvigil_coverage: community-aligned
+
+  - id: java-spel-expression-injection
+    pattern: |
+      $PARSER.parseExpression($INPUT).getValue(...)
+    message: >
+      Spring expression is evaluated from a dynamic value. Do not evaluate
+      expressions influenced by user input; use allowlisted operations instead.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-94"]
+      owasp: ["A03:2021 - Injection"]
+      category: expression-injection
+      calvigil_coverage: community-aligned
+
+  - id: java-ldap-filter-concat
+    pattern-either:
+      - pattern: $CTX.search($BASE, "..." + $INPUT + "...", ...)
+      - pattern: $CTX.search($BASE, $FILTER + $INPUT, ...)
+    message: >
+      LDAP search filter is built with string concatenation. Escape filter
+      values and use safe builders to prevent LDAP injection.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-90"]
+      owasp: ["A03:2021 - Injection"]
+      category: ldap-injection
+      calvigil_coverage: community-aligned
+
+  # C/C++ memory and command execution risks.
+  - id: c-unsafe-gets
+    pattern: gets($BUFFER)
+    message: >
+      gets cannot bound input and is inherently unsafe. Use fgets or another
+      bounded input API.
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe: ["CWE-242", "CWE-120"]
+      category: memory-safety
+      calvigil_coverage: community-aligned
+
+  - id: c-unsafe-string-copy
+    pattern-either:
+      - pattern: strcpy($DST, $SRC)
+      - pattern: strcat($DST, $SRC)
+      - pattern: sprintf($DST, ...)
+    message: >
+      Unbounded C string operation can overflow the destination buffer. Use
+      bounded APIs and validate destination capacity.
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe: ["CWE-120"]
+      category: memory-safety
+      calvigil_coverage: community-aligned
+
+  - id: c-system-command-execution
+    pattern: system($CMD)
+    message: >
+      system executes commands through the shell. Avoid shell execution or
+      strictly validate allowlisted command values.
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      category: command-injection
+      calvigil_coverage: community-aligned
+
+  # PHP and Ruby web framework risks.
+  - id: php-eval-dynamic-code
+    pattern: eval($CODE)
+    message: >
+      Dynamic PHP code execution is dangerous and can lead to remote code
+      execution. Replace eval with explicit, allowlisted behavior.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: ["CWE-95"]
+      owasp: ["A03:2021 - Injection"]
+      category: code-injection
+      calvigil_coverage: community-aligned
+
+  - id: php-unserialize-untrusted
+    pattern: unserialize($INPUT)
+    message: >
+      PHP unserialize on untrusted data can trigger object injection. Use JSON
+      or a safe serialization format for untrusted input.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021 - Software and Data Integrity Failures"]
+      category: insecure-deserialization
+      calvigil_coverage: community-aligned
+
+  - id: php-laravel-debug-enabled
+    pattern-regex: '''debug''\s*=>\s*true|"debug"\s*=>\s*true'
+    message: >
+      Laravel debug mode is enabled. Disable debug mode outside local
+      development to prevent information disclosure.
+    severity: WARNING
+    languages: [php]
+    metadata:
+      cwe: ["CWE-489", "CWE-209"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: security-misconfiguration
+      calvigil_coverage: community-aligned
+
+  - id: ruby-yaml-load-untrusted
+    pattern-either:
+      - pattern: YAML.load($INPUT)
+      - pattern: Psych.load($INPUT)
+    message: >
+      Ruby YAML.load can deserialize arbitrary objects. Use safe_load with an
+      explicit allowlist for untrusted content.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021 - Software and Data Integrity Failures"]
+      category: insecure-deserialization
+      calvigil_coverage: community-aligned
+
+  - id: ruby-rails-csrf-disabled
+    pattern-either:
+      - pattern: |
+          skip_before_action :verify_authenticity_token
+      - pattern: |
+          protect_from_forgery with: :null_session
+    message: >
+      Rails CSRF protection is disabled or weakened. Verify the endpoint is not
+      browser state-changing, or use scoped CSRF controls.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: ["CWE-352"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      category: csrf
+      calvigil_coverage: community-aligned
+
+  # Container and shell hygiene frequently represented in community rules.
+  - id: dockerfile-root-user
+    pattern-either:
+      - pattern: USER root
+      - pattern: USER 0
+    message: >
+      Container image explicitly runs as root. Use a least-privilege user for
+      runtime stages unless root is required and isolated.
+    severity: WARNING
+    languages: [dockerfile]
+    metadata:
+      cwe: ["CWE-250"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      category: container-hardening
+      calvigil_coverage: community-aligned
+
+  - id: bash-curl-pipe-shell
+    pattern-regex: '\b(curl|wget)\b[^\n|]*(\|\s*(sh|bash|zsh)\b)'
+    message: >
+      Downloaded script is piped directly into a shell. Pin and verify the
+      artifact before execution, or vendor a trusted installer.
+    severity: WARNING
+    languages: [bash]
+    metadata:
+      cwe: ["CWE-494"]
+      owasp: ["A08:2021 - Software and Data Integrity Failures"]
+      category: supply-chain
+      calvigil_coverage: community-aligned

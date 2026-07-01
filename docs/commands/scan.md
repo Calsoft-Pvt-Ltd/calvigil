@@ -37,7 +37,7 @@ calvigil scan [flags] <path>
 | `--ollama-model` | | from config | Ollama model name |
 | `--lmstudio-url` | | from config | LM Studio server URL |
 | `--lmstudio-model` | | from config | LM Studio model name |
-| `--semgrep-rules` | | bundled | Path to custom Semgrep rules YAML |
+| `--semgrep-rules` | | bundled | Path to custom Semgrep rules YAML file or directory |
 | `--pattern-rules` | | none | Path to custom regex pattern rule YAML/JSON file or directory |
 | `--disable-builtin-patterns` | | `false` | Run only custom regex pattern rules from `--pattern-rules` |
 | `--skip-semgrep` | | `false` | Disable Semgrep SAST engine |
@@ -132,7 +132,7 @@ This additionally checks:
 1. **Dependency vulnerabilities** — Lock files are parsed, PURLs generated, and all packages checked against configured vulnerability databases
 2. **CISA KEV enrichment** — Results are cross-referenced with the Known Exploited Vulnerabilities catalog
 3. **Pattern rules** — 52 built-in regex rules (29 SEC + 23 AI-SEC) for common vulnerability patterns
-4. **Semgrep SAST** — 77+ semantic rules for deep code analysis (unless `--skip-semgrep`)
+4. **Semgrep SAST** — 101 bundled semantic rules for deep code analysis (unless `--skip-semgrep`)
 5. **AI code analysis** — When `--ai` is enabled, source files are sent to the configured AI provider for OWASP Top 10 detection
 6. **AI slop code-smell scoring** — AI-SEC, Semgrep AI-code-quality, and optional AI enrichment indicators are aggregated into a review-prioritization score
 

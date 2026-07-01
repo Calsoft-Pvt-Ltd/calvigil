@@ -67,18 +67,7 @@ rules:
       subcategory: resource-leak
 
   - id: ai-java-stream-not-closed
-    patterns:
-      - pattern: |
-          $STREAM = new $TYPE(...)
-          ...
-      - pattern-not: |
-          $STREAM = new $TYPE(...)
-          ...
-          $STREAM.close()
-          ...
-      - metavariable-regex:
-          metavariable: $TYPE
-          regex: (FileInputStream|FileOutputStream|BufferedReader|BufferedWriter|Connection|PreparedStatement)
+    pattern-regex: '\b(?:FileInputStream|FileOutputStream|BufferedReader|BufferedWriter|Connection|PreparedStatement)\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s+(?:FileInputStream|FileOutputStream|BufferedReader|BufferedWriter|Connection|PreparedStatement)\s*\('
     message: >
       Resource not closed. Use try-with-resources (AutoCloseable) to ensure
       streams and connections are properly closed even on exceptions.
@@ -92,17 +81,11 @@ rules:
   # ─── Race Conditions (CWE-362) ─────────────────────────────────────────
 
   - id: ai-go-goroutine-loop-var
-    pattern: |
-      for ..., $VAR := range ... {
-        ...
-        go func() {
-          ... $VAR ...
-        }()
-        ...
-      }
+    pattern-regex: '(?s)for\s+(?:(?:[A-Za-z_][A-Za-z0-9_]*|_)\s*,\s*)?[A-Za-z_][A-Za-z0-9_]*\s*:=\s*range\s+[^{]+\{.*go\s+func\s*\(\s*\)\s*\{'
     message: >
-      Goroutine captures loop variable by reference. All goroutines will see the
-      last value of the loop variable. Pass $VAR as a function parameter instead.
+      Goroutine launched from a range loop with a zero-argument closure. AI-generated
+      Go often captures loop variables accidentally; pass loop values as function
+      parameters before using this pattern in production.
     severity: ERROR
     languages: [go]
     metadata:
@@ -132,9 +115,13 @@ rules:
       subcategory: race-condition
 
   - id: ai-python-shared-mutable-default
-    pattern: |
-      def $FN(..., $PARAM=$DEFAULT, ...):
-        ...
+    patterns:
+      - pattern: |
+          def $FN(..., $PARAM=$DEFAULT, ...):
+            ...
+      - metavariable-regex:
+          metavariable: $DEFAULT
+          regex: (\[\]|\{\})
     message: >
       Mutable default argument (list/dict) in function definition. AI-generated Python
       code often uses `def fn(items=[])` which shares state across calls.
@@ -145,9 +132,6 @@ rules:
       cwe: ["CWE-362"]
       category: ai-code-quality
       subcategory: shared-state
-    metavariable-regex:
-      metavariable: $DEFAULT
-      regex: (\[\]|\{\})
 
   # ─── Error Handling (CWE-252, CWE-390) ─────────────────────────────────
 
@@ -231,9 +215,8 @@ rules:
 
   - id: ai-python-distutils
     pattern-either:
-      - pattern: from distutils import ...
       - pattern: import distutils
-      - pattern: from distutils.core import ...
+      - pattern-regex: '^\s*from\s+distutils(?:\.[A-Za-z_][A-Za-z0-9_.]*)?\s+import\s+'
     message: >
       distutils is deprecated and removed in Python 3.12. AI models trained on
       older data still suggest it. Use setuptools or the build module instead.
@@ -247,12 +230,7 @@ rules:
   # ─── Inefficient Patterns (CWE-400, CWE-407) ───────────────────────────
 
   - id: ai-go-string-concat-loop
-    pattern: |
-      for ... {
-        ...
-        $S = $S + ...
-        ...
-      }
+    pattern-regex: '(?s)for\s+[^{}]*\{[^{}]*(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*[A-Za-z_][A-Za-z0-9_]*\s*\+|[A-Za-z_][A-Za-z0-9_]*\s*\+=)'
     message: >
       String concatenation in a loop creates O(n²) allocations. Use
       strings.Builder for efficient string building in Go.
@@ -264,13 +242,7 @@ rules:
       subcategory: performance
 
   - id: ai-go-append-no-prealloc
-    pattern: |
-      var $SLICE []$TYPE
-      for ... {
-        ...
-        $SLICE = append($SLICE, ...)
-        ...
-      }
+    pattern-regex: '(?s)var\s+[A-Za-z_][A-Za-z0-9_]*\s+\[\][A-Za-z_][A-Za-z0-9_.*\[\]]*.*for\s+[^{}]*\{.*append\s*\('
     message: >
       Slice grown with append in loop without pre-allocation. If the final size
       is known or estimable, use make([]T, 0, capacity) to avoid repeated allocations.
@@ -314,8 +286,11 @@ rules:
   # ─── Input Validation (CWE-20) ─────────────────────────────────────────
 
   - id: ai-go-unchecked-strconv
-    pattern: |
-      $VAL, _ = strconv.Atoi($INPUT)
+    pattern-either:
+      - pattern: |
+          $VAL, _ := strconv.Atoi($INPUT)
+      - pattern: |
+          $VAL, _ = strconv.Atoi($INPUT)
     message: >
       strconv.Atoi error ignored. If $INPUT is user-provided, invalid input
       silently becomes 0, which may bypass validation. Always check the error.
@@ -327,12 +302,16 @@ rules:
       subcategory: input-validation
 
   - id: ai-js-no-input-validation
-    pattern: |
-      app.$METHOD($PATH, (req, res) => {
-        ...
-        $DB.$OP(..., req.body.$FIELD, ...)
-        ...
-      })
+    patterns:
+      - pattern: |
+          app.$METHOD($PATH, (req, res) => {
+            ...
+            $DB.$OP(..., req.body.$FIELD, ...)
+            ...
+          })
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: (post|put|patch|delete)
     message: >
       User input (req.body) passed directly to database operation without
       validation or sanitization. Validate and sanitize all user inputs.
@@ -343,18 +322,13 @@ rules:
       owasp: ["A03:2021 - Injection"]
       category: ai-code-quality
       subcategory: input-validation
-    metavariable-regex:
-      metavariable: $METHOD
-      regex: (post|put|patch|delete)
 
   # ─── Insecure Defaults (CWE-276) ───────────────────────────────────────
 
   - id: ai-go-permissive-cors
     pattern-either:
-      - pattern: |
-          AllowAllOrigins: true
-      - pattern: |
-          AllowOrigins: []string{"*"}
+      - pattern-regex: 'AllowAllOrigins\s*:\s*true'
+      - pattern-regex: 'AllowOrigins\s*:\s*\[\]string\s*\{\s*"\*"\s*\}'
     message: >
       CORS allows all origins. AI-generated code often uses permissive CORS for
       convenience. Restrict to specific trusted domains in production.
@@ -383,10 +357,7 @@ rules:
   # ─── Logging & Information Exposure (CWE-532) ──────────────────────────
 
   - id: ai-go-log-sensitive
-    pattern-either:
-      - pattern: log.Printf(..., $PASSWORD, ...)
-      - pattern: log.Println(..., $TOKEN, ...)
-      - pattern: fmt.Printf(..., $SECRET, ...)
+    pattern-regex: '(?i)\b(?:log\.(?:Print|Printf|Println|Fatal|Fatalf|Panic|Panicf)|fmt\.Printf)\s*\([^;\n]*(password|token|secret|key|credential)'
     message: >
       Potentially sensitive data logged. AI-generated code often logs request/response
       bodies and credentials during development. Remove before production.
@@ -396,12 +367,3 @@ rules:
       cwe: ["CWE-532"]
       category: ai-code-quality
       subcategory: information-exposure
-    metavariable-regex:
-      metavariable: $PASSWORD
-      regex: (?i).*(password|token|secret|key|credential).*
-    metavariable-regex:
-      metavariable: $TOKEN
-      regex: (?i).*(password|token|secret|key|credential).*
-    metavariable-regex:
-      metavariable: $SECRET
-      regex: (?i).*(password|token|secret|key|credential).*

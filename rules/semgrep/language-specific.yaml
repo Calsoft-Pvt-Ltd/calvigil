@@ -12,10 +12,11 @@ rules:
       category: memory-safety
 
   - id: go-http-no-timeout
-    pattern: |
-      &http.Server{...}
-    pattern-not: |
-      &http.Server{..., ReadTimeout: ..., ...}
+    patterns:
+      - pattern: |
+          &http.Server{...}
+      - pattern-not: |
+          &http.Server{..., ReadTimeout: ..., ...}
     message: >
       HTTP server created without read timeout. This may lead to slowloris DoS attacks.
       Set ReadTimeout, WriteTimeout, and IdleTimeout.
@@ -26,12 +27,7 @@ rules:
       category: denial-of-service
 
   - id: go-defer-in-loop
-    pattern: |
-      for ... {
-        ...
-        defer $FN(...)
-        ...
-      }
+    pattern-regex: '(?s)for\s+[^{}]*\{[^{}]*\bdefer\s+[A-Za-z_][A-Za-z0-9_.]*\s*\('
     message: >
       defer inside a loop won't execute until the function returns, not at loop iteration end.
       This can lead to resource leaks.
@@ -149,10 +145,11 @@ rules:
 
   # Go: HTTP server without timeouts (SonarQube equivalent / CWE-400)
   - id: go-http-write-timeout
-    pattern: |
-      &http.Server{...}
-    pattern-not: |
-      &http.Server{..., WriteTimeout: ..., ...}
+    patterns:
+      - pattern: |
+          &http.Server{...}
+      - pattern-not: |
+          &http.Server{..., WriteTimeout: ..., ...}
     message: >
       HTTP server created without WriteTimeout. This may lead to resource
       exhaustion. Set ReadTimeout, WriteTimeout, and IdleTimeout.

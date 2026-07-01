@@ -233,19 +233,23 @@ Use the score as a review queue:
 
 In addition to AI analysis, calvigil integrates [Semgrep CE](https://semgrep.dev/) for deep semantic analysis:
 
-### Bundled Rule Packs (77+ rules)
+### Bundled Rule Packs (101 rules)
 
 | Pack | File | Focus |
 |:-----|:-----|:------|
 | OWASP Top 10 | `rules/semgrep/owasp-top10.yaml` | Injection, auth, crypto, XSS |
 | Language-Specific | `rules/semgrep/language-specific.yaml` | Go, Python, Java, JS/TS, Rust, Ruby, PHP, C/C++ |
 | AI Code Quality | `rules/semgrep/ai-code-quality.yaml` | AI-generated code anti-patterns |
+| Community-Aligned | `rules/semgrep/community-aligned.yaml` | Original Calvigil rules for framework, JWT, TLS, deserialization, C/C++, container, and shell supply-chain gaps identified from the public `semgrep/semgrep-rules` structure |
 
 ### Custom Rules
 
 ```bash
 # Use your own rules
-calvigil scan --ai --semgrep-rules ./my-rules.yaml .
+calvigil scan --ai --semgrep-rules ./my-rules .
+
+# Use one specific bundled/custom rule pack
+calvigil scan --ai --semgrep-rules ./rules/semgrep/community-aligned.yaml .
 
 # Skip Semgrep entirely
 calvigil scan --ai --skip-semgrep .

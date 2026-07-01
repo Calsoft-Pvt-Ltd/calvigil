@@ -116,7 +116,7 @@ Calvigil follows a **pipeline architecture** with clearly separated stages:
 | **Detector** | `internal/detector/` | Filesystem walk to identify project ecosystems |
 | **Parser** | `internal/parser/` | Extract dependencies from manifest/lock files; integrity verification; phantom dep detection |
 | **Matcher** | `internal/matcher/` | Query CVE databases (OSV, OSS Index, NVD, GHSA); canonical normalization + cross-source merge; CISA KEV enrichment |
-| **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama/LM Studio), 52 pattern rules (29 SEC + 23 AI-SEC for AI-generated code), custom regex rule packs, AI slop code-smell scoring, 77+ Semgrep rules across 3 packs |
+| **Analyzer** | `internal/analyzer/` | AI code analysis (OpenAI/Ollama/LM Studio), 52 pattern rules (29 SEC + 23 AI-SEC for AI-generated code), custom regex rule packs, AI slop code-smell scoring, 101 Semgrep rules across 4 bundled packs |
 | **Reporter** | `internal/reporter/` | Format and emit scan results |
 | **Image Scanner** | `internal/image/` | Container image scanning via Syft, image-reference validation |
 | **IaC Scanner** | `internal/iac/` | Regex-based misconfiguration scanner for Terraform / Kubernetes / Dockerfile / CloudFormation / Docker Compose / Helm (25 built-in rules) |
