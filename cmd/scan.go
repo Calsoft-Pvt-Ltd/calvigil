@@ -27,7 +27,8 @@ In auto mode the scanner picks Ollama when it is reachable, then LM Studio, othe
 
 Use --skip-ai to run dependency scanning only (no API key required).
 Use --skip-deps to run AI analysis only.
-Use --offline to parse local inventories without network calls to vulnerability or package registries.`,
+Use --offline to parse local inventories without network calls to vulnerability or package registries.
+Use --supply-chain-guard to flag suspicious dependency drift, package metadata, and install-time behavior.`,
 	Example: `  # Scan current directory
   calvigil scan
 
@@ -45,6 +46,9 @@ Use --offline to parse local inventories without network calls to vulnerability 
 
   # Local inventory/reporting only (no network calls)
   calvigil scan --offline --skip-ai --skip-semgrep --format json
+
+  # Supply-chain attack guardrail checks
+  calvigil scan --supply-chain-guard --verify-integrity --format json
 
   # Only report high and critical vulnerabilities
   calvigil scan --severity high
@@ -81,6 +85,7 @@ func init() {
 	scanCmd.Flags().StringVar(&scanOpts.LMStudioModel, "lmstudio-model", "", "LM Studio model name")
 	scanCmd.Flags().BoolVar(&scanOpts.CheckLicenses, "check-licenses", false, "enable license compliance checking")
 	scanCmd.Flags().BoolVar(&scanOpts.VerifyIntegrity, "verify-integrity", false, "verify lockfile integrity hashes against registries")
+	scanCmd.Flags().BoolVar(&scanOpts.SupplyChainGuard, "supply-chain-guard", false, "enable supply-chain trust drift, package metadata, and install-time behavior checks")
 	scanCmd.Flags().BoolVar(&scanOpts.NoCache, "no-cache", false, "disable vulnerability response caching")
 	scanCmd.Flags().StringVar(&scanOpts.CacheTTL, "cache-ttl", "24h", "cache TTL duration (e.g. 24h, 1h, 30m)")
 	scanCmd.Flags().BoolVar(&scanOpts.SkipTests, "skip-tests", false, "skip test files and test directories")

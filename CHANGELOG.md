@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Supply Chain Guard M1-M3 checks for dependency trust drift, package metadata suspicion, and install-time execution behavior, enabled with `scan --supply-chain-guard`.
+- `calvigil supply-chain diff` for comparing baseline and target JSON reports to flag new direct dependencies, downgrades, possible dependency-confusion names, and lockfile drift.
 - AI slop code-smell scoring for OSS scans. Existing AI-SEC pattern findings, Semgrep AI code-quality findings, and optional AI enrichment indicators now roll up into `slop_code_smells` in JSON plus table and HTML report summaries.
 - Documentation and examples explaining that slop code smells are concrete quality/security symptoms, not proof of AI authorship.
 - Five new AI-SEC pattern signals informed by current secure-coding research and standards:

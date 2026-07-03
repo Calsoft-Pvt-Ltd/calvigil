@@ -104,9 +104,60 @@ calvigil scan --format json .
         "https://nvd.nist.gov/vuln/detail/CVE-2024-1234"
       ]
     }
-  ]
+  ],
+  "supply_chain_risk": {
+    "score": 74,
+    "level": "HIGH",
+    "decision": "review_before_merge",
+    "finding_count": 3,
+    "new_dependencies": 1,
+    "install_scripts": 1,
+    "phantom_dependencies": 1,
+    "guidance": [
+      "Review new direct dependencies before release.",
+      "Confirm install-time scripts are intentional and pinned."
+    ],
+    "findings": [
+      {
+        "id": "SCM-301",
+        "category": "install-time-behavior",
+        "title": "npm install script present",
+        "severity": "HIGH",
+        "confidence": "medium",
+        "package": {
+          "name": "esbuild",
+          "version": "0.21.5",
+          "ecosystem": "npm"
+        },
+        "evidence": "package-lock.json reports an install script",
+        "recommendation": "Review the package provenance and install hook before release."
+      }
+    ]
+  }
 }
 ```
+
+---
+
+## Supply Chain Risk
+
+When `scan --supply-chain-guard` is enabled, JSON and table reports include `supply_chain_risk`. This section is designed for CI gates and security review workflows that need to understand dependency-risk changes beyond known CVEs.
+
+Key fields:
+
+| Field | Meaning |
+|:------|:--------|
+| `score` | 0-100 weighted risk score from M1-M3 findings |
+| `level` | `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` |
+| `decision` | Release posture such as `allow`, `review_before_merge`, `verify_provenance`, or `block_release` |
+| `findings` | Detailed `SCM-*` signals with package identity, evidence, and remediation guidance |
+| `new_dependencies` | Count of new direct dependencies from report diffing |
+| `install_scripts` | Count of install-time execution signals |
+| `phantom_dependencies` | Count of lockfile packages not declared in manifests |
+
+Use `calvigil supply-chain diff` to compare a baseline JSON report with a target report and emit the same risk model as table or JSON.
+
+HTML and PDF reports include a compact Supply Chain Guard section with score, decision, guidance, and a capped list of review signals. Each visible signal names the package or project file, evidence, and the action reviewers should take. Use JSON output when you need every `SCM-*` finding for automation.
 
 ---
 

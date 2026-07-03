@@ -39,15 +39,15 @@ func TestFmtScore(t *testing.T) {
 
 func TestHtmlEcoIcon(t *testing.T) {
 	tests := map[string]string{
-		"Go":          "🐹",
-		"npm":         "📗",
-		"PyPI":        "🐍",
-		"Maven":       "☕",
-		"crates.io":   "🦀",
-		"RubyGems":    "💎",
-		"Packagist":   "🐘",
-		"ConanCenter": "⚙️",
-		"unknown":     "📦",
+		"Go":          "Go",
+		"npm":         "npm",
+		"PyPI":        "Py",
+		"Maven":       "Mv",
+		"crates.io":   "Cr",
+		"RubyGems":    "Rb",
+		"Packagist":   "Pk",
+		"ConanCenter": "Co",
+		"unknown":     "pkg",
 	}
 	for eco, want := range tests {
 		got := htmlEcoIcon(eco)

@@ -221,6 +221,9 @@ fixtures.
 | OSS-SC-004 | Cargo checksum parsing | Inspect Rust packages in JSON. | Cargo checksum fields are parsed when present. |
 | OSS-SC-005 | Malicious package advisory | Scan data containing OSV `MAL-` advisories. | Malicious package finding is surfaced distinctly. |
 | OSS-SC-006 | Supply-chain output formats | Generate table, JSON, HTML, and SARIF for a project with supply-chain issues. | Issues appear consistently across applicable formats. |
+| OSS-SC-007 | Supply Chain Guard scan | `$CALVIGIL_BIN scan "$FIXTURE" --supply-chain-guard --skip-ai --skip-semgrep --offline --format json --output /tmp/calvigil-guard.json` | JSON contains `supply_chain_risk` with score, decision, guidance, and `SCM-*` findings when signals are present. |
+| OSS-SC-008 | Supply Chain Guard diff | Generate two JSON reports where the target adds a direct dependency or downgrades a package, then run `$CALVIGIL_BIN supply-chain diff --baseline-report /tmp/baseline.json --target-report /tmp/target.json --format json --output /tmp/guard-diff.json`. | Diff output reports `SCM-101` for new direct dependencies and `SCM-102` for downgrades. |
+| OSS-SC-009 | Install-time behavior guard | Scan a fixture with npm `preinstall`/`postinstall` or Python `setup.py` process execution. | Guard reports M3 findings such as `SCM-301`, `SCM-302`, or `SCM-303` without executing project scripts. |
 
 ## IaC Scanning
 

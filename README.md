@@ -69,7 +69,9 @@ An open-source, AI-powered vulnerability scanner CLI for **Go**, **Java**, **Pyt
   - **Lockfile integrity verification**: compares integrity hashes in `package-lock.json` against the npm registry; flags packages not found on registry as possible supply chain injection
   - **Cargo.lock checksum parsing**: extracts and tracks `checksum` fields from Rust lockfiles
   - **Phantom dependency detection**: compares lockfile direct dependencies against `package.json` manifest to detect undeclared packages injected into the lockfile
+  - **Supply Chain Guard**: optional M1-M3 checks for dependency trust drift, package metadata suspicion, unpinned direct dependencies, non-registry sources, and install-time execution behavior
   - Enable integrity verification with `--verify-integrity` flag
+  - Enable guard signals with `--supply-chain-guard` and compare JSON reports with `calvigil supply-chain diff`
   - Phantom detection runs automatically on every scan
 
 - **IaC Scanning** (Infrastructure-as-Code):
@@ -303,6 +305,8 @@ calvigil scan-license --risk copyleft
 # Supply chain protection
 calvigil scan --verify-integrity          # Verify lockfile hashes against registries
 calvigil scan --skip-deps --verify-integrity  # Integrity-only (no CVE matching)
+calvigil scan --supply-chain-guard --format json --output guarded.json
+calvigil supply-chain diff --baseline-report baseline.json --target-report guarded.json
 
 # Disable vulnerability cache
 calvigil scan --no-cache
@@ -510,6 +514,7 @@ Available Commands:
   scan-iac     Scan Infrastructure-as-Code files for security misconfigurations
   scan-image   Scan a container image for vulnerabilities
   scan-license Scan project dependencies for license compliance
+  supply-chain Analyze supply-chain trust drift and package behavior
   push         Push a JSON scan report to Calvigil Enterprise
   config       Manage scanner configuration
   version     Print the version
@@ -530,6 +535,7 @@ Scan Flags:
       --ollama-url string       Ollama server URL (default: http://localhost:11434)
       --ollama-model string     Ollama model name (e.g. llama3, codellama, mistral)
       --check-licenses          Enable license compliance checking
+      --supply-chain-guard      Enable dependency trust drift, package metadata, and install-time behavior checks
       --no-cache                Disable vulnerability response caching
       --cache-ttl string        Cache TTL duration (default "24h")
       --offline                 Avoid network calls; parse local inventory and local checks only

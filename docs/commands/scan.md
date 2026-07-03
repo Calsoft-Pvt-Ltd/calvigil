@@ -43,6 +43,7 @@ calvigil scan [flags] <path>
 | `--skip-semgrep` | | `false` | Disable Semgrep SAST engine |
 | `--skip-tests` | | `false` | Exclude test files from reachability analysis |
 | `--verify-integrity` | | `false` | Verify lockfile integrity (checksums) |
+| `--supply-chain-guard` | | `false` | Enable local M1-M3 supply-chain guard checks |
 | `--trust-project-rules` | | `false` | Allow Semgrep project-local rules |
 | `--format` | `-f` | `table` | Output format |
 | `--output` | `-o` | stdout | Output file path |
@@ -125,6 +126,17 @@ This additionally checks:
 - Phantom dependencies (in lockfile but not in manifest)
 - Consistency between manifest and lockfile versions
 
+### With Supply Chain Guard
+
+```bash
+calvigil scan --supply-chain-guard --format json --output guarded.json /path/to/project
+```
+
+This adds deterministic, local-first guard signals to the JSON report:
+- Dependency trust drift, such as new direct dependencies and downgrades when compared with a baseline report
+- Package metadata suspicion, such as unknown licenses, non-registry sources, and loose direct dependency specs
+- Install-time behavior, such as npm lifecycle install scripts and Python `setup.py` process execution patterns
+
 ---
 
 ## What Gets Scanned
@@ -135,6 +147,7 @@ This additionally checks:
 4. **Semgrep SAST** — 101 bundled semantic rules for deep code analysis (unless `--skip-semgrep`)
 5. **AI code analysis** — When `--ai` is enabled, source files are sent to the configured AI provider for OWASP Top 10 detection
 6. **AI slop code-smell scoring** — AI-SEC, Semgrep AI-code-quality, and optional AI enrichment indicators are aggregated into a review-prioritization score
+7. **Supply Chain Guard** — When `--supply-chain-guard` is enabled, Calvigil records M1-M3 dependency trust, package metadata, and install behavior signals under `supply_chain_risk`
 
 ---
 

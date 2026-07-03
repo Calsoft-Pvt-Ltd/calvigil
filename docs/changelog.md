@@ -15,6 +15,8 @@ All notable changes to calvigil are documented here.
 ## [Unreleased]
 
 ### Added
+- Supply Chain Guard M1-M3 checks for dependency trust drift, package metadata suspicion, and install-time execution behavior, enabled with `scan --supply-chain-guard`.
+- `calvigil supply-chain diff` for comparing baseline and target JSON reports to flag new direct dependencies, downgrades, possible dependency-confusion names, and lockfile drift.
 - AI slop code-smell scoring for OSS scans. Existing AI-SEC pattern findings, Semgrep AI code-quality findings, and optional AI enrichment indicators now roll up into `slop_code_smells` in JSON plus table and HTML report summaries.
 - Documentation and examples explaining that slop code smells are concrete quality/security symptoms, not proof of AI authorship.
 - Five new AI-SEC pattern signals for missing request/server timeouts, fail-open error handling, temporary security bypass comments, unbounded Go goroutine fan-out, and Go HTTP servers without timeout configuration.

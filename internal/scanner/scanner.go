@@ -20,6 +20,7 @@ import (
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/parser"
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/reporter"
+	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/supplychain"
 )
 
 const dependencyCacheSource = "aggregated-v3"
@@ -167,6 +168,25 @@ func (s *Scanner) Run(ctx context.Context) error {
 	if len(allVulns) > 0 {
 		populateDepPaths(allVulns, s.opts.Path)
 		populateReachability(allVulns, s.opts.Path, s.opts.Verbose, s.opts.SkipTests)
+	}
+
+	// Step 3c: Supply Chain Guard. This is opt-in because it may flag review
+	// gates that are broader than CVE matching.
+	if s.opts.SupplyChainGuard {
+		if s.opts.Verbose {
+			fmt.Fprintf(os.Stderr, "Running Supply Chain Guard checks...\n")
+		}
+		result.SupplyChainRisk = supplychain.Analyze(ctx, result, supplychain.Options{
+			ProjectPath: s.opts.Path,
+			Offline:     s.opts.Offline,
+		})
+		if s.opts.Verbose && result.SupplyChainRisk != nil {
+			fmt.Fprintf(os.Stderr, "   Supply Chain Guard: %s score=%d findings=%d decision=%s\n\n",
+				result.SupplyChainRisk.Level,
+				result.SupplyChainRisk.Score,
+				result.SupplyChainRisk.FindingCount,
+				result.SupplyChainRisk.Decision)
+		}
 	}
 
 	// Step 3.5: AI enrichment layer — enrich ALL vulnerabilities with structured analysis

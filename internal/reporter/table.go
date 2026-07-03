@@ -36,10 +36,14 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 		return r.reportLicenseOnly(result, w)
 	}
 
-	if len(result.Vulnerabilities) == 0 && len(result.IntegrityIssues) == 0 && len(result.ConsistencyIssues) == 0 {
+	hasSupplyChainFindings := result.SupplyChainRisk != nil && result.SupplyChainRisk.FindingCount > 0
+	if len(result.Vulnerabilities) == 0 && len(result.IntegrityIssues) == 0 && len(result.ConsistencyIssues) == 0 && !hasSupplyChainFindings {
 		fmt.Fprintf(w, "\n✅ No vulnerabilities found in %s\n", result.ProjectPath)
 		fmt.Fprintf(w, "   Scanned %d packages across %d ecosystems in %s\n\n",
 			result.TotalPackages, len(result.Ecosystems), result.Duration.Round(1e8))
+		if result.SupplyChainRisk != nil {
+			printSupplyChainRisk(w, result.SupplyChainRisk)
+		}
 		return nil
 	}
 
@@ -123,6 +127,10 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 		printConsistencyTable(w, result.ConsistencyIssues)
 	}
 
+	if result.SupplyChainRisk != nil {
+		printSupplyChainRisk(w, result.SupplyChainRisk)
+	}
+
 	if result.SlopCodeSmells != nil {
 		printSlopCodeSmellSummary(w, result.SlopCodeSmells)
 	}
@@ -142,6 +150,74 @@ func (r *TableReporter) Report(result *models.ScanResult, w io.Writer) error {
 	}
 
 	return nil
+}
+
+func printSupplyChainRisk(w io.Writer, risk *models.SupplyChainRisk) {
+	if risk == nil {
+		return
+	}
+
+	fmt.Fprintf(w, "\n🧭 Supply Chain Guard\n\n")
+	fmt.Fprintf(w, "  Score: %d/100  Level: %s  Decision: %s  Findings: %d\n",
+		risk.Score, colorSupplyChainLevel(risk.Level), risk.Decision, risk.FindingCount)
+	if risk.NewDependencies > 0 || risk.InstallScripts > 0 || risk.PhantomDependencies > 0 {
+		fmt.Fprintf(w, "  New deps: %d  Install scripts: %d  Phantom deps: %d\n",
+			risk.NewDependencies, risk.InstallScripts, risk.PhantomDependencies)
+	}
+	for _, guidance := range risk.Guidance {
+		fmt.Fprintf(w, "  - %s\n", guidance)
+	}
+	if len(risk.Findings) == 0 {
+		fmt.Fprintln(w)
+		return
+	}
+
+	fmt.Fprintln(w)
+	t := table.NewWriter()
+	t.SetOutputMirror(w)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(table.Row{"Severity", "Signal", "Package", "Evidence", "Recommendation"})
+	limit := len(risk.Findings)
+	if limit > 12 {
+		limit = 12
+	}
+	for _, finding := range risk.Findings[:limit] {
+		pkg := finding.Package.Name
+		if finding.Package.Version != "" {
+			pkg += "@" + finding.Package.Version
+		}
+		t.AppendRow(table.Row{
+			colorSeverity(finding.Severity),
+			finding.ID + " " + finding.Title,
+			orDash(pkg),
+			truncate(finding.Evidence, 76),
+			truncate(finding.Recommendation, 76),
+		})
+	}
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 2, WidthMax: 42},
+		{Number: 4, WidthMax: 76},
+		{Number: 5, WidthMax: 76},
+	})
+	t.Render()
+	if len(risk.Findings) > limit {
+		fmt.Fprintf(w, "  ... %d more supply-chain finding(s) omitted from table output. Use --format json for full detail.\n", len(risk.Findings)-limit)
+	}
+}
+
+func colorSupplyChainLevel(level string) string {
+	switch strings.ToUpper(level) {
+	case "CRITICAL":
+		return text.FgHiRed.Sprintf("%s", level)
+	case "HIGH":
+		return text.FgRed.Sprintf("%s", level)
+	case "MEDIUM":
+		return text.FgYellow.Sprintf("%s", level)
+	case "LOW":
+		return text.FgGreen.Sprintf("%s", level)
+	default:
+		return text.FgGreen.Sprintf("%s", level)
+	}
 }
 
 func printSlopCodeSmellSummary(w io.Writer, summary *models.SlopCodeSmellSummary) {

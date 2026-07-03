@@ -28,6 +28,7 @@
       "type": "array",
       "items": { "$ref": "#/$defs/consistency_issue" }
     },
+    "supply_chain_risk": { "$ref": "#/$defs/supply_chain_risk" },
     "slop_code_smells": { "$ref": "#/$defs/slop_code_smells" },
     "vulnerabilities": {
       "type": "array",
@@ -235,6 +236,58 @@
         "lock_file": { "type": "string" },
         "manifest": { "type": "string" },
         "reason": { "type": "string" }
+      }
+    },
+    "supply_chain_risk": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["score", "level", "decision", "finding_count"],
+      "properties": {
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "level": { "type": "string", "enum": ["CLEAN", "LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "decision": {
+          "type": "string",
+          "enum": ["allow", "review_before_merge", "block_release", "verify_provenance"]
+        },
+        "finding_count": { "type": "integer", "minimum": 0 },
+        "critical_count": { "type": "integer", "minimum": 0 },
+        "high_count": { "type": "integer", "minimum": 0 },
+        "medium_count": { "type": "integer", "minimum": 0 },
+        "low_count": { "type": "integer", "minimum": 0 },
+        "new_dependencies": { "type": "integer", "minimum": 0 },
+        "install_scripts": { "type": "integer", "minimum": 0 },
+        "phantom_dependencies": { "type": "integer", "minimum": 0 },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/supply_chain_finding" }
+        },
+        "guidance": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "supply_chain_finding": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "category", "title", "description", "severity", "confidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "package": { "$ref": "#/$defs/package" },
+        "file_path": { "type": "string" },
+        "start_line": { "type": "integer", "minimum": 0 },
+        "evidence": { "type": "string" },
+        "recommendation": { "type": "string" },
+        "baseline_version": { "type": "string" },
+        "target_version": { "type": "string" },
+        "baseline_source": { "type": "string" },
+        "target_source": { "type": "string" }
       }
     }
   }

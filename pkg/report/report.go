@@ -34,6 +34,10 @@ type (
 	IntegrityIssue = models.IntegrityIssue
 	// ConsistencyIssue is a phantom/missing dependency finding.
 	ConsistencyIssue = models.ConsistencyIssue
+	// SupplyChainRisk summarizes dependency trust drift and install behavior.
+	SupplyChainRisk = models.SupplyChainRisk
+	// SupplyChainFinding is an explainable supply-chain guard signal.
+	SupplyChainFinding = models.SupplyChainFinding
 )
 
 // Enumerated string types.

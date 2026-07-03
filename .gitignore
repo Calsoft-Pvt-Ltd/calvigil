@@ -3,6 +3,7 @@ bin/
 dist/
 
 # Go
+.gocache/
 *.exe
 *.exe~
 *.dll
@@ -28,6 +29,9 @@ Thumbs.db
 
 # Temporary files
 *.tmp
+
+# Local planning notes
+supply-chain-guard-plan.local.md
 
 # Enterprise (private)
 enterprise/
