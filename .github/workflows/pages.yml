@@ -19,7 +19,10 @@ concurrency:
 
 jobs:
   build:
+    name: Build documentation
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +36,7 @@ jobs:
 
       - name: Setup Pages
         id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Build with Jekyll
         run: |
@@ -42,18 +45,34 @@ jobs:
         env:
           JEKYLL_ENV: production
 
+      - name: Validate Pages output
+        run: |
+          test -s docs/_site/index.html
+          test ! -L docs/_site
+
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
+          name: github-pages
           path: docs/_site
 
   deploy:
+    name: Deploy documentation
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      pages: write
+      id-token: write
+    timeout-minutes: 15
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+        with:
+          artifact_name: github-pages
+          timeout: 900000
+          error_count: 20
+          reporting_interval: 10000
