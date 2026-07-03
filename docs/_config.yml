@@ -5,7 +5,7 @@ url: "https://Calsoft-Pvt-Ltd.github.io"
 
 logo: "/assets/images/calvigil-logo.png"
 
-remote_theme: just-the-docs/just-the-docs@v0.10.0
+theme: just-the-docs
 
 color_scheme: light
 
@@ -53,7 +53,6 @@ last_edit_time_format: "%b %e %Y at %I:%M %p"
 
 plugins:
   - jekyll-seo-tag
-  - jekyll-remote-theme
 
 exclude:
   - HLD.md
