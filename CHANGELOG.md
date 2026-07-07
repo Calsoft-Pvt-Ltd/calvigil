@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [6.0.0] — 2026-07-07
 
 ### Added
 - Supply Chain Guard M1-M3 checks for dependency trust drift, package metadata suspicion, and install-time execution behavior, enabled with `scan --supply-chain-guard`.

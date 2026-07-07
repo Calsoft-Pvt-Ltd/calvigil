@@ -12,21 +12,26 @@ All notable changes to calvigil are documented here.
 
 ---
 
-## [Unreleased]
+## [6.0.0] — 2026-06-24
 
 ### Added
 - Supply Chain Guard M1-M3 checks for dependency trust drift, package metadata suspicion, and install-time execution behavior, enabled with `scan --supply-chain-guard`.
 - `calvigil supply-chain diff` for comparing baseline and target JSON reports to flag new direct dependencies, downgrades, possible dependency-confusion names, and lockfile drift.
 - AI slop code-smell scoring for OSS scans. Existing AI-SEC pattern findings, Semgrep AI code-quality findings, and optional AI enrichment indicators now roll up into `slop_code_smells` in JSON plus table and HTML report summaries.
 - Documentation and examples explaining that slop code smells are concrete quality/security symptoms, not proof of AI authorship.
-- Five new AI-SEC pattern signals for missing request/server timeouts, fail-open error handling, temporary security bypass comments, unbounded Go goroutine fan-out, and Go HTTP servers without timeout configuration.
-- Configurable regex pattern rule packs via `--pattern-rules`, with YAML/JSON file or directory support and project-local trust guardrails.
+- Five new AI-SEC pattern signals informed by current secure-coding research and standards:
+  - `AI-SEC-019` external HTTP requests without explicit timeout or abort signal.
+  - `AI-SEC-020` fail-open error handling that returns success/allow/true after failures.
+  - `AI-SEC-021` temporary security bypass comments around auth, CSRF, validation, sanitization, or access control.
+  - `AI-SEC-022` unbounded Go goroutine fan-out without an obvious limiter.
+  - `AI-SEC-023` Go HTTP servers started without read/write/idle timeout configuration.
+- Configurable regex pattern rule packs via `--pattern-rules`, with YAML/JSON file or directory support, duplicate-ID validation, severity validation, RE2 compilation checks, and project-local trust guardrails.
 - Community-aligned Semgrep rule pack with 27 original Calvigil rules for framework, JWT, TLS, deserialization, C/C++, PHP/Ruby, Dockerfile, and shell supply-chain patterns.
 - Bundled Semgrep rule integrity tests that parse every rule pack, enforce required fields, validate severity values, and prevent duplicate rule IDs.
 
 ### Changed
 - Built-in regex pattern coverage increased from 47 to 52 rules: 29 general `SEC-*` rules and 23 `AI-SEC-*` code-quality/security signals.
-- AI slop code-smell scoring maps additional timeout, fail-open, insecure-default, validation, and secret-exposure rules into summary categories.
+- AI slop code-smell scoring now maps additional timeout, fail-open, insecure-default, validation, and secret-exposure rules into the summary categories.
 - Bundled Semgrep coverage increased from 74 to 101 rules across four packs after comparing Calvigil's gaps with the public `semgrep/semgrep-rules` repository structure.
 
 ### Fixed
