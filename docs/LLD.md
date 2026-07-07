@@ -1618,14 +1618,15 @@ func ChromeAvailable() bool
 ```
 
 **Pipeline:**
-1. Render HTML report (using HTMLReporter internally)
-2. Write HTML to temporary file
-3. Execute headless Chrome:
-   ```bash
-   <chrome-binary> --headless --disable-gpu --no-sandbox --print-to-pdf=<output.pdf> <input.html>
-   ```
-4. Read PDF bytes, write to output writer
-5. Clean up temp files
+1. Build a PDF-specific view model from `models.ScanResult`.
+2. Render a print-only HTML document with embedded local font references and escaped report data.
+3. Drive Chrome/Chromium through the DevTools protocol with `Page.printToPDF`, CSS page size, background printing, tagged PDF, headers, and footers enabled.
+4. Post-process the generated PDF with pdfcpu to add bookmarks and document metadata.
+5. Validate the final PDF, write bytes to the output writer, and clean up temporary files.
+
+**Report sections:** cover, table of contents, executive overview, Supply Chain Guard, AI code-smell signals, dependency vulnerabilities, code-analysis findings, and scanner warnings.
+
+**Runtime dependency:** Chrome or Chromium is required for `--format pdf`. `CHROME_PATH` can be used when the browser binary is installed in a custom location.
 
 ---
 

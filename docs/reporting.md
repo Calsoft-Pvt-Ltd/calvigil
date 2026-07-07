@@ -242,11 +242,24 @@ Features:
 
 ## PDF
 
-Printable report for compliance and auditing:
+Print-ready executive report for compliance, audit review, and release decision meetings:
 
 ```bash
 calvigil scan --format pdf --output report.pdf .
 ```
+
+The PDF renderer uses a dedicated print template rather than reusing terminal output. It includes:
+
+- Cover page, table of contents, page headers, and page footers
+- Executive overview with release gate, severity distribution, and key metrics
+- Supply Chain Guard, AI code-smell, dependency vulnerability, code-analysis, and scanner warning sections
+- Embedded local fonts for consistent rendering without network font requests
+- PDF bookmarks and document metadata for easier audit navigation
+
+Requirements:
+
+- Chrome or Chromium must be installed.
+- Set `CHROME_PATH=/path/to/chrome` when the binary is not on the default search path.
 
 ---
 

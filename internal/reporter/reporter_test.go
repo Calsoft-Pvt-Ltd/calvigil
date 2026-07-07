@@ -3,6 +3,8 @@ package reporter
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -497,5 +499,198 @@ func TestPDFReporter_NoChromeError(t *testing.T) {
 	err := r.Report(testResult(), &buf)
 	if err == nil {
 		t.Error("expected error when Chrome is not available")
+	}
+}
+
+func TestPDFReporter_SourceHTMLUsesPrintTemplate(t *testing.T) {
+	result := richPDFResult()
+	html, err := renderPDFSourceHTML(buildPDFReportData(result))
+	if err != nil {
+		t.Fatalf("renderPDFSourceHTML() error: %v", err)
+	}
+
+	wants := []string{
+		`@page{ size:A4; margin:20mm 16mm 16mm 16mm; }`,
+		`fonts/Inter-Regular.ttf`,
+		`fonts/JetBrainsMono-Regular.ttf`,
+		`Table of contents`,
+		`Executive overview`,
+		`Supply chain guard`,
+		`AI code smells`,
+		`Dependency vulnerabilities`,
+		`Code analysis findings`,
+		`Scanner warnings`,
+		`SCM-201`,
+		`AI-001`,
+		`&lt;script&gt;alert(1)&lt;/script&gt;`,
+		`data:image/png;base64,`,
+		`class="pdf-icon" width="16" height="16"`,
+		`.vuln-toolbar svg{width:4mm;height:4mm;color:var(--brand)}`,
+		`.eco-head svg{width:4mm;height:4mm;color:var(--brand)}`,
+	}
+	for _, want := range wants {
+		if !strings.Contains(html, want) {
+			t.Errorf("PDF source HTML missing %q", want)
+		}
+	}
+	if strings.Contains(html, "<svg viewBox") {
+		t.Fatal("PDF icons must include explicit dimensions to prevent full-page SVG rendering")
+	}
+	if strings.Contains(html, "footer-note") {
+		t.Fatal("PDF source HTML must not include body-level footers; Chrome owns the running footer")
+	}
+	if strings.Contains(html, "<script>alert(1)</script>") {
+		t.Fatal("PDF source HTML must escape untrusted project path text")
+	}
+}
+
+func TestPDFReporter_ViewModelSeparatesDependencyAndCodeFindings(t *testing.T) {
+	data := buildPDFReportData(richPDFResult())
+	if data.Summary.TotalFindings != 3 {
+		t.Fatalf("summary total findings = %d, want 3", data.Summary.TotalFindings)
+	}
+	if data.Dependencies.Count != 2 {
+		t.Fatalf("dependency finding count = %d, want 2", data.Dependencies.Count)
+	}
+	if data.Code.Count != 1 {
+		t.Fatalf("code finding count = %d, want 1", data.Code.Count)
+	}
+	if data.Supply.Score != 12 || data.Supply.Decision != "verify_provenance" {
+		t.Fatalf("supply view = score %d decision %q, want score 12 verify_provenance", data.Supply.Score, data.Supply.Decision)
+	}
+	if data.Slop.Score != 84 || data.Slop.SignalCount != 1 {
+		t.Fatalf("slop view = score %d signals %d, want score 84 signals 1", data.Slop.Score, data.Slop.SignalCount)
+	}
+}
+
+func TestPDFReporter_EmbeddedFontsWrite(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeEmbeddedPDFFonts(dir); err != nil {
+		t.Fatalf("writeEmbeddedPDFFonts() error: %v", err)
+	}
+	for _, name := range []string{"Inter-Regular.ttf", "JetBrainsMono-Regular.ttf"} {
+		info, err := os.Stat(filepath.Join(dir, "fonts", name))
+		if err != nil {
+			t.Fatalf("expected embedded font %s: %v", name, err)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("embedded font %s is empty", name)
+		}
+	}
+}
+
+func TestPDFReporter_GeneratesPDFWithChrome(t *testing.T) {
+	if os.Getenv("CALVIGIL_TEST_PDF_CHROME") != "1" {
+		t.Skip("set CALVIGIL_TEST_PDF_CHROME=1 to run Chrome PDF rendering integration test")
+	}
+	if !ChromeAvailable() {
+		t.Skip("Chrome/Chromium is not available")
+	}
+	var buf bytes.Buffer
+	if err := (&PDFReporter{}).Report(richPDFResult(), &buf); err != nil {
+		t.Fatalf("PDF Report() error: %v", err)
+	}
+	if !bytes.HasPrefix(buf.Bytes(), []byte("%PDF-")) {
+		t.Fatalf("PDF output should start with PDF header, got %q", string(buf.Bytes()[:min(buf.Len(), 8)]))
+	}
+	if buf.Len() < 4096 {
+		t.Fatalf("PDF output too small: %d bytes", buf.Len())
+	}
+}
+
+func richPDFResult() *models.ScanResult {
+	return &models.ScanResult{
+		ProjectPath:   `/tmp/<script>alert(1)</script>`,
+		Ecosystems:    []models.Ecosystem{models.EcosystemGo, models.EcosystemNpm},
+		TotalPackages: 42,
+		Packages: []models.Package{
+			{Name: "lodash", Version: "4.17.20", Ecosystem: models.EcosystemNpm, PURL: "pkg:npm/lodash@4.17.20", License: "MIT"},
+			{Name: "golang.org/x/net", Version: "v0.34.0", Ecosystem: models.EcosystemGo, PURL: "pkg:golang/golang.org%2Fx/net@v0.34.0", Indirect: true},
+		},
+		LicenseIssues: []models.LicenseIssue{
+			{Package: models.Package{Name: "legacy-gpl", Version: "1.0.0", Ecosystem: models.EcosystemNpm}, License: "GPL-3.0", Risk: models.LicenseCopyleft, Reason: "copyleft review required"},
+		},
+		IntegrityIssues: []models.IntegrityIssue{
+			{Package: models.Package{Name: "left-pad", Version: "1.3.0", Ecosystem: models.EcosystemNpm}, Expected: "sha512-a", Actual: "sha512-b", Reason: "lockfile hash mismatch"},
+		},
+		ConsistencyIssues: []models.ConsistencyIssue{
+			{Package: models.Package{Name: "phantom", Version: "1.0.0", Ecosystem: models.EcosystemNpm}, LockFile: "package-lock.json", Manifest: "package.json", Reason: "lockfile-only dependency"},
+		},
+		SupplyChainRisk: &models.SupplyChainRisk{
+			Score:               12,
+			Level:               "LOW",
+			Decision:            "verify_provenance",
+			FindingCount:        1,
+			MediumCount:         1,
+			PhantomDependencies: 1,
+			Findings: []models.SupplyChainFinding{
+				{
+					ID:             "SCM-201",
+					Category:       "package-metadata",
+					Title:          "Direct dependency has unknown license",
+					Description:    "A direct dependency does not expose a normalized license in local package metadata.",
+					Severity:       models.SeverityMedium,
+					Confidence:     "HIGH",
+					Package:        models.Package{Name: "github.com/acme/pkg", Version: "v1.2.3", Ecosystem: models.EcosystemGo, FilePath: "go.mod"},
+					Evidence:       "license is empty or unknown",
+					Recommendation: "Resolve the license from a trusted registry or review before distribution.",
+				},
+			},
+			Guidance: []string{"Resolve unknown direct dependency licenses before release."},
+		},
+		SlopCodeSmells: &models.SlopCodeSmellSummary{
+			Score:               84,
+			Level:               "HIGH",
+			SignalCount:         1,
+			GeneratedCodeSignal: "LIKELY_AI",
+			Confidence:          "HIGH",
+			Categories: []models.SlopCodeSmellCategory{
+				{ID: "insecure-defaults", Name: "Insecure defaults", Description: "Convenience defaults weaken production posture.", Count: 1, Weight: 24},
+			},
+			TopSignals: []models.SlopCodeSmellSignal{
+				{FindingID: "AI-001", RuleID: "AI-001", Title: "Hardcoded default password", Severity: models.SeverityHigh, FilePath: "agent/config.go", StartLine: 46, Confidence: "HIGH", Reason: "Matched Semgrep AI code-quality rule pack.", Weight: 24},
+			},
+			Guidance:             []string{"Move deployment settings into configuration and default to least privilege."},
+			AuthorshipDisclaimer: "Slop code smells are quality and security symptoms, not proof that code was AI-generated.",
+		},
+		Vulnerabilities: []models.Vulnerability{
+			{
+				ID:             "CVE-2021-23337",
+				Summary:        "Prototype Pollution in lodash",
+				Severity:       models.SeverityCritical,
+				Score:          9.8,
+				Source:         models.SourceOSV,
+				Package:        models.Package{Name: "lodash", Version: "4.17.20", Ecosystem: models.EcosystemNpm},
+				FixedIn:        "4.17.21",
+				KnownExploited: true,
+				Reachable:      "imported by application code",
+			},
+			{
+				ID:       "CVE-2025-47911",
+				Summary:  "Quadratic parsing complexity in golang.org/x/net/html",
+				Severity: models.SeverityMedium,
+				Score:    5.3,
+				Source:   models.SourceNVD,
+				Package:  models.Package{Name: "golang.org/x/net", Version: "v0.34.0", Ecosystem: models.EcosystemGo, Indirect: true},
+				FixedIn:  "0.45.0",
+			},
+			{
+				ID:          "AI-001",
+				Summary:     "Hardcoded default password",
+				Severity:    models.SeverityHigh,
+				Score:       7.1,
+				Source:      models.SourceSemgrep,
+				FilePath:    "agent/config.go",
+				StartLine:   46,
+				MatchedRule: "AI-001",
+				Snippet:     `defaultPassword := "admin"`,
+				AIEnrichment: &models.AIEnrichment{
+					Confidence: "HIGH",
+				},
+			},
+		},
+		ScannedAt: time.Date(2026, 7, 1, 21, 39, 55, 0, time.UTC),
+		Duration:  24*time.Minute + 23*time.Second + 87*time.Millisecond,
+		Errors:    []string{"NVD CVSS enrichment retried and skipped one CVE"},
 	}
 }

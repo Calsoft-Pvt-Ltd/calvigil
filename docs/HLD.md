@@ -183,7 +183,7 @@ License resolution runs in parallel (bounded at 10 goroutines) and enriches pack
 |------|---------|-------------|
 | **Semgrep CE** | SAST engine | `scan` (unless `--skip-semgrep`) |
 | **Syft** (Anchore) | Container SBOM extraction | `scan-image` |
-| **Chrome/Chromium** | Headless PDF rendering | `--format pdf` |
+| **Chrome/Chromium** | Print-template PDF rendering through DevTools protocol | `--format pdf` |
 
 ---
 
@@ -378,7 +378,7 @@ User runs: calvigil scan-image nginx:latest
 | **OpenVEX** | OpenVEX v0.2.0 | Vulnerability exploitability exchange |
 | **SPDX** | SPDX v2.3 | SBOM with packages, licenses, PURLs, and vulnerability annotations |
 | **HTML** | Self-contained HTML | Executive reports with severity charts and license donut chart |
-| **PDF** | Rendered via Chrome | Formal audit reports |
+| **PDF** | Chrome print-to-PDF + pdfcpu bookmarks/metadata | Formal audit reports |
 
 ---
 
@@ -440,7 +440,7 @@ Calvigil is a **single static Go binary** with no runtime dependencies beyond op
 Required:   Go binary (calvigil)
 Optional:   Semgrep CE (pip install semgrep)   — for SAST
             Syft       (brew install syft)      — for image scanning
-            Chrome     (system install)         — for PDF reports
+            Chrome     (system install)         — for print-ready PDF reports
             Ollama     (ollama serve)            — for local AI
             LM Studio  (lmstudio.ai)            — for local AI (GUI)
 ```
@@ -462,7 +462,7 @@ Version is embedded at build time via `-ldflags`:
 
 | Layer | Technology |
 |-------|-----------|
-| **Language** | Go 1.25 |
+| **Language** | Go 1.26 |
 | **CLI Framework** | Cobra v1.10.2 |
 | **AI Client** | go-openai v1.41.2 |
 | **Table Rendering** | go-pretty/v6 v6.7.8 |

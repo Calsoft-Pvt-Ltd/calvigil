@@ -17,7 +17,7 @@
 | Field        | Value |
 |--------------|-------|
 | Module path  | `github.com/Calsoft-Pvt-Ltd/calvigil` |
-| Language     | Go 1.25.0 |
+| Language     | Go 1.26 |
 | Binary name  | `calvigil` |
 | Entry point  | [main.go](../main.go) → `cmd.Execute()` |
 | License      | See [LICENSE](../LICENSE) |

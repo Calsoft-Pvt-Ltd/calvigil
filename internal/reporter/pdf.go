@@ -1,17 +1,31 @@
 package reporter
 
 import (
-	"bytes"
+	"context"
+	"embed"
 	"fmt"
+	"html"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"time"
 
 	"github.com/Calsoft-Pvt-Ltd/calvigil/internal/models"
+	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/chromedp"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
+	pdfcpu "github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
-// PDFReporter generates a PDF report by rendering the HTML report and
-// converting it to PDF using headless Chrome/Chromium (--print-to-pdf).
+//go:embed assets/fonts/Inter-Regular.ttf assets/fonts/JetBrainsMono-Regular.ttf
+var pdfFontFS embed.FS
+
+// PDFReporter generates a printable, bookmarked PDF report from a dedicated
+// report view model. The HTML used here is intentionally separate from the
+// interactive HTML reporter so print layout and pagination stay predictable.
 type PDFReporter struct{}
 
 func init() {
@@ -21,14 +35,12 @@ func init() {
 // chromePath returns the path to a usable Chrome or Chromium binary,
 // or an empty string if none is found.
 func chromePath() string {
-	// Prefer an explicit env override.
 	if p := os.Getenv("CHROME_PATH"); p != "" {
 		if _, err := exec.LookPath(p); err == nil {
 			return p
 		}
 	}
 
-	// Well-known binary names / paths (macOS, Linux, Windows).
 	candidates := []string{
 		"google-chrome",
 		"google-chrome-stable",
@@ -65,61 +77,164 @@ func (r *PDFReporter) Report(result *models.ScanResult, w io.Writer) error {
 				"Alternatively, use --format html and convert the HTML file manually")
 	}
 
-	// Step 1: Render the HTML report into a buffer.
-	var htmlBuf bytes.Buffer
-	htmlReporter := &HTMLReporter{}
-	if err := htmlReporter.Report(result, &htmlBuf); err != nil {
-		return fmt.Errorf("HTML rendering failed: %w", err)
-	}
-
-	// Step 2: Write HTML to a temp file (Chrome reads from a file).
-	tmpHTML, err := os.CreateTemp("", "calvigil-*.html")
+	data := buildPDFReportData(result)
+	htmlSource, err := renderPDFSourceHTML(data)
 	if err != nil {
-		return fmt.Errorf("cannot create temp file: %w", err)
+		return fmt.Errorf("render PDF source HTML: %w", err)
 	}
-	defer os.Remove(tmpHTML.Name())
 
-	if _, err := tmpHTML.Write(htmlBuf.Bytes()); err != nil {
-		tmpHTML.Close()
-		return fmt.Errorf("cannot write temp HTML: %w", err)
-	}
-	tmpHTML.Close()
-
-	// Step 3: Create a temp file for the PDF output.
-	tmpPDF, err := os.CreateTemp("", "calvigil-*.pdf")
+	tmpDir, err := os.MkdirTemp("", "calvigil-pdf-*")
 	if err != nil {
-		return fmt.Errorf("cannot create temp PDF file: %w", err)
+		return fmt.Errorf("create PDF workspace: %w", err)
 	}
-	defer os.Remove(tmpPDF.Name())
-	tmpPDF.Close()
+	defer os.RemoveAll(tmpDir)
 
-	// Step 4: Convert HTML → PDF via headless Chrome.
-	cmd := exec.Command(chrome,
-		"--headless",
-		"--disable-gpu",
-		"--no-sandbox",
-		"--disable-software-rasterizer",
-		"--run-all-compositor-stages-before-draw",
-		"--print-to-pdf="+tmpPDF.Name(),
-		"--print-to-pdf-no-header",
-		"--no-pdf-header-footer",
-		tmpHTML.Name(),
-	)
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Chrome PDF conversion failed: %w\nUsed binary: %s", err, chrome)
+	if err := writeEmbeddedPDFFonts(tmpDir); err != nil {
+		return err
 	}
 
-	// Step 5: Read the generated PDF and write to the output writer.
-	pdfData, err := os.ReadFile(tmpPDF.Name())
+	htmlPath := filepath.Join(tmpDir, "report.html")
+	if err := os.WriteFile(htmlPath, []byte(htmlSource), 0o600); err != nil {
+		return fmt.Errorf("write PDF source HTML: %w", err)
+	}
+
+	rawPDF := filepath.Join(tmpDir, "report.raw.pdf")
+	finalPDF := filepath.Join(tmpDir, "report.pdf")
+	if err := renderPDFWithChrome(chrome, htmlPath, rawPDF, data); err != nil {
+		return err
+	}
+	if err := postProcessPDF(rawPDF, finalPDF, data); err != nil {
+		return err
+	}
+
+	pdfData, err := os.ReadFile(finalPDF)
 	if err != nil {
-		return fmt.Errorf("cannot read generated PDF: %w", err)
+		return fmt.Errorf("read generated PDF: %w", err)
 	}
-
 	if _, err := w.Write(pdfData); err != nil {
-		return fmt.Errorf("cannot write PDF output: %w", err)
+		return fmt.Errorf("write PDF output: %w", err)
+	}
+	return nil
+}
+
+func writeEmbeddedPDFFonts(root string) error {
+	fontDir := filepath.Join(root, "fonts")
+	if err := os.MkdirAll(fontDir, 0o700); err != nil {
+		return fmt.Errorf("create PDF font directory: %w", err)
+	}
+	for _, name := range []string{"Inter-Regular.ttf", "JetBrainsMono-Regular.ttf"} {
+		src := filepath.Join("assets", "fonts", name)
+		data, err := pdfFontFS.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("read embedded PDF font %s: %w", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(fontDir, name), data, 0o600); err != nil {
+			return fmt.Errorf("write PDF font %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func renderPDFWithChrome(chrome, htmlPath, outPath string, data pdfReportData) error {
+	fileURL := url.URL{Scheme: "file", Path: htmlPath}
+	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chrome),
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-software-rasterizer", true),
+		chromedp.Flag("run-all-compositor-stages-before-draw", true),
+	)
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), allocOpts...)
+	defer cancelAlloc()
+
+	ctx, cancel := chromedp.NewContext(allocCtx)
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	var pdfData []byte
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(fileURL.String()),
+		chromedp.Sleep(800*time.Millisecond),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			out, stream, err := page.PrintToPDF().
+				WithPrintBackground(true).
+				WithDisplayHeaderFooter(true).
+				WithHeaderTemplate(pdfHeaderTemplate(data)).
+				WithFooterTemplate(pdfFooterTemplate()).
+				WithPreferCSSPageSize(true).
+				WithGenerateTaggedPDF(true).
+				WithGenerateDocumentOutline(true).
+				Do(ctx)
+			if stream != "" {
+				return fmt.Errorf("unexpected streamed PDF output")
+			}
+			pdfData = out
+			return err
+		}),
+	); err != nil {
+		return fmt.Errorf("Chrome PDF rendering failed: %w\nUsed binary: %s", err, chrome)
 	}
 
+	if len(pdfData) == 0 {
+		return fmt.Errorf("Chrome PDF rendering produced an empty PDF")
+	}
+	if err := os.WriteFile(outPath, pdfData, 0o600); err != nil {
+		return fmt.Errorf("write raw PDF: %w", err)
+	}
 	return nil
+}
+
+func postProcessPDF(inPath, outPath string, data pdfReportData) error {
+	conf := model.NewDefaultConfiguration()
+	conf.ValidationMode = model.ValidationRelaxed
+
+	bookmarkPath := inPath + ".bookmarked.pdf"
+	bookmarks := []pdfcpu.Bookmark{
+		{Title: "Cover", PageFrom: 1, Bold: true},
+		{Title: "Table of contents", PageFrom: 2},
+		{Title: "Executive overview", PageFrom: 3, Bold: true},
+		{Title: "Supply chain guard", PageFrom: 4},
+		{Title: "AI code smells", PageFrom: 5},
+		{Title: "Dependency vulnerabilities", PageFrom: 6},
+		{Title: "Code analysis findings and scanner warnings", PageFrom: 7},
+	}
+	if err := api.AddBookmarksFile(inPath, bookmarkPath, bookmarks, true, conf); err != nil {
+		return fmt.Errorf("add PDF bookmarks: %w", err)
+	}
+
+	properties := map[string]string{
+		"Title":    data.Title + " - " + data.ProjectName,
+		"Author":   "Calvigil",
+		"Subject":  "Software supply-chain security scan report",
+		"Keywords": "calvigil,security,sbom,supply-chain,vulnerability,license,ai-code-smells",
+		"Creator":  "Calvigil OSS PDF reporter",
+	}
+	if err := api.AddPropertiesFile(bookmarkPath, outPath, properties, conf); err != nil {
+		return fmt.Errorf("add PDF metadata: %w", err)
+	}
+	if err := api.ValidateFile(outPath, conf); err != nil {
+		return fmt.Errorf("validate generated PDF: %w", err)
+	}
+	return nil
+}
+
+func pdfHeaderTemplate(data pdfReportData) string {
+	project := html.EscapeString(data.ProjectPath)
+	if project == "" {
+		project = html.EscapeString(data.ProjectName)
+	}
+	return `<div style="width:100%;font-family:Inter,Arial,sans-serif;font-size:7px;line-height:1;color:#6b7787;padding:0 16mm 1.6mm;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid #dde3ec;">` +
+		`<span>` + project + `</span>` +
+		`<span>Scanned ` + html.EscapeString(data.ScannedAt) + `</span>` +
+		`</div>`
+}
+
+func pdfFooterTemplate() string {
+	return `<div style="width:100%;font-family:Inter,Arial,sans-serif;font-size:7px;line-height:1;color:#6b7787;padding:1.6mm 16mm 0;display:flex;align-items:center;justify-content:space-between;border-top:0.5px solid #dde3ec;">` +
+		`<span>Calvigil security evidence</span>` +
+		`<span>Page <span class="pageNumber"></span> / <span class="totalPages"></span></span>` +
+		`</div>`
 }

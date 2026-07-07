@@ -5,7 +5,7 @@
   "description": "Knowledge graph of the calvigil scanner — nodes (packages, types, functions), edges (depends/implements/calls), invariants, and extension recipes. Designed for Claude/AI-assistant retrieval.",
   "module": "github.com/Calsoft-Pvt-Ltd/calvigil",
   "language": "go",
-  "go_version": "1.25.0",
+  "go_version": "1.26",
   "docs": {
     "hld": "docs/HLD.md",
     "lld": "docs/LLD.md",

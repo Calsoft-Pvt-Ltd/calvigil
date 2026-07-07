@@ -285,7 +285,7 @@ calvigil scan --format openvex --output vex.json
 # Executive-friendly HTML report
 calvigil scan --format html --output report.html
 
-# PDF report (requires Chrome or Chromium)
+# Print-ready PDF report (requires Chrome or Chromium)
 calvigil scan --format pdf --output report.pdf
 
 # Run with custom Semgrep rules
@@ -730,7 +730,7 @@ with Semgrep metrics disabled for privacy and reproducibility.
 | OpenVEX | `--format openvex` | v0.2.0 | Vulnerability exploitability exchange with status/justification |
 | SPDX | `--format spdx` | v2.3 | SPDX SBOM with packages, licenses, PURLs, and vulnerability annotations |
 | HTML | `--format html` | — | Executive-friendly report with severity charts, badges, and AI enrichment |
-| PDF | `--format pdf` | — | Print-ready PDF report for MIS/management audiences (requires Chrome or Chromium) |
+| PDF | `--format pdf` | — | Print-ready, bookmarked executive report with the same release gate, supply-chain guard, AI code-smell, dependency, code-analysis, and warning sections as the redesigned HTML report (requires Chrome or Chromium) |
 
 ### PURL (Package URL)
 

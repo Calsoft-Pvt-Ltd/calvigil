@@ -35,7 +35,7 @@ For every run, record:
 
 ## Prerequisites
 
-1. Install Go 1.25 or newer when testing from source.
+1. Install Go 1.26 or newer when testing from source.
 2. Install `jq` for JSON validation.
 3. Install `semgrep` if SAST execution is in scope.
 4. Install `syft` if container or binary SBOM extraction is in scope.
