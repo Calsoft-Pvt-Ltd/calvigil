@@ -915,6 +915,11 @@ type PatternMatch struct {
 	Content  string
 }
 
+type fileJob struct {
+	path string
+	ext  string
+}
+
 // ScanPatterns walks the project directory and runs all pattern rules against
 // source files using a worker pool for concurrent file scanning.
 func ScanPatterns(projectPath string, skipTests ...bool) ([]PatternMatch, error) {
@@ -934,11 +939,6 @@ func ScanPatternsWithOptions(projectPath string, opts PatternScanOptions) ([]Pat
 	skipTestFiles := opts.SkipTests
 	const numWorkers = 8
 
-	type fileJob struct {
-		path string
-		ext  string
-	}
-
 	jobs := make(chan fileJob, 64)
 	results := make(chan []PatternMatch, 64)
 	var wg sync.WaitGroup
@@ -946,52 +946,14 @@ func ScanPatternsWithOptions(projectPath string, opts PatternScanOptions) ([]Pat
 	// Start worker goroutines.
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobs {
-				if m, err := scanFile(job.path, job.ext, rules); err == nil && len(m) > 0 {
-					results <- m
-				}
-			}
-		}()
+		go patternScanWorker(jobs, results, rules, &wg)
 	}
 
 	// Walk the tree and feed jobs.
-	go func() {
-		filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if info.IsDir() {
-				if path != projectPath && fsutil.ShouldSkipSubDir(info.Name()) {
-					return filepath.SkipDir
-				}
-				if skipTestFiles && path != projectPath && fsutil.IsTestDir(info.Name()) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if skipTestFiles && fsutil.IsTestFile(path) {
-				return nil
-			}
-			ext := filepath.Ext(info.Name())
-			if !sourceExtensions[ext] {
-				return nil
-			}
-			if info.Size() > 1024*1024 {
-				return nil
-			}
-			jobs <- fileJob{path: path, ext: ext}
-			return nil
-		})
-		close(jobs)
-	}()
+	go feedPatternScanJobs(projectPath, skipTestFiles, jobs)
 
 	// Close results channel once all workers are done.
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	go closePatternScanResults(&wg, results)
 
 	// Collect results.
 	var matches []PatternMatch
@@ -999,6 +961,50 @@ func ScanPatternsWithOptions(projectPath string, opts PatternScanOptions) ([]Pat
 		matches = append(matches, batch...)
 	}
 	return matches, nil
+}
+
+func patternScanWorker(jobs <-chan fileJob, results chan<- []PatternMatch, rules []PatternRule, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for job := range jobs {
+		if m, err := scanFile(job.path, job.ext, rules); err == nil && len(m) > 0 {
+			results <- m
+		}
+	}
+}
+
+func feedPatternScanJobs(projectPath string, skipTestFiles bool, jobs chan<- fileJob) {
+	filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if path != projectPath && fsutil.ShouldSkipSubDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			if skipTestFiles && path != projectPath && fsutil.IsTestDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if skipTestFiles && fsutil.IsTestFile(path) {
+			return nil
+		}
+		ext := filepath.Ext(info.Name())
+		if !sourceExtensions[ext] {
+			return nil
+		}
+		if info.Size() > 1024*1024 {
+			return nil
+		}
+		jobs <- fileJob{path: path, ext: ext}
+		return nil
+	})
+	close(jobs)
+}
+
+func closePatternScanResults(wg *sync.WaitGroup, results chan<- []PatternMatch) {
+	wg.Wait()
+	close(results)
 }
 
 func patternRulesForOptions(projectPath string, opts PatternScanOptions) ([]PatternRule, error) {

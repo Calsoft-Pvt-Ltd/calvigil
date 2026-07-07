@@ -345,13 +345,7 @@ func (m *NVDMatcher) queryCVEBatches(ctx context.Context, chunks [][]string) []n
 	var wg sync.WaitGroup
 	wg.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
-		go func() {
-			defer wg.Done()
-			for chunk := range jobs {
-				records, stats, errs := m.queryCVEsAdaptive(ctx, chunk, pacer)
-				results <- nvdCVEQueryResult{records: records, stats: stats, errs: errs}
-			}
-		}()
+		go m.queryCVEBatchWorker(ctx, jobs, results, pacer, &wg)
 	}
 
 	wg.Wait()
@@ -362,6 +356,14 @@ func (m *NVDMatcher) queryCVEBatches(ctx context.Context, chunks [][]string) []n
 		batches = append(batches, result)
 	}
 	return batches
+}
+
+func (m *NVDMatcher) queryCVEBatchWorker(ctx context.Context, jobs <-chan []string, results chan<- nvdCVEQueryResult, pacer *nvdRequestPacer, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for chunk := range jobs {
+		records, stats, errs := m.queryCVEsAdaptive(ctx, chunk, pacer)
+		results <- nvdCVEQueryResult{records: records, stats: stats, errs: errs}
+	}
 }
 
 func (m *NVDMatcher) queryCVEsAdaptive(ctx context.Context, cveIDs []string, pacer *nvdRequestPacer) (map[string]models.Vulnerability, nvdCVEQueryStats, []error) {
